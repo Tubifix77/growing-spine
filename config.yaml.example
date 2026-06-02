@@ -1,0 +1,37 @@
+# Growing Spine — provider keychain config
+# Copy to config.yaml and fill in your API keys. config.yaml is gitignored.
+
+providers:
+  - key: gemini_flash
+    display_name: "Gemini 2.5 Flash"
+    enabled: true
+    is_floor: true
+    endpoint: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+    model_id: "gemini-2.5-flash"
+    api_key: ""
+    quota:
+      type: daily
+      limit: 1500
+      resets: "00:00 America/Los_Angeles"
+
+  - key: groq
+    display_name: "Groq (llama-3.3-70b)"
+    enabled: true
+    endpoint: "https://api.groq.com/openai/v1/chat/completions"
+    model_id: "llama-3.3-70b-versatile"
+    api_key: ""
+    quota:
+      type: daily
+      limit: 14400  # tokens/min * minutes — conservative daily cap
+      resets: "00:00 UTC"
+
+  - key: cerebras
+    display_name: "Cerebras (llama3.1-70b)"
+    enabled: true
+    endpoint: "https://api.cerebras.ai/v1/chat/completions"
+    model_id: "llama3.1-70b"
+    api_key: ""
+    quota:
+      type: daily
+      limit: 30000
+      resets: "00:00 UTC"
