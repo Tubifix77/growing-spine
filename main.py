@@ -1,26 +1,28 @@
 """main.py — entry point. Run on the Debian laptop host."""
 import asyncio, os, sys
 
+REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
+
 def check_config():
-    cfg = os.path.join(os.path.dirname(__file__), "config.yaml")
+    cfg = os.path.join(REPO_ROOT, "config.yaml")
     if not os.path.exists(cfg):
         print("ERROR: config.yaml not found. Copy config.yaml.example and fill in your API keys.")
         sys.exit(1)
 
 def init_volume():
-    from executive.loop import VOLUME_MOUNT, THE_PROMPT_PATH
-    os.makedirs(VOLUME_MOUNT, exist_ok=True)
-    if not os.path.exists(THE_PROMPT_PATH):
-        starter = os.path.join(os.path.dirname(__file__), "starter-prompt.md")
-        if os.path.exists(starter):
-            import shutil
-            shutil.copy(starter, THE_PROMPT_PATH)
-            print(f"[init] Seeded the-prompt.md from starter-prompt.md")
-        else:
-            print("[init] WARNING: starter-prompt.md not found; the-prompt.md will be empty.")
+    from executive.loop import VOLUME_MOUNT
+    from volume.init import init_volume as _init, volume_is_initialised
+    if not volume_is_initialised(VOLUME_MOUNT):
+        print("[main] First run — initialising mind volume...")
+        _init(VOLUME_MOUNT, REPO_ROOT)
+    else:
+        # still call init to ensure schema is current
+        from volume.memory import init_db
+        init_db(VOLUME_MOUNT)
+        print("[main] Volume already initialised — ready.")
 
 if __name__ == "__main__":
     check_config()
     init_volume()
     from executive.loop import run_forever
-    asyncio.run(run_forever(dockerfile_dir=os.path.dirname(__file__) or "."))
+    asyncio.run(run_forever(dockerfile_dir=REPO_ROOT))

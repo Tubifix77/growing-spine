@@ -1,16 +1,17 @@
 """
 loop.py — the executive loop.
-Minimum-runnable skeleton: wake-check → build context → think → parse → exec → journal → repeat.
-Survival skill, reflection, savegame, self-mod all wired in later.
+Step 3: volume persistence wired in — memory context injected, savegame root defined.
+Survival skill, reflection, self-mod all wired in later.
 """
 import asyncio, os, time
 from . import sandbox, journal, parser
 from keychain import Keychain
+from volume import memory as mem
 
 # Volume lives at this path on the host (mounted into container at /mind)
 VOLUME_MOUNT = os.path.expanduser("~/growing-spine-mind")
 THE_PROMPT_PATH = os.path.join(VOLUME_MOUNT, "the-prompt.md")
-MEMORY_PATH = os.path.join(VOLUME_MOUNT, "memory.db")
+SAVEGAME_ROOT = os.path.expanduser("~/growing-spine-saves")
 
 # Protected lines re-injected each cycle regardless of what the creature edits
 PROTECTED_SURVIVAL = (
@@ -52,8 +53,26 @@ def _load_the_prompt() -> str:
         return f.read()
 
 
+def _build_memory_context(n: int = 5) -> str:
+    """Pull recent memories into context as a short block."""
+    try:
+        memories = mem.recent(VOLUME_MOUNT, n=n)
+    except Exception:
+        return ""
+    if not memories:
+        return ""
+    lines = []
+    for m in memories:
+        ts = time.strftime("%Y-%m-%d", time.localtime(m["updated"]))
+        lines.append(f"  [{ts}] {m['key']}: {m['value'][:200]}")
+    return "\n\nRecent memories:\n" + "\n".join(lines)
+
+
 def _build_context(recent_journal: list) -> str:
     base_prompt = _load_the_prompt()
+
+    memory_text = _build_memory_context()
+
     journal_text = ""
     if recent_journal:
         lines = []
@@ -61,7 +80,8 @@ def _build_context(recent_journal: list) -> str:
             ts = time.strftime("%Y-%m-%d %H:%M", time.localtime(e["ts"]))
             lines.append(f"[{ts}] {e['kind']}: {e['content'][:300]}")
         journal_text = "\n\nRecent journal:\n" + "\n".join(lines)
-    return base_prompt + "\n\n" + PROTECTED_BLOCK + journal_text
+
+    return base_prompt + "\n\n" + PROTECTED_BLOCK + memory_text + journal_text
 
 
 async def run_cycle(keychain: Keychain):
@@ -101,11 +121,11 @@ async def run_forever(dockerfile_dir: str = "."):
                                "All providers exhausted. Sleeping until next reset.")
                 print("[executive] All quota exhausted — sleeping 1h.")
                 await asyncio.sleep(3600)
-                keychain = Keychain()  # reload state after sleep
+                keychain = Keychain()
                 continue
 
             await run_cycle(keychain)
-            await asyncio.sleep(5)  # brief pause between cycles
+            await asyncio.sleep(5)
 
         except RuntimeError as e:
             print(f"[executive] RuntimeError: {e}")
