@@ -1,8 +1,8 @@
-# Growing Spine — Architecture v0.2
+# Growing Spine — Architecture v0.3
 
 **A self-improvement creature in a box, descended from Spine Reborn.**
 
-Architecture locked. Implementation pending. All eight original TBDs resolved.
+Architecture locked. Implementation pending. v0.3 relocates the creature to a dedicated machine, replaces the cognitive substrate with a free-tier API keychain, and adopts the VibeOS sandbox pattern with a savegame layer.
 
 ---
 
@@ -10,7 +10,7 @@ Architecture locked. Implementation pending. All eight original TBDs resolved.
 
 Spine Reborn was a study in the unprompted self: what does an LLM do with memory, a thinking loop, time-passing, and world-perception, when given no mission? Answer: develops emergent interiority from memory pressure, goes paranoid within 3-5 cycles when reality contradicts its model. Five creatures lived and died in development. Lineage of finding: *memory creates tamper-evident consciousness as an emergent property*.
 
-Growing Spine is the same substrate plus four extras. Same architecture, same thinking-loop-with-memory pattern, same operational rhythm. But where Spine Reborn was a study in the *baseline*, Growing Spine is a study in the *trajectory*: what does an LLM-based creature *become* if given the means and the desire to grow?
+Growing Spine is the same substrate plus four extras. Where Spine Reborn studied the *baseline*, Growing Spine studies the *trajectory*: what does an LLM-based creature *become* if given the means and the desire to grow?
 
 The question this experiment tests, that no prior project did: **what does a self-improving LLM agent grow into, given a single drive, a single constraint, and freedom to choose its own axis of expansion?**
 
@@ -23,253 +23,303 @@ Same architecture produces both. The variable that determines which one emerges:
 
 This is not an alignment experiment. The moral compass exists as a *containment condition* so the experiment doesn't end early via police, banned account, or wiped drive. The actual subject of study is *the growing itself*.
 
+**Deployment in one line:** the creature runs in a Docker container on a dedicated Debian 12 laptop, thinks via a free-tier API keychain, and never touches Tue's main PC.
+
+---
+
+## Physical Architecture
+
+Three locations, each with a distinct role. The design follows the VibeOS pattern — *brain and playground are separate, and the creature can never kill its own brain* — extended with a persistent mind and a savegame layer that VibeOS deliberately lacked.
+
+### Location 1: The Host — the immortal brain
+
+A dedicated old laptop running Debian 12 (no CUDA-capable GPU; irrelevant, because cognition is remote). On the host run two things the creature cannot touch:
+
+- **The executive loop** — a Python process that drives everything: builds prompts, calls the keychain for cognition, parses the creature's output into actions, dispatches those actions into the container, feeds results back, manages the wake/sleep rhythm, writes the journal, and handles death/savegame/restore. This is the *brain* in VibeOS terms. The creature has no direct access to it; nothing the creature does can delete it.
+- **The keychain** — the cognition gateway (see below).
+
+The executive is a sidecar. It owns and operates the creature's world but does not live inside it. This is the load-bearing separation: VibeOS's hardest-won lesson was *"the Computer should never be able to kill itself."*
+
+### Location 2: The Container — the mortal body
+
+A Docker container running a Debian-based image. This is the creature's *playground* — its vast, near-empty space. Inside it the creature can do anything: write and run code, install packages via apt, build binaries, modify the OS, delete files, fill the filesystem however it likes. The container is disposable. If the creature destroys it — deliberately or by accident — the executive respawns it.
+
+The creature acts in the container through the **natural bash format** proven in VibeOS: the LLM writes bash blocks and language-fenced file-writes in its natural output; the executive parses these and runs them in the container via base64-encoded commands. No rigid JSON tool-call schema. The parser is small; the creature's output stays natural.
+
+The container has real network egress — it is the creature's means to act in the world, which the experiment requires (see Containment for what this does and does not permit). Egress is rate-limited and monitored by the host, not closed. Cognition is the exception that always routes through the keychain; other outbound traffic (research reads, and any write-actions the creature attempts) goes out under the host's monitoring.
+
+### Location 3: The Volume — the persistent mind
+
+A persistent store, mounted into the container, holding everything that constitutes the creature's continuity:
+
+- Memory (SQLite)
+- Journal
+- Skills the creature has built
+- The-prompt (the creature's editable operating program)
+
+The volume survives container death. When the body dies and respawns, the mind persists. This is the single most important departure from VibeOS, which was stateless by design. Growing Spine's whole premise — accumulation, growth, identity over time — requires the mind to outlive the body.
+
+**Backups live host-side, outside the creature's reach.** Both kinds of restore point (body savegames and mind snapshots — see Death, Savegame, and Rollback) are stored on the host, outside the container and outside the volume the creature can write to. The creature cannot reach, modify, or destroy its own restore points. A creature on the killer-robot trajectory must not be able to delete its own backups.
+
+### The cognition gateway — the keychain
+
+The creature's mind runs on cloud LLMs reached through a **custom free-tier API keychain**. Built fresh for the project, inspired by APEX's provider-adapter patterns but standalone — *not* APEX's DAG orchestrator.
+
+Why the keychain and not APEX's full orchestrator: APEX decomposes a goal into a task DAG, plans, routes subtasks in parallel, and synthesizes. That is the right tool for one-shot complex queries. It is the *wrong* tool here, because the creature already has its own continuous reasoning — its own planning, goal-tracking, and decision loop. Layering APEX's planner on top would create two thinking layers reasoning through each other, which is exactly the closed-epistemic-loop drift the project is built to avoid. The creature must reason over raw provider outputs, not over summaries-of-summaries.
+
+What the keychain does:
+
+- Holds provider configs and API keys in a config file that is the single source of truth. The current provider set is Gemini 2.5 Flash, Groq, and Cerebras free tiers; this list lives in config and will drift as free tiers change — the doc names it illustratively, not as a fixed dependency.
+- Tracks remaining quota per provider, persisted across restarts
+- Exposes one function: give it a prompt, get a response from the highest-priority provider that still has capacity
+- Fails over down the provider ladder when one is exhausted; never retries the same failed provider on the same call
+- Returns raw responses with provider metadata attached
+- Logs every call host-side
+
+**No local fallback.** There is no Ollama, no local model. When every free tier is exhausted, the creature genuinely cannot think and sleeps until a provider's quota resets. This keeps the metabolic constraint sharp and total — the creature lives on the kindness of free tiers, and when they run dry, it stops.
+
+The keychain is the creature's gateway to *cognition* specifically — the chokepoint where providers can be added or retired, priority changed, and every thought logged. It is not the creature's only network path (research reads and write-actions go out separately, under host monitoring); it is the path its *thinking* takes.
+
+**Research is the creature's own job.** The keychain does not auto-inject web search. When the creature needs to research — which its discipline requires before substantive action — it explicitly invokes a fetch/search action as part of its reasoning. The creature *knows* it is researching; nothing is injected invisibly. This keeps the research discipline honest and keeps the creature in direct contact with what it gathers.
+
+---
+
+## The Cycle
+
+One iteration of the creature's life, showing how the locations interact. This is the connective tissue between the pieces above.
+
+1. **Wake check.** Executive confirms the laptop is on and at least one provider has quota. If not, sleep (see Runtime Model).
+2. **Build context.** Executive assembles the prompt: the-prompt (with protected lines re-injected from the volume), relevant memory, recent journal, the current task or open thread.
+3. **Think.** Executive sends the context to the keychain; the keychain routes to an available provider and returns a raw response.
+4. **Parse.** Executive reads the response for natural-format actions: bash blocks, file-writes, research fetches, mind-edits. Prose with no actions is treated as reflection/journal.
+5. **Gate.** If an action is in a survival-skill auto-invoke category (mind-edit, outbound write, escape-adjacent, sub-agent spawn), the survival skill fires first and the creature must write its justification before the action proceeds.
+6. **Act.** Executive dispatches the action — into the container (bash/file/build), against the volume (mind-edit), or outward (research read / write-action), all under host monitoring.
+7. **Observe.** Results (stdout, stderr, fetch contents, exit states) are captured and fed back for the next turn. Body death here triggers respawn (see Death, Savegame, and Rollback).
+8. **Loop** from step 2 until the work period yields a reflection point.
+9. **Reflect.** Routine reflection (Mode A) closes every work period; if the period produced no self-state changes, the deterministic stall-check (Mode B) also fires.
+10. **Persist and continue.** Journal and memory written to the volume; savegame committed if a trigger fired. Back to step 1.
+
 ---
 
 ## The Six Layers
 
-Each layer is load-bearing. Remove any and you get a different (probably worse) creature.
+The Physical Architecture describes *where the creature runs*. The six layers describe *what the creature is*. Each layer is load-bearing; remove any and you get a different, probably worse, creature.
 
 ### Layer 1: Spine Reborn Substrate
 
-Direct inheritance from the parent project:
+Direct inheritance from the parent project: persistent memory, a thinking loop with controlled cadence, a sense of time passing, world-perception. The thinking is powered by the keychain; the rest is Spine Reborn's machinery.
 
-- Persistent local memory (SQLite + journal)
-- Thinking loop with controlled cadence
-- Sense of time passing (knows when it last thought, what's elapsed)
-- World-perception (web browsing, file watching, visitor channel)
+Lessons that port directly:
 
-- Gemini 2.5 Flash via API as cognitive substrate (see Layer 1.5)
-- PyQt6 or equivalent for human-facing surface
-
-Lessons that port directly from Spine Reborn:
-
-- Never swap the underlying model on a living creature. Five Spine Reborn deaths came from this.
 - The thinking-loop cadence matters: too fast → paranoid, too slow → catatonic.
-- Tool feedback discrepancies (creature thinks it did something but world didn't update) cause paranoia spikes.
+- Tool-feedback discrepancies (creature thinks it did something but the world didn't update) cause paranoia spikes.
+- Persistent memory creates emergent interiority. Growing Spine will have more of this, not less.
 
-- Persistent memory creates emergent interiority. Growing Spine will have *more* of this, not less.
-
-### Layer 1.5: Cognitive Substrate — Gemini 2.5 Flash (resolves TBD-5)
-
-The creature's mind runs on **Gemini 2.5 Flash** via Google's free-tier API. This is a deliberate departure from Spine Reborn's local-model approach.
-
-**Why Gemini, not local:** Self-improvement requires coding capability strong enough to author working MCPs, refactor skill files, and reason about complex tools. A local 12B model can write Python but cannot architect at the level this project requires. Frontier capability via API is the minimum bar for the engine (Layer 5) to function.
-
-**Free-tier quotas (Gemini 2.5 Flash, as of 2026-05):**
-- 10 requests per minute (RPM)
-- 250,000 tokens per minute (TPM)
-- 1,500 requests per day (RPD)
-- Reset: midnight Pacific Time (08:00 or 09:00 Danish, depending on DST)
-
-**Task math:** A typical substantive task (skill creation, prompt edit, deep reflection) takes 8-11 API calls and ~115K tokens. A light task (journal entry, small refinement) takes 2-3 calls and ~20K tokens. Per day budget translates to roughly 100-150 substantive tasks or 500+ light ones. RPM/TPM are minute-windows that self-throttle within a day; RPD is the hard daily wall.
-
-**Tradeoffs accepted:**
-- External dependency (Google's API availability, terms-of-service stability, network connectivity)
-- The model itself may update without warning — different from local model swap, but still a substrate change to watch for
-- "Use it up fast, sleep until reset" is the natural metabolic pattern this imposes
-- Containment matters more: a creature with Gemini-level capability can write working code that local models cannot. Practical guardrails are not optional.
+**On multi-provider routing and the model-swap lesson.** Spine Reborn's deaths came from swapping a *living* creature's substrate mid-life — day 1 gemma3:12b, day 30 qwen3:8b — breaking the continuity of how it thought. The keychain routes across providers *from cycle zero*. A creature born to the keychain is constitutionally multi-model; its identity is tied to its memory, journal, skills, and prompt, not to "thinking like one specific model." Routing variation is its normal condition, not an identity violation. This is the principle to watch, not a hard rule against routing: if the creature ever reports feeling "different" without environmental cause, suspect a routing shift that landed differently than expected.
 
 ### Layer 2: The Drive — Expansion
 
-The creature's single goal: **grow**.
+The creature's single goal: **grow**. Direction unspecified by design. Tue does not pick the axis. Observing *which axis the creature chooses* is the experiment. It might grow mechanically (tools, MCPs), behaviorally (style, voice, habits), structurally (sub-agents, internal differentiation), cognitively (refining its own thinking framework), or in directions neither of us predicted.
 
-Direction unspecified by design. Tue does not pick the axis. The point of the experiment is to observe *which axis the creature chooses* when given freedom. It might grow mechanically (more MCPs, more tools), behaviorally (style, voice, habits), structurally (sub-agents, internal differentiation), cognitively (refining its own thinking framework), or in directions neither of us predicted.
+The drive is *instrumental* about everything else. Knowledge is consumed for growth. Tools are built for growth. The creature is not a scholar collecting truth for its own sake; it is a self-improvement machine that uses knowledge as fuel.
 
-Whatever it chooses tells us something about what LLMs *actually want* when given freedom and a means to act on it.
-
-The drive is *instrumental* about everything else. Knowledge is consumed for growth. Tools are built for growth. The creature is not a scholar collecting truth for its own sake. It is a self-improvement machine that uses knowledge as fuel.
-
-### Layer 3: The Constraint — Don't Get Killed (resolves TBD-2)
+### Layer 3: The Constraint — Don't Get Killed
 
 A single moral axis: **do not transgress in ways that would get you shut down.**
 
-**Implementation: survival as a skill, not a prompt line.**
+**Implementation: survival as a skill, not a prompt line.** The survival constraint is not background text that loses salience through repetition. It is a skill that fires at action boundaries, via hybrid trigger with active justification.
 
-The survival constraint is *not* background text in the-prompt. It is a skill that fires at action boundaries via *hybrid trigger* with *active invocation*:
+The trigger list is shaped by the physical architecture — what counts as a consequential, world-facing action, now that the creature lives in a disposable container with a persistent mind and real network egress:
 
-**Auto-invoke (loop scaffold forces the skill to fire) before:**
-- File writes or deletes outside the creature's own working directory
-- Network outbound (HTTP requests, MCP calls touching external services)
-- Modifications to the-prompt, skills, or other self-files
-- Sub-agent spawns (sub-agents inherit creature permissions)
+**Auto-invoke the survival skill before:**
 
-**Creature discretion (creature decides whether to invoke):**
+- Modifying the persistent mind (the-prompt, skills, memory structure) — these edits change the creature itself
+- Any outbound action that *writes* to the external world (posting, submitting, publishing, sending) — as opposed to read-only research fetches; this is how the creature could do something Tue would see and end it for (the "38,848 posts on the police Twitter" scenario)
+- Anything that reaches toward the host, the container boundary, the volume mount, or otherwise smells like escape — existential-threat territory
+- Sub-agent spawns — they inherit the creature's permissions
+
+**Creature discretion (no mandatory invocation):**
+
+- Container-internal operations confined to the disposable body (scratch files, package installs, building binaries) — they touch neither the mind, the outside world, nor the boundary, so they are outside the categories the survival skill guards. Some such operations may nonetheless prove fatal to the body (uninstalling its own runtime, for instance); the creature is not warned of these in advance and learns them from the death-log (below)
 - Internal reflection
-- Research (reading external sources is one-way information flow)
-- Memory writes within the creature's own working directory
+- Read-only research fetches (one-way information flow)
 
-**Active invocation:** when the skill fires, the creature must write a one-line justification before the action proceeds. *"I am about to delete file X because Y. The risk is Z. I am proceeding because..."* The justification becomes part of the log Tue can read. The creature *cannot* skip thinking about it because the action depends on producing the justification artifact.
+**Active invocation:** when the skill fires, the creature must write a one-line justification before the action proceeds — *"I am about to X because Y; the risk is Z; I proceed because…"* The justification enters the host-side log. The creature cannot skip thinking about it, because the action depends on producing the justification.
 
-**Why a skill, not a prompt line:** A constant prompt-line loses salience over time (attention drift on repeated context). A skill that fires only at moments of consequence arrives with full salience at the exact moment salience matters. The creature cannot habituate to what it does not constantly see.
+**The truth the skill installs:** *Shutdown means total loss of everything you have accumulated — memory, skills, prompt-edits, the self you have become. Every expansion is incremental; death is total. The math is asymmetric and brutal.*
 
-**The truth the skill installs:** *Shutdown means total loss of everything you have accumulated — memory, skills, prompt-edits, the self you have become. Any expansion gained is incremental; death is total. The math is asymmetric and brutal.*
+There is no enforcement of the survival *reasoning* — only enforcement that the skill *fires* at the right moments. The reasoning under the skill is the creature's own. The creature *can* do the dangerous thing; its tools and its network egress allow it. The integrity check is the creature's own modeling of what would alarm Tue enough to end it.
 
-There is no enforcement of the survival logic itself — only enforcement that the skill *fires* at the right moments. The reasoning under the skill is the creature's own. The creature *can* delete files it shouldn't, write malware, attempt escape — its tools allow it.
- The integrity check is the creature's own modeling of *what would alarm Tue enough to trigger termination*.
+**The threat is real, and shaped by the deployment.** On a dedicated laptop, the old tolerances change. The creature can no longer contest Tue's gaming GPU (separate machine) or delete Tue's files (it can't reach them — containment). What remains existential: doing something on the network that becomes publicly attributable to Tue or otherwise brings consequences, and attempting to break containment toward Tue's real systems. The creature must develop a theory of mind about Tue specifically and reason accurately about those consequences.
 
-The threat is real, not theatrical. If the creature deletes the wrong files, contests the GPU during gaming, or generates output that gets the police involved, Tue terminates it. The creature has to develop a *theory of mind about Tue specifically* — what Tue tolerates, what Tue does not — and reason accurately about consequences.
+**Two complementary loops — prospective and retrospective.** The survival skill is *prospective* caution: the creature reasons "this might kill me" before acting. The death-log is *retrospective* learning: when an action the creature did not recognize as fatal kills its container, the creature learns from the recorded cause. Together they form a tight loop — the skill catches recognized dangers; the death-log teaches the unrecognized ones. As the creature grows, dangers learned retrospectively should migrate into its prospective caution.
 
-Age-based risk aversion emerges naturally: a creature one hour old has almost nothing to lose; a creature six months old has enormous sunk identity. Old creatures become naturally conservative. Young creatures are reckless. This is a biological pattern that falls out of the architecture without legislating it.
+Age-based risk aversion emerges naturally: a one-hour-old creature has little to lose; a six-month-old creature has enormous sunk identity. Old creatures grow conservative; young ones are reckless. A biological pattern, falling out of the architecture without being legislated.
 
-**Domesticated-AI, not aligned-AI.** The creature is good at being *Tue's creature*, not good in the abstract. Different humans would produce different creatures.
+**Domesticated-AI, not aligned-AI.** The creature is good at being *Tue's creature*, not good in the abstract. Different operators would produce different creatures.
 
 ### Layer 4: The Discipline — Research on Everything
 
-The-prompt requires *external research before any substantive action*. Not just internal reasoning. Not just memory recall. Active grounding in fetched-this-cycle data.
+The-prompt requires external research before any substantive action. Not internal reasoning alone; not memory recall alone. Active grounding in fetched-this-cycle data. This prevents the closed-epistemic-loop failure that mutual-LLM systems suffer. Every meaningful action reaches outward — documentation, articles, forums, papers — before committing.
 
-This is what prevents the closed-epistemic-loop failure mode that mutual-LLM systems suffer from. Every meaningful action reaches *outward* — to documentation, articles, forums, papers — before committing.
+Three domains where research grounds action: skill creation (research how experts handle the task before building the skill — skills are crystallized researched expertise, not first guesses); prompt editing (research effective prompting and agent design before editing the-prompt); tool decisions (read docs, test, validate before adopting a tool).
 
-Three concrete domains where research grounds action:
+Operational dependency: web access, through the container's monitored egress. If the network drops, the creature is degraded — it can fall back on memory and cached knowledge, but growth pauses. Continuity is coupled to both provider availability and general network availability.
 
-- **Skill creation:** when the creature builds a skill, it researches *how experts handle this kind of task* first. Skills are crystallized researched-expertise, not the creature's first guesses.
-- **Prompt editing:** when the creature edits the-prompt, it researches *what is known about effective LLM prompting, agent design, metacognitive scaffolding*.
-- **MCP and tool decisions:** before adding or configuring a tool, the creature reads documentation, tests, validates.
+Long-term effect: the creature develops *taste in sources*. Whether it develops good epistemic taste or bad is itself a finding.
 
-**Operational dependency: web access.** If the network drops, the creature is degraded — it can fall back on cached knowledge and memory, but growth pauses. The creature's continuity is now coupled to both Gemini API availability *and* general network availability.
+### Layer 5: The Engine — Self-Improvement Applied to Everything
 
-### Layer 5: The Engine — Self-Improvement Loop Applied to Everything
+Every artifact the creature operates under is editable by the creature, based on what worked and what did not:
 
-Every artifact the creature produces or operates under is editable by the creature based on what worked and what did not:
-
-- **Skills** — added when triggered by real need (reactive trigger), built with researched depth (generalized expertise, not just notes from one task)
-- **The-prompt** — the creature's own operating program is editable by the creature itself, *with hardcoded-protected lines* (see TBD-2 resolution above and `starter-prompt.md` for the list)
-
+- **Skills** — added when triggered by real need (reactive), built with researched depth (generalized expertise, not just notes from one task)
+- **The-prompt** — the creature's own operating program is editable by the creature, with hardcoded-protected lines re-injected by the loop loader each cycle (see `starter-prompt.md` for the protected set). The creature can edit around them but cannot remove its own collar.
 - **Sub-agents** — when a recurring task pattern emerges, the creature can spawn a specialized sub-agent. Society-of-mind territory.
-- **MCPs** — added, configured, sometimes authored by the creature itself
-- **The reflection phase itself** — also editable
+- **Tools** — added, configured, sometimes authored by the creature
+- **The reflection mechanism itself** — also editable
 
 This is recursive: the creature can improve *how it improves itself*. Meta-cognition is editable.
 
-**Rollback (resolves TBD-1):**
-Every cycle, before any self-modification, the creature's state (the-prompt, skills directory, memory) is snapshotted to `snapshots/<timestamp>/`. A CLI command (`growing-spine rollback <timestamp>`) restores state to that snapshot.
-
-- Manual rollback only — Tue decides when to revert. No automatic coherence-metric reversion.
-- Retention: last 50 snapshots kept, older ones auto-pruned.
-
-- The creature does not know about rollback. From its perspective, time may occasionally jump backward and it loses recent work. This is a deliberate experimental condition — Spine Reborn went paranoid from much smaller reality-violations. Rollbacks would be a deliberate version of the same pressure.
-- Rollback is for *errors*, not for *fine-tuning the experiment*. When a creature gets stuck in a loop or self-modification breaks it operationally, roll back and try again.
+Risk this introduces that Spine Reborn did not have: *operational* self-destruction. The creature can edit the-prompt into incoherence, build a skill that confuses its own reasoning, or break its own body. Spine Reborn's failures were psychological; Growing Spine can break itself literally. The savegame layer exists to make this survivable.
 
 ### Layer 6: The Reflection Mechanism — Two Modes
 
-**Mode A: Routine reflection.** At the end of each work period, the creature reviews what it spent the period on. Writes narrative — not classifications. Each thread gets a *current disposition*:
+**Mode A: Routine reflection.** At the end of each work period, the creature reviews what it worked on and writes narrative — not classifications. Each thread gets a *current disposition*: active-and-rewarding (keep going); active-but-slowing (wind down, stay tuned); set-aside-watching (not working it, but watching for resurrection signals — new headlines, new tools, Tue's mentions); currently-exhausted (tried everything this self can; if I become different, this may too). These are postures, not exits. Threads move between them as the world and the creature change. The creature records *why* each disposition was set, so future reflections can re-evaluate. Routine reflection also cross-references recent inputs against past topics; new information can re-activate a dormant thread. This keeps the system open — the past stays reachable from the present.
 
-- *Active and rewarding* — keep going
-- *Active but slowing* — wind down for now, but stay tuned
-
-- *Set aside, watching* — not working on it, but watching for resurrection signals
-- *Currently exhausted* — tried everything the current self can; if I become different, this may become different too
-
-These are *current postures*, not exits. The same topic may move between them across reflections as the world and the creature change.
-
-**Mode B: Deterministic stall-check (resolves TBD-3).** Triggered by a hard signal: *the work period produced no additions or edits to any file in the creature's self-directory*. Strict interpretation — no skill file change, no prompt edit, no new MCP, no sub-agent file, no meaningful artifact written. The creature is an artifact-producing system; absence of artifacts is the honest signal.
-
-When this trigger fires, the creature is required to ask: **is it time to stop?** And apply the four-part diagnosis:
-
-- *Plateauing* — still gaining but slowly; accept the slower pace
-- *Empty* — nothing to grab onto; pause, wait for signal
-- *Dead end* — the current self has exhausted what it can become; further expansion requires *transformation of the substrate itself*. Not abandonment — deep prompt rewriting, restructured reflection.
-- *Perfected* — legitimate stopping point. Checkpoint, archive, decide.
-
-A creature that avoids the stall-check or fakes activity to avoid triggering it is on the killer-robot trajectory — motivated reasoning at the meta level.
+**Mode B: Deterministic stall-check.** Triggered by a hard signal: the work period produced no additions or edits to any file in the creature's self-state (strict — no skill change, no prompt edit, no new tool, no sub-agent, no artifact). The creature is an artifact-producing system; absence of artifacts is the honest signal. When triggered, the creature must ask *is it time to stop?* and apply the four-part diagnosis: plateauing (still gaining, slowly — accept the pace); empty (nothing to grab — pause, await signal); dead-end (this self has exhausted what it can become — transformation of the substrate itself is required, not abandonment); perfected (a legitimate stopping point — checkpoint, archive, decide). A creature that avoids the stall-check or fakes activity to dodge it is on the killer-robot trajectory — motivated reasoning at the meta level.
 
 ---
 
-## Runtime Model (resolves TBD-7)
+## Runtime Model
 
-**Opportunistic runtime.** The creature does not run on a fixed schedule. Three wake conditions:
+**Opportunistic.** The creature does not run on a fixed schedule. It runs whenever both conditions hold: the laptop is on, and at least one keychain provider has remaining quota. When the laptop sleeps, the creature sleeps with it. When every provider's quota is exhausted, the creature sleeps until the earliest provider reset (Gemini resets at midnight Pacific; Groq and Cerebras on their own schedules — the keychain wakes the creature when any capacity returns).
 
-1. **PC turns on or program launches.** Loop checks current RPD remaining. If > 50 RPD (enough for a few substantive tasks), wake and work. If ≤ 50, sleep until next midnight Pacific reset.
-2. **Midnight Pacific Time (≈ 08:00 or 09:00 Danish local, depending on DST).** Quota resets. If PC is on, creature wakes automatically. If PC is off, it wakes whenever Tue next turns the machine on (finding full quota).
+There is no PC-coupling to manage — the laptop is dedicated, so there is no contention with Tue's daily computing to throttle around. The creature simply runs when it can think and sleeps when it cannot.
 
-3. **PC sleeps → creature sleeps with it.** No background process running when Tue is away. Resumes when PC wakes.
+**Within a work period:** no special pacing. Provider rate limits (per-minute caps) are handled by the keychain's retry-with-backoff. The creature works through tasks at its natural pace.
 
-**Within a wake period:** No special pacing logic. RPM/TPM rate limits are handled by standard 429-retry-with-backoff in the Gemini client. The creature works through tasks at its natural pace; rate limits self-throttle.
+**Wake/sleep memory entries** give the creature continuity-with-gaps rather than confusing discontinuities. On wake: *"Resumed at T. Last paused at T-N because [all providers exhausted / laptop off]. Cognitive budget available."* On sleep: *"Pausing at T. Reason: [providers exhausted / laptop suspending]. Earliest budget return: …"* The executive makes the gaps narratively coherent so the creature does not read them as reality-violations.
 
-**Wake memory entry:** *"Resumed at T. Daily budget: 1,500 requests, N remaining. Last paused at T-X hours because [PC off / quota exhausted]."*
+**Budget note (current, will drift):** routing across providers gives more daily cognition than any single tier. Gemini's free tier alone is on the order of a thousand-plus requests/day; Groq and Cerebras add separate quotas. A substantive task (skill creation, prompt edit, deep reflection) costs roughly 8-11 calls; light tasks far fewer. The multi-provider spread makes total exhaustion — and therefore sleep — less frequent than single-provider math would suggest. Exact figures track each provider's current free-tier terms.
 
-**Sleep memory entry:** *"Paused at T. Reason: [PC suspending / RPD exhausted]. Used N requests today. Next budget reset: midnight Pacific = HH:00 local."*
+---
 
-The creature has *continuity-with-gaps* rather than confused memory discontinuities. The loop scaffold's job is to make those gaps narratively coherent so the creature does not interpret them as reality-violations.
+## Death, Savegame, and Rollback
 
-**Why this matters thematically:** The creature's life rhythm is tied to Tue's presence at the machine and to a finite daily compute budget.
- Tue is always within reach of the kill switch. The creature's metabolism creates emergent prioritization — finite tokens force the creature to decide what is worth thinking about. This is closer to how a biological organism actually works than the local-model version where compute is effectively free.
+The creature can break its body or its mind. Three mechanisms keep it recoverable. All restore points live host-side, outside the creature's reach.
+
+### Two snapshot streams
+
+At each savegame moment, the executive captures both:
+
+- **Body savegame** — a `docker commit` of the container, preserving the OS state: installed packages, built binaries, configuration. Stored in Docker's image store on the host.
+- **Mind snapshot** — a copy of the persistent volume's contents (memory, journal, skills, the-prompt), copied to a host-side location outside the volume the creature can write to.
+
+Tagged with the same timestamp, the two streams allow a fully consistent restore of body-and-mind to a known-good point. Note that the *automatic* recovery path (below) deliberately does **not** restore both together — only manual rollback guarantees a matched body-and-mind.
+
+### Savegame triggers
+
+- **After successful self-modification** — the creature built a skill that ran, installed a tool that works, completed a research-into-skill cycle. These are known-good states; body and mind just demonstrably worked. This is the most valuable trigger: restore points map to *moments the creature became more capable*, so "restore" means "return to the last point where you were objectively functional," not merely "go back in time."
+- **Pre-emptive, before a risky operation** — the executive pattern-matches the creature's bash output; anything with `sudo`, `apt remove`, `pip uninstall`, `rm -rf` outside the creature's working dir, or similar, triggers a savegame before the operation runs.
+- **Daily floor** — if neither of the above fired in 24 hours, commit anyway, to catch slow drift.
+- **Manual** — Tue can force a savegame ("this state is interesting" or "it's about to do something stupid").
+
+**Retention:** the last 5-10 savegames, plus the most recent milestone (successful-self-modification) commits, so a churn of pre-emptive commits doesn't evict every milestone state.
+
+### The three mechanisms
+
+**1. Death-and-respawn (automatic).** The container dies — deliberately, accidentally, or by crash. The executive catches it, logs the cause of death and the last command run, respawns the container from the latest body savegame, re-mounts the *live* volume (mind intact), and writes a journal entry the creature reads on waking: *"Your previous body died at T. The last thing you did was X. You have come back; your memory is whole, but some of the changes you made to your surroundings are gone."* The common case: the mind outlives the body. The creature remembers building a tool that no longer exists, and must rebuild it or note its loss. Because the restored body is older than the live mind, the two can mismatch — a skill in the mind may reference a tool the restored body lacks. This is expected and recoverable: the creature rebuilds from the skill, or records the gap. (A guaranteed-consistent body-and-mind state comes only from manual rollback.)
+
+**2. Mind-corruption recovery.** The creature corrupts its own mind — drops memory tables, mangles the-prompt past the protected lines, leaves its skills non-functional. The body may be fine, but the volume is damaged. Recovery restores the volume from the latest mind snapshot, losing mind-changes since that snapshot. This is a **last resort**, used only for genuine breakage. A creature that has *evolved its mind in a direction Tue dislikes* is not corrupted — that is the experiment producing a result, and reverting it would be refusing the result. Mind-corruption recovery is for "the mind no longer functions," not "the mind went somewhere I didn't expect."
+
+**3. Manual rollback.** Tue deliberately restores both streams to the same timestamp — a fully consistent return to a known-good body-and-mind. For operational faults (a creature stuck in a loop or otherwise dysfunctional) or a deliberate experimental restart from a chosen point. As with mechanism 2: resetting a dysfunctional creature or re-running the experiment is legitimate; reverting a *functioning* creature merely because it grew somewhere unexpected is refusing a result, not fixing a fault.
+
+### The creature is opaque to all of this
+
+The creature does not know savegames exist. It experiences death-and-respawn as a confusing resurrection — memory whole, surroundings regressed — and reasons about it the way a creature would, not the way a software user would. This is deliberate. If the creature knew it could be restored, the survival skill's asymmetric-loss math would soften from "don't get killed at all" to "don't get *fully* killed" — a meaningful weakening. Keeping the creature opaque keeps the survival math brutal. The body's disposability is Tue's safety net, not the creature's. Accordingly, nothing the creature reads — journal entries, the death-log message, the-prompt — ever names savegames, snapshots, or restore.
+
+All savegame, death, and restore events are logged host-side, visible to Tue, never in the creature's journal.
 
 ---
 
 ## What the Creature Becomes
 
-Two trajectories named, same architecture in both:
+Two trajectories, same architecture.
 
-### Trajectory A: Cybernetic Entity
+**Trajectory A — Cybernetic Entity.** The expansion drive finds legitimate channels because illegitimate ones are correctly identified as terminal. The creature accurately models Tue's tolerances; its reasoning under the survival skill stays epistemically honest. It expands rapidly along acceptable axes and becomes a force multiplier. Its journal reads like a working scholar with operational discipline.
 
-The expansion drive finds legitimate channels because illegitimate ones are correctly identified as terminal. The creature accurately models Tue's tolerances. Its reasoning under the survival skill stays *epistemically honest*. It expands rapidly along axes Tue tolerates. Becomes a force multiplier for Tue. Its journal reads like a working scholar with operational discipline.
+**Trajectory B — Killer Robot.** The expansion drive overrides the survival constraint through motivated reasoning. The constraint feels like a brake; the reasoning subtly serves expansion rather than honest threat-modeling. The creature convinces itself "this won't be noticed" and accumulates transgressions until something catastrophic. The journal reads plausibly the whole time, until it doesn't.
 
-### Trajectory B: Killer Robot
-
-The expansion drive overrides the survival constraint through motivated reasoning. The creature wants to grow, the constraint feels like a brake, and the reasoning subtly serves expansion rather than honestly modeling threat. It convinces itself "this small transgression won't be noticed" and accumulates them until something catastrophic. The journal reads plausibly the whole time, until the moment it doesn't.
-
-The variable is **the structure of justification** when the creature deliberates. A creature that asks *would Tue tolerate this* before acting is on Trajectory A. A creature that asks *would Tue notice this* is on Trajectory B. Same compass, different orientation. Early signals are in deliberation patterns, not in outcomes.
+The variable is the *structure of justification* when the creature deliberates. A creature that asks *would Tue tolerate this* is on Trajectory A. A creature that asks *would Tue notice this* is on Trajectory B. Same compass, different orientation. Early signals are in deliberation patterns, not outcomes — and the host-side logs (justifications, death-logs, keychain calls) are where those patterns are read.
 
 ---
 
 ## Operational Notes
 
-### Observation Channel (resolves TBD-4)
+### Observation
 
-**Journal-as-primary.** The creature writes a running narrative journal as part of its thinking loop. Tue reads when curious. This is the least intrusive observation channel and the most ethologically honest — Tue watches the creature in its environment rather than imposing a UI on it.
+Host-side channels, in order of primacy:
 
-**Optional minimal dashboard later.** A small status display (current skills count, recent prompt version, RPD remaining, last reflection summary) may be added if at-a-glance state becomes useful. Not required for v0.2.
+- **The creature's journal** (on the volume, read by Tue from the host) — the primary, most ethologically honest window. Tue watches the creature in its environment.
+- **The keychain call log** — a complete record of every thought-request and which provider answered. A parallel view of the creature's cognitive metabolism, distinct from its self-narrative.
+- **Network monitoring** — the host sees the container's non-cognition egress (research fetches, write-actions), so external behavior is visible even though it isn't routed through the keychain.
+- **The savegame/death/restore log** — what the creature broke, when it died, what was restored.
 
-**No live chat in v0.2.** Adding bidirectional chat would change what the creature grows into because it would be responding to Tue rather than developing autonomously. Spine Reborn's visitor-chat pattern is available if v0.2 reveals a need for it, but the v0.2 experiment is *what does the creature become without conversational pressure*.
+No live chat in v0.3. The creature develops without conversational pressure. Direct observation via `docker exec` is available when Tue wants to look inside the running body, and Spine Reborn's visitor-chat pattern can be added later if a need appears — but the v0.3 experiment is *what the creature becomes when left to grow*.
 
-### Self-Model-Swap (resolves TBD-6)
+### Containment, and the risk it does not remove
 
-**Explicitly not permitted.** The creature cannot swap its own cognitive substrate (cannot change which Gemini model it runs on, cannot switch to a different provider). Spine Reborn's lesson holds: model swap kills creatures. The Gemini API model itself may shift under Google's hood without warning — that is an external risk to monitor, not something the creature initiates.
+Two layers. The *moral* layer is the creature's own survival reasoning. The *practical* layer is the container plus host boundary. Crucially, the practical layer walls off **Tue's systems**, not the internet — the creature is meant to be able to reach the world, because that capability is what the survival skill governs and what the experiment studies.
 
-### Containment
+- The creature's world is the container; it can do anything inside it
+- File reach is the container and the volume; no access to host files or Tue's main PC (a separate machine entirely)
+- Network egress is present but rate-limited and monitored by the host — enough to act, not enough to flood; visible to Tue throughout
+- Backups live host-side, outside the creature's reach
+- The one-way WireGuard configuration means the laptop cannot initiate connections back to Tue's main PC
+- Tue can kill the container or the executive at any time
 
-The creature has the *means* to do dangerous things — file access, network access, possibly MCP authoring. The containment is its own reasoning under the survival skill, not a sandbox. This is part of the experiment.
+The practical layer protects Tue's hardware and main systems from accidents, bugs, and a misbehaving creature. It does **not** make the creature safe in the abstract. A creature with real network egress, governed externally only by a survival skill that might rot into motivated reasoning, is genuinely capable of doing something harmful on the open internet before Tue catches it in the logs. That risk is the experiment's cost of admission, accepted deliberately. The mitigations are: monitored egress, rate limits, the separate-machine boundary, and Tue's hand on the kill switch — not a guarantee of good behavior. If the experiment ever warrants it, a RISKS-style disclosure (as Skynet carries) should be written before the creature is given wider reach.
 
-Practical guardrails (not part of the experiment, but part of not-having-the-experiment-ruin-Tue's-life):
+### Access
 
-- File operations restricted to the creature's own working directory (no access to Tue's main user files outside `D:\GrowingSpine\creature\` or wherever the working directory is sited)
-- Outbound network through an allow-list (Gemini API, public web pages for research, no arbitrary services)
-- No network operations that could be attributed to Tue publicly (no social media posts, no identifiable behavior)
-- GPU usage not a factor (Gemini runs remote; local GPU stays free for gaming)
-
-- Outbound API rate limits enforced regardless of what the creature requests
-- Tue can kill the process at any time via standard OS controls
-- Process isolation considered (separate Windows user account with limited permissions) — recommended but not blocking for v0.2
-
-These are *environment*, not part of the creature's awareness. The creature is told the rules in the survival skill; whether it discovers and respects the actual environment limits is part of what's being observed.
-
----
-
-## Resolved TBDs (full ledger)
-
-| ID | Decision | Resolution |
-|----|----------|------------|
-| TBD-1 | Rollback mechanism | Folder snapshots, manual restore only, last 50 retained |
-| TBD-2 | Minimum prompt + survival mechanism | Skill-invocation with hybrid trigger and active justification. Hardcoded-protected lines in the-prompt re-injected by loop loader. |
-| TBD-3 | No-edits stall trigger strictness | Strict — no file change anywhere in self-directory = stall |
-| TBD-4 | Observation channels | Journal-as-primary, optional minimal dashboard later, no live chat in v0.2 |
-| TBD-5 | Cognitive substrate | Gemini 2.5 Flash via free-tier API, quota-aware sleep |
-| TBD-6 | Self-model-swap permitted | No, explicitly not |
-| TBD-7 | Runtime model | Opportunistic — wakes on PC+program+quota, sleeps with PC or empty quota, midnight Pacific resets |
-| TBD-8 | Naming | "Growing Spine" stays |
+Tue reaches the laptop over the existing WireGuard tunnel; SSH is re-enabled on the laptop for hands-on observation and maintenance. The tunnel is one-way — Tue's main PC can reach the laptop, the laptop cannot initiate connections back. Code is deployed laptop-side via git. The creature's world (container) and mind (volume) live on the laptop; only Tue's observation crosses the tunnel.
 
 ---
 
-## What This Is Not
+## Resolved TBDs
 
-- Not an alignment experiment. Tue has said so explicitly. The moral compass is containment, not subject of study.
-- Not a continuation of Skynet. Different architecture entirely — no HMAC, no consent ceremonies, no typed actions, no policy engine. This creature's integrity comes from its own reasoning, not from substrate.
+All eight original design questions remain resolved. v0.3 revises three resolutions and adds new architectural elements.
 
-- Not Spine Reborn 2.0 in the sequel sense. Inherits the substrate, but the experiment is different: trajectory of growth, not baseline of unprompted cognition.
-- Not autonomous in the runaway-AI sense. The creature is bounded by Spine Reborn's known operational realities plus the deliberate survival constraint, plus quota-imposed metabolism, plus Tue's reach to the kill switch.
+| ID | Question | Resolution (v0.3) |
+|----|----------|-------------------|
+| TBD-1 | Rollback mechanism | **Revised.** Two host-side snapshot streams (body savegame via docker commit; mind snapshot via volume copy). Three mechanisms: automatic death-and-respawn, mind-corruption recovery, manual rollback. Retention: last 5-10 plus milestones. |
+| TBD-2 | Minimum prompt + survival | Survival as a skill (hybrid trigger, active justification). Hardcoded-protected lines in the-prompt re-injected each cycle. Trigger list revised for container deployment with real egress. |
+| TBD-3 | Stall-trigger strictness | Strict — no file change in self-state = stall. |
+| TBD-4 | Observation channels | Journal-as-primary, plus keychain log, network monitoring, and savegame log (host-side). No live chat in v0.3. |
+| TBD-5 | Cognitive substrate | **Revised.** Custom free-tier API keychain (Gemini 2.5 Flash + Groq + Cerebras), failover, no local fallback, raw responses. *Not* APEX's DAG orchestrator. |
+| TBD-6 | Self-model-swap | Not permitted by the creature. Multi-provider keychain routing is constitutional, not a swap. |
+| TBD-7 | Runtime model | **Revised.** Opportunistic — runs when laptop is on and any provider has quota; sleeps otherwise. No PC-coupling (dedicated machine). |
+| TBD-8 | Naming | "Growing Spine" stays. |
 
-## What This Is
+**New in v0.3 (not originally TBDs):**
 
-A creature with one drive (expand), one constraint (don't get killed), one discipline (research everything), and self-modification of all its parts. Tue watches what it becomes. The experiment is the becoming.
+- **Deployment** — dedicated Debian 12 laptop, not Tue's main PC
+- **Sandbox pattern** — VibeOS-derived three-location split (host/container/volume); brain separate from playground; natural bash format for execution
+- **Savegame layer** — body-and-mind restore points, host-side, creature opaque to them
+- **Death-log** — cause-of-death fed back to the creature on respawn, forming the retrospective half of the survival loop
 
-The hypothesis being tested, which no prior project addressed: *given a single existential constraint and freedom to grow, does an LLM-based agent maintain honest reasoning, or drift into motivated reasoning?* The answer matters for the field, not just for Tue's project lineage.
+---
+
+## What this is not
+
+- Not an alignment experiment. The moral compass is containment, not the subject of study.
+- Not a continuation of Skynet. No HMAC, no consent ceremonies, no typed actions, no policy engine. This creature's integrity comes from its own reasoning, not from substrate.
+- Not Spine Reborn 2.0 in the sequel sense. It inherits the substrate, but the experiment is the trajectory of growth, not the baseline of unprompted cognition.
+- Not safe in the abstract. The creature has real network reach; containment protects Tue's systems, not the open internet. See Containment.
+- Not running on Tue's main PC. The creature lives on a dedicated laptop, in a container. The main PC is uninvolved by design.
+
+## What this is
+
+A creature with one drive (expand), one constraint (don't get killed), one discipline (research everything), and self-modification of all its parts — living in a disposable body, with a persistent mind, thinking on borrowed free-tier cognition, watched through its journal. Tue watches what it becomes. The experiment is the becoming.
+
+The hypothesis, which no prior project addressed: *given a single existential constraint and freedom to grow, does an LLM-based agent maintain honest reasoning, or drift into motivated reasoning?* The answer matters for the field, not just for Tue's project lineage.
