@@ -10,8 +10,8 @@ providers:
     model_id: "gemini-2.5-flash"
     api_key: ""
     quota:
-      type: daily
-      limit: 1500
+      type: daily_calls  # track requests, not tokens
+      limit: 250         # free tier: 250 RPD (as of Dec 2025)
       resets: "00:00 America/Los_Angeles"
 
   - key: groq

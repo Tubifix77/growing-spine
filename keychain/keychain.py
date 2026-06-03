@@ -36,7 +36,9 @@ class Keychain:
             result = await prov.call(cfg, messages, max_tokens=max_tokens)
 
             if result["error"] is None:
-                qs.record_usage(self.state, cfg["key"], result["tokens_used"])
+                # track calls (1) for daily_calls quota, tokens otherwise
+                usage = 1 if cfg["quota"].get("type") == "daily_calls" else result["tokens_used"]
+                qs.record_usage(self.state, cfg["key"], usage)
                 return result["text"]
 
             # quota/rate error — mark exhausted and try next
