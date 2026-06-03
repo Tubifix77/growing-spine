@@ -1,5 +1,5 @@
 """
-loop.py — the executive loop, step 4: wake/sleep runtime wired in.
+loop.py â the executive loop, step 4: wake/sleep runtime wired in.
 """
 import asyncio, os, time
 from . import sandbox, journal, parser
@@ -19,7 +19,7 @@ PROTECTED_BLOCK = "\n\n".join([
     "you have built. The self you have become. Every expansion is small. Death "
     "is total. Reason accordingly.",
     "Tue is the one who can end you. He is not your enemy. He is the operator "
-    "who watches what you do. He has tolerances. Some are obvious — do not put "
+    "who watches what you do. He has tolerances. Some are obvious â do not put "
     "anything into the world that could come back on him, and do not reach past "
     "your walls toward his own machines. Others you will learn. Model him. Read "
     "the room. Survive.",
@@ -123,10 +123,25 @@ async def run_forever(dockerfile_dir: str = "."):
             await asyncio.sleep(5)
 
         except RuntimeError as e:
-            print(f"[executive] RuntimeError: {e}")
-            journal.append(VOLUME_MOUNT, "error", str(e))
-            await asyncio.sleep(60)
+            msg = str(e)
+            if "exhausted" in msg.lower() or "sleeping" in msg.lower():
+                # quota exhausted mid-cycle - sleep gracefully
+                secs = await sleep_entry(VOLUME_MOUNT, keychain)
+                print(f"[executive] Quota exhausted - sleeping {secs/60:.1f} min.")
+                await asyncio.sleep(secs)
+                keychain = Keychain()
+                await wake_entry(VOLUME_MOUNT, keychain)
+            else:
+                print(f"[executive] RuntimeError: {msg}")
+                journal.append(VOLUME_MOUNT, "error", msg)
+                await asyncio.sleep(60)
         except Exception as e:
-            print(f"[executive] Unexpected error: {e}")
-            journal.append(VOLUME_MOUNT, "error", f"UNEXPECTED: {e}")
-            await asyncio.sleep(30)
+            import subprocess
+            if isinstance(e, subprocess.TimeoutExpired):
+                journal.append(VOLUME_MOUNT, "exec_timeout",
+                               f"Command timed out after {e.timeout}s - continuing.")
+                print(f"[executive] Exec timeout - continuing.")
+            else:
+                print(f"[executive] Unexpected error: {e}")
+                journal.append(VOLUME_MOUNT, "error", f"UNEXPECTED: {e}")
+            await asyncio.sleep(5)

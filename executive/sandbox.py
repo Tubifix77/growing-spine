@@ -54,7 +54,7 @@ def run_command(cmd: str) -> tuple:
     r = subprocess.run(
         ["docker", "exec", CONTAINER_NAME,
          "bash", "-c", f"echo {enc} | base64 -d | bash"],
-        capture_output=True, text=True, timeout=60
+        capture_output=True, text=True, timeout=300
     )
     return r.stdout, r.stderr, r.returncode
 
