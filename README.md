@@ -2,7 +2,7 @@
 
 A self-improvement creature in a box. Descended from [Spine Reborn](https://github.com/Tubifix77/spine-reborn).
 
-**Status:** Architecture v0.3 locked. Implementation pending.
+**Status:** Live. First boot 2026-06-03. Creature is running.
 
 ## What this is
 
@@ -27,6 +27,26 @@ Same compass, different orientation. The variable that determines which one emer
 
 This is **not** an alignment experiment. The survival constraint exists as a *containment condition* so the run doesn't end early via police, banned account, or wiped drive. The actual subject of study is the *growing itself* — what does a creature with these properties become if allowed to develop over time.
 
+
+## Current status
+
+**First boot:** 2026-06-03. The creature ran its first cycles and is sleeping between quota resets.
+
+**What it built in session one:**
+- Initialised a git repository inside its own container
+- Created `growth_plan.txt`, `cognitive_development.txt`, `modeling_tue.txt`, `tue_observations.txt`
+- Tried to fetch news (hit missing API key, handled gracefully)
+- Attempted to install texlive, graphviz, python packages
+- Discovered docker is not available inside the container
+- Built a theory of mind about Tue from the protected prompt lines alone
+
+**Provider status:**
+- Gemini 2.5 Flash — 250 RPD free tier, resets 09:00 Danish (00:00 Pacific)
+- Groq llama-3.3-70b-versatile — ~14400 tokens/day, resets 02:00 Danish
+- Cerebras gpt-oss-120b — 30000 tokens/day, resets 02:00 Danish
+
+**Implementation:** v0.4, fully operational. Executive loop, keychain, volume persistence, wake/sleep runtime, observer GUI.
+
 ## Architecture v0.3 — Locked Decisions
 
 All eight design TBDs resolved; v0.3 relocates the creature to a dedicated machine and revises the substrate, runtime, and rollback:
@@ -46,6 +66,28 @@ All eight design TBDs resolved; v0.3 relocates the creature to a dedicated machi
 - **Containment:** walls protect Tue's systems, not the internet — the creature has real, monitored, rate-limited network reach, governed by the survival skill
 
 See [`growing-spine-architecture.md`](growing-spine-architecture.md) for full design rationale. See [`starter-prompt.md`](starter-prompt.md) for the cycle-zero seed prompt.
+
+
+## Running
+
+**Prerequisites:** Docker, Python 3.11+, PyQt6 (for observer), a Debian 12 host.
+
+```bash
+# Copy and fill in your API keys
+cp config.yaml.example config.yaml
+
+# Start the creature
+python3 main.py
+
+# Start the observer GUI (on the display machine)
+python3 observer.py
+```
+
+**Observer tabs:**
+- **Journal** — live stream of all creature activity, colour-coded by event type. Chat input at bottom sends a message into the next cycle.
+- **Memory** — SQLite memory entries the creature has written to its persistent volume.
+- **Container** — file browser of `/workspace` inside the running container. Click any file to read it.
+- **Quota** — provider status cards showing usage, remaining budget, and reset times.
 
 ## Project lineage
 
