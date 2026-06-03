@@ -17,6 +17,7 @@ async def call(cfg: dict, messages: list, max_tokens: int = 2048) -> dict:
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {cfg['api_key']}",
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
     }
 
     req = urllib.request.Request(cfg["endpoint"], data=payload, headers=headers)
@@ -26,7 +27,8 @@ async def call(cfg: dict, messages: list, max_tokens: int = 2048) -> dict:
             with urllib.request.urlopen(req, timeout=120) as r:
                 return json.loads(r.read())
         data = await loop.run_in_executor(None, _do)
-        text = data["choices"][0]["message"]["content"]
+        msg = data["choices"][0]["message"]
+        text = msg.get("content") or msg.get("reasoning", "")
         tokens = data.get("usage", {}).get("total_tokens", len(text) // 4)
         return {"text": text, "tokens_used": tokens, "error": None}
     except urllib.error.HTTPError as e:
