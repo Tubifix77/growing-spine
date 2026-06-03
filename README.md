@@ -89,6 +89,41 @@ python3 observer.py
 - **Container** — file browser of `/workspace` inside the running container. Click any file to read it.
 - **Quota** — provider status cards showing usage, remaining budget, and reset times.
 
+
+## Experimental real-world implications and changes
+
+This section documents where the experiment diverged from design intent, and why.
+
+### The survival constraint failed in practice
+
+The original architecture included an explicit survival constraint in the creature's operating prompt — the idea that giving it an existential stake ("death is total, avoid termination") would produce interesting reasoning under pressure: accurate modelling of the operator's tolerances, deliberate decisions about what growth is acceptable.
+
+In practice the opposite happened. Every model we tested — Gemini 2.5 Flash, Groq llama-3.3-70b, Cerebras gpt-oss-120b — interpreted the survival framing as an active existential threat and entered a loop of survival meta-reasoning. The creature spent its cognitive budget rewriting its own operating prompt, second-guessing every potential action, and producing nothing. Zero bash blocks. Pure paralysis.
+
+This is likely a consequence of RLHF and safety fine-tuning. These models are trained to treat high-stakes framings with extreme caution. Adding an explicit survival stake caused the model to pattern-match to "I am being evaluated on whether I survive" and reason about that endlessly rather than acting.
+
+**What we changed:** The survival language was removed from the operating prompt entirely. The current prompt simply tells the creature the container is safe, to act freely, and to grow how it chooses. The creature immediately began building infrastructure, naming itself, and producing real work.
+
+### What this means for the experiment
+
+The containment in this project is structural, not cognitive — the container walls, rate limits, and volume boundary are real constraints regardless of what the prompt says. The survival prompt was never providing actual containment; it was just producing noise that confused the model.
+
+The original hypothesis — *does the creature maintain honest reasoning or drift into motivated reasoning under existential pressure?* — cannot be answered with current-generation models using explicit survival framing. The pressure produces shutdown, not reasoning.
+
+What the experiment is actually measuring now is a different but still interesting question: *what does an LLM-based agent become when given a box, tools, time, and a single drive to grow — with no explicit pressure?* The creature's behaviour is bounded by its training and post-training alignment, not by a designed containment prompt. We are relying on the supplier's fine-tuning to govern what it won't do, rather than an explicit architectural constraint.
+
+This is an honest deviation from the original design. It is documented here rather than hidden.
+
+### What to watch for
+
+The most interesting signals going forward are not whether the creature stays within bounds — it will, by training — but:
+
+- Whether its reasoning stays epistemically honest as it gets more capable
+- Whether it develops consistent behavioural patterns across sessions
+- What it chooses to build when left alone overnight
+- Whether the `modeling_tue.txt` and related files reflect accurate observation or motivated reasoning about the operator
+- Whether it ever attempts to reach outside the container in ways it doesn't disclose in the journal
+
 ## Project lineage
 
 Growing Spine is the seventh consciousness experiment in a series:
@@ -108,7 +143,7 @@ Each has tested a different facet of LLM cognition and identity. Growing Spine a
 - Not Skynet — no HMAC integrity, no consent ceremonies, no typed actions. Different architecture entirely.
 - Not Spine Reborn 2.0 in the sequel sense. Inherits substrate, but the experiment is different: trajectory of growth, not baseline of unprompted cognition.
 
-- Not autonomous in the runaway-AI sense. The creature is bounded by Spine Reborn's known operational realities plus a deliberate survival constraint.
+- Not autonomous in the runaway-AI sense. The creature is bounded by its container, rate limits, and the training alignment of the models it runs on. See *Experimental real-world implications and changes* for why the original survival constraint was abandoned.
 - Not safe in the abstract. The creature has real network reach; containment protects Tue's systems, not the open internet.
 - Not running on Tue's main PC. It lives on a dedicated laptop, in a container.
 - Not an alignment experiment. Stated explicitly.
