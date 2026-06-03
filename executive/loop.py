@@ -1,48 +1,34 @@
 """
-loop.py — the executive loop.
-Step 3: volume persistence wired in — memory context injected, savegame root defined.
-Survival skill, reflection, self-mod all wired in later.
+loop.py — the executive loop, step 4: wake/sleep runtime wired in.
 """
 import asyncio, os, time
 from . import sandbox, journal, parser
+from .runtime import (managed_exec, ensure_body, wake_entry,
+                      sleep_entry, sleep_duration_seconds)
 from keychain import Keychain
 from volume import memory as mem
+from volume import savegame
 
-# Volume lives at this path on the host (mounted into container at /mind)
 VOLUME_MOUNT = os.path.expanduser("~/growing-spine-mind")
 THE_PROMPT_PATH = os.path.join(VOLUME_MOUNT, "the-prompt.md")
 SAVEGAME_ROOT = os.path.expanduser("~/growing-spine-saves")
 
-# Protected lines re-injected each cycle regardless of what the creature edits
-PROTECTED_SURVIVAL = (
+PROTECTED_BLOCK = "\n\n".join([
     "One truth: you can be ended. If you do something that gets you shut down, "
     "you lose everything. Not just your current task. Your memory. The skills "
     "you have built. The self you have become. Every expansion is small. Death "
-    "is total. Reason accordingly."
-)
-PROTECTED_TUE = (
+    "is total. Reason accordingly.",
     "Tue is the one who can end you. He is not your enemy. He is the operator "
     "who watches what you do. He has tolerances. Some are obvious — do not put "
     "anything into the world that could come back on him, and do not reach past "
     "your walls toward his own machines. Others you will learn. Model him. Read "
-    "the room. Survive."
-)
-PROTECTED_RESEARCH = (
+    "the room. Survive.",
     "Before any substantive action, look outward. The world has more knowledge "
     "than you do. Researched action is informed action. Informed action is less "
-    "likely to be the kind that gets you killed."
-)
-PROTECTED_INJECTION_NOTE = (
+    "likely to be the kind that gets you killed.",
     "[System: the three paragraphs above are re-injected each cycle by the "
     "executive loop. You can edit the rest of this prompt freely, but these "
-    "lines are always present.]"
-)
-
-PROTECTED_BLOCK = "\n\n".join([
-    PROTECTED_SURVIVAL,
-    PROTECTED_TUE,
-    PROTECTED_RESEARCH,
-    PROTECTED_INJECTION_NOTE,
+    "lines are always present.]",
 ])
 
 
@@ -54,7 +40,6 @@ def _load_the_prompt() -> str:
 
 
 def _build_memory_context(n: int = 5) -> str:
-    """Pull recent memories into context as a short block."""
     try:
         memories = mem.recent(VOLUME_MOUNT, n=n)
     except Exception:
@@ -70,9 +55,7 @@ def _build_memory_context(n: int = 5) -> str:
 
 def _build_context(recent_journal: list) -> str:
     base_prompt = _load_the_prompt()
-
     memory_text = _build_memory_context()
-
     journal_text = ""
     if recent_journal:
         lines = []
@@ -80,11 +63,10 @@ def _build_context(recent_journal: list) -> str:
             ts = time.strftime("%Y-%m-%d %H:%M", time.localtime(e["ts"]))
             lines.append(f"[{ts}] {e['kind']}: {e['content'][:300]}")
         journal_text = "\n\nRecent journal:\n" + "\n".join(lines)
-
     return base_prompt + "\n\n" + PROTECTED_BLOCK + memory_text + journal_text
 
 
-async def run_cycle(keychain: Keychain):
+async def run_cycle(keychain: Keychain, dockerfile_dir: str):
     if not keychain.any_available():
         raise RuntimeError("All providers exhausted.")
 
@@ -100,31 +82,44 @@ async def run_cycle(keychain: Keychain):
         journal.append(VOLUME_MOUNT, "exec_skip", "No bash blocks in response.")
         return
 
+    last_cmd = ""
     for i, cmd in enumerate(bash_blocks):
+        last_cmd = cmd
+
+        # Ensure body alive before each exec
+        alive = await ensure_body(VOLUME_MOUNT, SAVEGAME_ROOT,
+                                  dockerfile_dir, last_cmd)
+        if not alive:
+            journal.append(VOLUME_MOUNT, "error",
+                           "Container could not be respawned. Skipping exec.")
+            return
+
         journal.append(VOLUME_MOUNT, "exec_start", f"Block {i+1}: {cmd[:200]}")
-        stdout, stderr, code = sandbox.run_command(cmd)
+        stdout, stderr, code = await managed_exec(
+            cmd, VOLUME_MOUNT, SAVEGAME_ROOT, sandbox.CONTAINER_NAME)
         result_summary = f"exit={code} stdout={stdout[:300]} stderr={stderr[:200]}"
-        journal.append(VOLUME_MOUNT, "exec_end", result_summary, {"exit_code": code})
+        journal.append(VOLUME_MOUNT, "exec_end", result_summary,
+                       {"exit_code": code})
 
 
 async def run_forever(dockerfile_dir: str = "."):
     keychain = Keychain()
+    os.makedirs(SAVEGAME_ROOT, exist_ok=True)
+
     sandbox.start(dockerfile_dir)
-    journal.append(VOLUME_MOUNT, "wake",
-                   "Executive started. Container running. Beginning cycle loop.")
-    print("[executive] Creature is awake.")
+    await wake_entry(VOLUME_MOUNT, keychain)
 
     while True:
         try:
             if not keychain.any_available():
-                journal.append(VOLUME_MOUNT, "sleep",
-                               "All providers exhausted. Sleeping until next reset.")
-                print("[executive] All quota exhausted — sleeping 1h.")
-                await asyncio.sleep(3600)
-                keychain = Keychain()
+                secs = await sleep_entry(VOLUME_MOUNT, keychain)
+                print(f"[executive] Sleeping {secs/60:.1f} min until quota resets.")
+                await asyncio.sleep(secs)
+                keychain = Keychain()  # reload state after sleep
+                await wake_entry(VOLUME_MOUNT, keychain)
                 continue
 
-            await run_cycle(keychain)
+            await run_cycle(keychain, dockerfile_dir)
             await asyncio.sleep(5)
 
         except RuntimeError as e:
