@@ -41,8 +41,15 @@ class Keychain:
                 qs.record_usage(self.state, cfg["key"], usage)
                 return result["text"]
 
-            # quota/rate error — mark exhausted and try next
-            is_quota = "429" in str(result["error"]) or "quota" in result["error"].lower()
+            err = str(result["error"])
+            # transient rate limit — skip this provider this cycle, don't mark exhausted
+            is_transient = "429" in err or "too_many_requests" in err.lower() or "high traffic" in err.lower()
+            if is_transient:
+                await asyncio.sleep(2)
+                continue
+
+            # true quota exhaustion — mark dead until reset
+            is_quota = "quota" in err.lower() or "rate_limit_exceeded" in err.lower() or "exceeded" in err.lower()
             if is_quota:
                 self.state[cfg["key"]]["used"] = cfg["quota"].get("limit", 999999)
                 qs.save_state(self.state)
