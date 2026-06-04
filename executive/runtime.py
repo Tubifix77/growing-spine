@@ -3,6 +3,7 @@ import asyncio, os, time, subprocess
 from . import sandbox, journal
 from volume import savegame
 from volume import tools as toolmod
+from volume import memory as mem
 
 
 def _death_log_entry(volume_mount: str, last_cmd: str, cause: str):
@@ -109,11 +110,23 @@ async def wake_entry(volume_mount: str, keychain):
 
 
 async def sleep_entry(volume_mount: str, keychain, reason: str = "quota exhausted"):
-    """Log a coherent sleep entry with next-wake estimate."""
+    """Log a coherent sleep entry with next-wake estimate. Auto-saves last thought."""
     secs = sleep_duration_seconds(keychain)
     wake_at = time.strftime("%Y-%m-%d %H:%M UTC",
                             time.gmtime(time.time() + secs))
     msg = f"Pausing. Reason: {reason}. Earliest budget return: {wake_at}."
     journal.append(volume_mount, "sleep", msg)
     print(f"[runtime] Sleep: {msg}")
+
+    # Auto-remember last thought so creature wakes with continuity in layer 1
+    try:
+        last = journal.last_of_kind(volume_mount, "think_end")
+        if last:
+            mem.store(volume_mount,
+                      key="last_thought",
+                      value=last["content"],
+                      tags=["auto", "continuity"])
+    except Exception as e:
+        print(f"[runtime] auto-remember failed: {e}")
+
     return secs

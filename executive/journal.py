@@ -24,6 +24,23 @@ def append(volume_mount: str, kind: str, content: str, meta: dict = None):
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
+def last_of_kind(volume_mount: str, kind: str) -> dict | None:
+    """Return the most recent journal entry of the given kind, or None."""
+    path = _host_journal_path(volume_mount)
+    if not os.path.exists(path):
+        return None
+    with open(path, encoding="utf-8") as f:
+        lines = f.readlines()
+    for line in reversed(lines):
+        try:
+            e = json.loads(line)
+            if e.get("kind") == kind:
+                return e
+        except json.JSONDecodeError:
+            pass
+    return None
+
+
 def recent(volume_mount: str, n: int = 20) -> list:
     """Return the last n journal entries as dicts."""
     path = _host_journal_path(volume_mount)
