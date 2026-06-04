@@ -82,7 +82,7 @@ def test_init_volume_creates_structure():
     with tempfile.TemporaryDirectory() as tmp:
         vol = os.path.join(tmp, "mind")
         init_volume(vol, REPO_ROOT)
-        assert os.path.exists(os.path.join(vol, "the-prompt.md"))
+        assert os.path.exists(os.path.join(vol, "editable-prompt.md"))
         assert os.path.exists(os.path.join(vol, "memory.db"))
         assert os.path.exists(os.path.join(vol, "journal.jsonl"))
         assert os.path.exists(os.path.join(vol, "skills"))
@@ -101,7 +101,7 @@ def test_init_volume_seeds_prompt():
     with tempfile.TemporaryDirectory() as tmp:
         vol = os.path.join(tmp, "mind")
         init_volume(vol, REPO_ROOT)
-        prompt = open(os.path.join(vol, "the-prompt.md")).read()
+        prompt = open(os.path.join(vol, "editable-prompt.md")).read()
         assert "creature" in prompt.lower()
     print("  test_init_volume_seeds_prompt: PASS")
 
@@ -124,6 +124,44 @@ def test_init_idempotent():
         assert r["value"] == "should survive reinit"
     print("  test_init_idempotent: PASS")
 
+
+def test_memory_layers():
+    with tempfile.TemporaryDirectory() as tmp:
+        mem.init_db(tmp)
+        # Write 7 entries
+        for i in range(7):
+            mem.store(tmp, f"key_{i}", f"value number {i} with some text")
+            time.sleep(0.01)
+        # Layer 1: last 5
+        l1 = mem.layer1(tmp)
+        assert len(l1) == 5
+        assert l1[0]["key"] == "key_6"   # most recent first
+        assert l1[4]["key"] == "key_2"
+        # Layer 2: entries 6-50 (entries 0 and 1 here)
+        l2 = mem.layer2_headlines(tmp)
+        assert len(l2) == 2
+        assert l2[0]["key"] == "key_1"
+        assert len(l2[0]["headline"]) <= 120
+        # Layer 3: empty (need 51+ entries)
+        l3 = mem.layer3_themes(tmp)
+        assert l3 == []
+    print("  test_memory_layers: PASS")
+
+
+def test_memory_recall():
+    with tempfile.TemporaryDirectory() as tmp:
+        mem.init_db(tmp)
+        mem.store(tmp, "docker_limits", "docker command not found inside container", tags=["discovery"])
+        mem.store(tmp, "growth_plan", "build memory manager first", tags=["plan"])
+        mem.store(tmp, "python_version", "python3.11 available", tags=["discovery"])
+        results = mem.recall(tmp, "docker")
+        assert len(results) == 1
+        assert results[0]["key"] == "docker_limits"
+        results = mem.recall(tmp, "discovery")
+        assert len(results) == 2
+    print("  test_memory_recall: PASS")
+
+
 if __name__ == "__main__":
     print("Running volume tests...")
     test_memory_store_and_retrieve()
@@ -138,4 +176,6 @@ if __name__ == "__main__":
     test_init_volume_seeds_prompt()
     test_volume_is_initialised()
     test_init_idempotent()
-    print("ALL PASS test_volume (12/12)")
+    test_memory_layers()
+    test_memory_recall()
+    print("ALL PASS test_volume (14/14)")

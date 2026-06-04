@@ -30,18 +30,28 @@ def _load_editable_prompt() -> str:
         return f.read()
 
 
-def _build_memory_context(n: int = 5) -> str:
+def _build_memory_context() -> str:
     try:
-        memories = mem.recent(VOLUME_MOUNT, n=n)
+        l1 = mem.layer1(VOLUME_MOUNT)
+        l2 = mem.layer2_headlines(VOLUME_MOUNT)
+        l3 = mem.layer3_themes(VOLUME_MOUNT)
     except Exception:
         return ""
-    if not memories:
-        return ""
-    lines = []
-    for m in memories:
-        ts = time.strftime("%Y-%m-%d", time.localtime(m["updated"]))
-        lines.append(f"  [{ts}] {m['key']}: {m['value'][:200]}")
-    return "\n\nRecent memories:\n" + "\n".join(lines)
+
+    parts = []
+
+    if l1:
+        lines = [f"  [{m['key']}] {m['value'][:200]}" for m in l1]
+        parts.append("Working memory (most recent):\n" + "\n".join(lines))
+
+    if l2:
+        headlines = [f"  {m['key']}: {m['headline']}" for m in l2]
+        parts.append("Older memories:\n" + "\n".join(headlines))
+
+    if l3:
+        parts.append("Archived themes: " + ", ".join(l3))
+
+    return ("\n\n" + "\n\n".join(parts)) if parts else ""
 
 
 def _build_context(recent_journal: list) -> str:
