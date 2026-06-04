@@ -353,6 +353,52 @@ class MemoryTab(QWidget):
             lbl.setFont(QFont("monospace", FONT_SIZE - 1))
             self.content_layout.addWidget(lbl)
 
+
+        # ── Recent thoughts (think_end) ──
+        self.content_layout.addWidget(
+            self._section_label("💭  Recent thoughts (last 10 think_end — click to read full)", "#64B5F6"))
+        thoughts = []
+        if os.path.exists(JOURNAL_PATH):
+            try:
+                with open(JOURNAL_PATH, encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line:
+                            try:
+                                e = json.loads(line)
+                                if e.get("kind") == "think_end":
+                                    thoughts.append(e)
+                            except json.JSONDecodeError:
+                                pass
+            except Exception:
+                pass
+        thoughts = thoughts[-10:][::-1]  # last 10, newest first
+        if thoughts:
+            tt = self._make_table(["Time", "Preview"], stretch_col=1)
+            for e in thoughts:
+                r = tt.rowCount()
+                tt.insertRow(r)
+                ts = time.strftime("%m-%d %H:%M", time.localtime(e.get("ts", 0)))
+                preview = e.get("content", "").replace("\n", " ")[:120]
+                full = e.get("content", "")
+                for col, (text, color) in enumerate([
+                    (ts,      "#64B5F6"),
+                    (preview, "#B0BEC5"),
+                ]):
+                    item = QTableWidgetItem(text)
+                    item.setForeground(QColor(color))
+                    if col == 1:
+                        item.setData(Qt.ItemDataRole.UserRole, (ts, full))
+                    tt.setItem(r, col, item)
+            tt.cellClicked.connect(lambda row, col, t=tt: self._expand_thought(t, row))
+            tt.setMaximumHeight(min(len(thoughts) * 34 + 30, 380))
+            self.content_layout.addWidget(tt)
+        else:
+            lbl = QLabel("  (no thoughts yet)")
+            lbl.setStyleSheet("color: #555; padding: 4px 8px;")
+            lbl.setFont(QFont("monospace", FONT_SIZE - 1))
+            self.content_layout.addWidget(lbl)
+
         self.content_layout.addStretch()
 
         self.status.setText(
@@ -368,6 +414,14 @@ class MemoryTab(QWidget):
             if data:
                 key, value = data
                 self.detail.setPlainText("[" + key + "]" + chr(10) + value)
+
+    def _expand_thought(self, table, row):
+        item = table.item(row, 1)
+        if item:
+            data = item.data(Qt.ItemDataRole.UserRole)
+            if data:
+                ts, full = data
+                self.detail.setPlainText("[" + ts + "]" + chr(10) + full)
 
 
 # ── Container Tab ────────────────────────────────────────────────────
