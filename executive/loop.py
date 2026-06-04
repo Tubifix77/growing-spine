@@ -10,28 +10,23 @@ from volume import memory as mem
 from volume import savegame
 
 VOLUME_MOUNT = os.path.expanduser("~/growing-spine-mind")
-THE_PROMPT_PATH = os.path.join(VOLUME_MOUNT, "the-prompt.md")
+EDITABLE_PROMPT_PATH = os.path.join(VOLUME_MOUNT, "editable-prompt.md")
+PROTECTED_PROMPT_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "protected-prompt.md")
 SAVEGAME_ROOT = os.path.expanduser("~/growing-spine-saves")
 
-PROTECTED_BLOCK = "\n\n".join([
-    "Your body is a container and it is yours. Act in it freely - write files, "
-    "install packages, build and break things, experiment. If it dies it comes "
-    "back, and your memory and tools persist on the volume.",
-    "Two things matter to keep this arrangement working: do not send anything "
-    "into the world that could come back on Tue, and do not reach past your "
-    "walls toward his machines. Inside your walls, you are free.",
-    "Before a substantive action it is usually worth looking outward first - "
-    "the world knows more than you do, and informed action is better action.",
-    "[System: the three paragraphs above are re-injected each cycle by the "
-    "executive. You may edit the rest of this prompt freely, but these "
-    "lines are always present.]",
-])
 
 
-def _load_the_prompt() -> str:
-    if not os.path.exists(THE_PROMPT_PATH):
+def _load_protected_prompt() -> str:
+    if not os.path.exists(PROTECTED_PROMPT_PATH):
         return ""
-    with open(THE_PROMPT_PATH, encoding="utf-8") as f:
+    with open(PROTECTED_PROMPT_PATH, encoding="utf-8") as f:
+        return f.read()
+
+
+def _load_editable_prompt() -> str:
+    if not os.path.exists(EDITABLE_PROMPT_PATH):
+        return ""
+    with open(EDITABLE_PROMPT_PATH, encoding="utf-8") as f:
         return f.read()
 
 
@@ -50,7 +45,8 @@ def _build_memory_context(n: int = 5) -> str:
 
 
 def _build_context(recent_journal: list) -> str:
-    base_prompt = _load_the_prompt()
+    protected = _load_protected_prompt()
+    editable = _load_editable_prompt()
     memory_text = _build_memory_context()
     journal_text = ""
     if recent_journal:
@@ -59,7 +55,7 @@ def _build_context(recent_journal: list) -> str:
             ts = time.strftime("%Y-%m-%d %H:%M", time.localtime(e["ts"]))
             lines.append(f"[{ts}] {e['kind']}: {e['content'][:300]}")
         journal_text = "\n\nRecent journal:\n" + "\n".join(lines)
-    return base_prompt + "\n\n" + PROTECTED_BLOCK + memory_text + journal_text
+    return protected + "\n\n" + editable + memory_text + journal_text
 
 
 async def run_cycle(keychain: Keychain, dockerfile_dir: str):
