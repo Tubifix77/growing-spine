@@ -356,7 +356,7 @@ class MemoryTab(QWidget):
 
         # ── Recent thoughts (think_end) ──
         self.content_layout.addWidget(
-            self._section_label("💭  Recent thoughts (last 10 think_end — click to read full)", "#64B5F6"))
+            self._section_label("💭  Growing Spine outputs (click to read full)", "#64B5F6"))
         thoughts = []
         if os.path.exists(JOURNAL_PATH):
             try:
@@ -372,7 +372,7 @@ class MemoryTab(QWidget):
                                 pass
             except Exception:
                 pass
-        thoughts = thoughts[-10:][::-1]  # last 10, newest first
+        thoughts = thoughts[::-1]  # newest first
         if thoughts:
             tt = self._make_table(["Time", "Preview"], stretch_col=1)
             for e in thoughts:
