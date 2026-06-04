@@ -4,7 +4,6 @@ import os, shutil, time
 from . import memory
 from executive import journal
 
-SKILLS_DIR = "skills"
 PROMPT_FILENAME = "editable-prompt.md"
 
 def _starter_prompt_path(repo_root: str) -> str:
@@ -17,7 +16,6 @@ def init_volume(volume_mount: str, repo_root: str, force: bool = False):
     Safe to call on every startup Ã¢ÂÂ skips steps already done unless force=True.
     """
     os.makedirs(volume_mount, exist_ok=True)
-    os.makedirs(os.path.join(volume_mount, SKILLS_DIR), exist_ok=True)
     os.makedirs(os.path.join(volume_mount, "tools", "framework"), exist_ok=True)
     os.makedirs(os.path.join(volume_mount, "tools", "own"), exist_ok=True)
 
