@@ -391,7 +391,7 @@ class MemoryTab(QWidget):
                         item.setData(Qt.ItemDataRole.UserRole, (ts, full))
                     tt.setItem(r, col, item)
             tt.cellClicked.connect(lambda row, col, t=tt: self._expand_thought(t, row))
-            tt.setMaximumHeight(min(len(thoughts) * 34 + 30, 380))
+            tt.setMaximumHeight(16777215)  # no cap — scroll area handles it
             self.content_layout.addWidget(tt)
         else:
             lbl = QLabel("  (no thoughts yet)")
