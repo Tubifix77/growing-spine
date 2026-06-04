@@ -30,16 +30,28 @@ def start(dockerfile_dir: str = "."):
 
     import os
     host_mind = os.path.expanduser("~/growing-spine-mind")
+    host_ws = os.path.expanduser("~/growing-spine-workspace")
+    os.makedirs(host_mind, exist_ok=True)
+    os.makedirs(host_ws, exist_ok=True)
     subprocess.run([
         "docker", "run", "-d",
         "--name", CONTAINER_NAME,
-        "--rm",  # auto-remove when stopped (we respawn from image)
-        "-v", f"{host_mind}:/mind",  # bind-mount the real host mind dir
+        "--rm",  # auto-remove when stopped — safe now, all data is on host binds
+        "-v", f"{host_mind}:/mind",            # curated durable mind (memory, prompts, tools)
+        "-v", f"{host_ws}:/workspace",         # the creature's persistent build space
         "--network", "bridge",
         IMAGE_NAME,
         "sleep", "infinity"
     ], check=True)
     time.sleep(1)
+    # Ensure python->python3 and the tool dirs exist, regardless of how old the
+    # image is (the Dockerfile bakes these in for fresh builds; this covers the rest).
+    subprocess.run(
+        ["docker", "exec", CONTAINER_NAME, "bash", "-c",
+         "ln -sf /usr/bin/python3 /usr/local/bin/python; "
+         "mkdir -p /mind/tools/framework /mind/tools/own"],
+        check=False
+    )
 
 
 def stop():
