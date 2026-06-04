@@ -18,6 +18,7 @@ MIND_DIR      = os.path.expanduser("~/growing-spine-mind")
 JOURNAL_PATH  = os.path.join(MIND_DIR, "journal.jsonl")
 MEMORY_DB     = os.path.join(MIND_DIR, "memory.db")
 TUE_MSG_PATH  = os.path.join(MIND_DIR, "tue-message.txt")
+CHAT_PATH     = os.path.join(MIND_DIR, "chat.jsonl")
 CONFIG_PATH   = os.path.expanduser("~/growing-spine/config.yaml")
 QUOTA_PATH    = os.path.expanduser("~/growing-spine/keychain/quota_state.json")
 CONTAINER     = "growing-spine-body"
@@ -102,20 +103,6 @@ class JournalTab(QWidget):
         self.detail.setStyleSheet("background: #1a1a2e; color: #E0E0E0; border: 1px solid #333;")
         layout.addWidget(self.detail)
 
-        # Chat input row
-        chat_row = QHBoxLayout()
-        self.chat_input = QLineEdit()
-        self.chat_input.setPlaceholderText("Send a message to the creature (press Enter)...")
-        self.chat_input.setFont(QFont("sans-serif", FONT_SIZE))
-        self.chat_input.returnPressed.connect(self._send_message)
-        self.chat_input.setStyleSheet("background: #1e1e2e; color: #E0E0E0; border: 1px solid #555; padding: 4px;")
-        send_btn = QPushButton("Send")
-        send_btn.setFont(QFont("sans-serif", FONT_SIZE))
-        send_btn.clicked.connect(self._send_message)
-        send_btn.setFixedWidth(80)
-        chat_row.addWidget(self.chat_input)
-        chat_row.addWidget(send_btn)
-        layout.addLayout(chat_row)
 
         # File watcher
         self.watcher = QFileSystemWatcher()
@@ -185,17 +172,6 @@ class JournalTab(QWidget):
             ts = self.table.item(row, 0).text() if self.table.item(row, 0) else ""
             self.detail.setPlainText(f"[{ts}] {kind}:\n{full}")
 
-    def _send_message(self):
-        msg = self.chat_input.text().strip()
-        if not msg:
-            return
-        try:
-            with open(TUE_MSG_PATH, "w", encoding="utf-8") as f:
-                f.write(msg)
-            self.chat_input.clear()
-            self.chat_input.setPlaceholderText(f"Sent: {msg[:60]}... (waiting for next cycle)")
-        except Exception as e:
-            self.chat_input.setPlaceholderText(f"Error: {e}")
 
 
 # ── Memory Tab ───────────────────────────────────────────────────────
@@ -566,6 +542,153 @@ class QuotaTab(QWidget):
             self.cards_layout.addWidget(card)
 
 
+# ── Chat Tab ─────────────────────────────────────────────────────────
+class ChatTab(QWidget):
+    def __init__(self):
+        super().__init__()
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
+
+        self.status = QLabel("Chat with the creature — your messages queue until its next cycle")
+        self.status.setFont(QFont("monospace", FONT_SIZE - 2))
+        self.status.setStyleSheet("color: #9E9E9E;")
+        layout.addWidget(self.status)
+
+        # Scroll area for chat bubbles
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setStyleSheet("QScrollArea { border: 1px solid #333; background: #0d1117; }")
+        self.bubble_widget = QWidget()
+        self.bubble_layout = QVBoxLayout(self.bubble_widget)
+        self.bubble_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self.bubble_layout.setSpacing(8)
+        self.bubble_layout.setContentsMargins(12, 12, 12, 12)
+        self.scroll.setWidget(self.bubble_widget)
+        layout.addWidget(self.scroll)
+
+        # Input row
+        input_row = QHBoxLayout()
+        self.input = QLineEdit()
+        self.input.setPlaceholderText("Type a message and press Enter...")
+        self.input.setFont(QFont("sans-serif", FONT_SIZE))
+        self.input.setStyleSheet("background: #1e1e2e; color: #E0E0E0; border: 1px solid #555; padding: 6px;")
+        self.input.returnPressed.connect(self._send)
+        send_btn = QPushButton("Send")
+        send_btn.setFont(QFont("sans-serif", FONT_SIZE))
+        send_btn.setFixedWidth(80)
+        send_btn.clicked.connect(self._send)
+        input_row.addWidget(self.input)
+        input_row.addWidget(send_btn)
+        layout.addLayout(input_row)
+
+        self._last_count = 0
+
+        # File watcher
+        self.watcher = QFileSystemWatcher()
+        if os.path.exists(CHAT_PATH):
+            self.watcher.addPath(CHAT_PATH)
+        self.watcher.fileChanged.connect(self._refresh)
+
+        self.timer = QTimer()
+        self.timer.timeout.connect(self._refresh)
+        self.timer.start(3000)
+
+        self._refresh()
+
+    def _load_chat(self):
+        if not os.path.exists(CHAT_PATH):
+            return []
+        entries = []
+        with open(CHAT_PATH, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    try:
+                        entries.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        pass
+        return entries
+
+    def _refresh(self):
+        entries = [e for e in self._load_chat()
+                   if e.get("kind") in ("from_tue", "from_creature")]
+        if len(entries) == self._last_count:
+            return
+        self._last_count = len(entries)
+
+        # Rebuild bubbles
+        while self.bubble_layout.count():
+            item = self.bubble_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        for e in entries:
+            kind = e.get("kind")
+            content = e.get("content", "")
+            ts = time.strftime("%H:%M", time.localtime(e.get("ts", 0)))
+            is_tue = (kind == "from_tue")
+
+            row = QHBoxLayout()
+            bubble = QLabel(f"<b>{'Tue' if is_tue else 'Creature'}</b> <span style=\'color:#666;font-size:11px;\'>{ts}</span><br>{content}")
+            bubble.setWordWrap(True)
+            bubble.setFont(QFont("sans-serif", FONT_SIZE))
+            bubble.setTextFormat(Qt.TextFormat.RichText)
+            bubble.setMaximumWidth(700)
+            bubble.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
+
+            if is_tue:
+                bubble.setStyleSheet(
+                    "background: #1a3a5c; color: #E0E0E0; border-radius: 10px; padding: 8px 12px;"
+                )
+                row.addStretch()
+                row.addWidget(bubble)
+            else:
+                bubble.setStyleSheet(
+                    "background: #1e2e1e; color: #A5D6A7; border-radius: 10px; padding: 8px 12px;"
+                )
+                row.addWidget(bubble)
+                row.addStretch()
+
+            container = QWidget()
+            container.setLayout(row)
+            self.bubble_layout.addWidget(container)
+
+        # Pending indicator
+        pending = [e for e in self._load_chat()
+                   if e.get("kind") == "from_tue" and not e.get("read", True)]
+        if pending:
+            lbl = QLabel(f"⏳  {len(pending)} message(s) queued — waiting for next creature cycle")
+            lbl.setStyleSheet("color: #FFB74D; padding: 4px;")
+            lbl.setFont(QFont("sans-serif", FONT_SIZE - 1))
+            self.bubble_layout.addWidget(lbl)
+
+        # Scroll to bottom
+        QTimer.singleShot(50, lambda: self.scroll.verticalScrollBar().setValue(
+            self.scroll.verticalScrollBar().maximum()))
+
+        # Re-add watcher
+        if CHAT_PATH not in self.watcher.files() and os.path.exists(CHAT_PATH):
+            self.watcher.addPath(CHAT_PATH)
+
+        self.status.setText(f"{len(entries)} messages  |  {time.strftime('%H:%M:%S')}")
+
+    def _send(self):
+        msg = self.input.text().strip()
+        if not msg:
+            return
+        try:
+            entry = {"ts": time.time(), "kind": "from_tue", "content": msg, "read": False}
+            with open(CHAT_PATH, "a", encoding="utf-8") as f:
+                f.write(json.dumps(entry) + "\n")
+            self.input.clear()
+            self._refresh()
+            if CHAT_PATH not in self.watcher.files():
+                self.watcher.addPath(CHAT_PATH)
+        except Exception as e:
+            self.status.setText(f"Error sending: {e}")
+
+
 # ── Main Window ──────────────────────────────────────────────────────
 class ObserverWindow(QMainWindow):
     def __init__(self):
@@ -579,6 +702,7 @@ class ObserverWindow(QMainWindow):
         tabs.addTab(MemoryTab(),    "🧠  Memory")
         tabs.addTab(ContainerTab(), "📁  Container")
         tabs.addTab(QuotaTab(),     "📊  Quota")
+        tabs.addTab(ChatTab(),      "💬  Chat")
 
         self.setCentralWidget(tabs)
 

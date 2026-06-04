@@ -9,6 +9,7 @@ from keychain import Keychain
 from volume import memory as mem
 from volume import savegame
 from volume import tools as toolmod
+from executive import chat as chatmod
 
 VOLUME_MOUNT = os.path.expanduser("~/growing-spine-mind")
 EDITABLE_PROMPT_PATH = os.path.join(VOLUME_MOUNT, "editable-prompt.md")
@@ -68,7 +69,7 @@ def _build_tool_catalogue() -> str:
         return ""
 
 
-def _build_context(recent_journal: list) -> str:
+def _build_context(recent_journal: list, tue_message: str = None) -> str:
     protected = _load_protected_prompt()
     editable = _load_editable_prompt()
     catalogue = _build_tool_catalogue()
@@ -85,7 +86,10 @@ def _build_context(recent_journal: list) -> str:
             journal_text = "\n\nRecent activity (your thoughts and their results):\n" + "\n".join(lines)
 
     catalogue_block = ("\n\n" + catalogue) if catalogue else ""
-    return protected + "\n\n" + editable + catalogue_block + memory_text + journal_text
+    chat_block = ""
+    if tue_message:
+        chat_block = f"\n\nMessage from Tue: {tue_message}\nReply to this in plain text before your bash blocks."
+    return protected + "\n\n" + editable + catalogue_block + memory_text + journal_text + chat_block
 
 
 async def run_cycle(keychain: Keychain, dockerfile_dir: str):
@@ -93,11 +97,17 @@ async def run_cycle(keychain: Keychain, dockerfile_dir: str):
         raise RuntimeError("All providers exhausted.")
 
     recent_j = journal.recent(VOLUME_MOUNT, n=20)
-    context = _build_context(recent_j)
+    tue_message = chatmod.pop_unread(VOLUME_MOUNT)
+    context = _build_context(recent_j, tue_message)
 
     journal.append(VOLUME_MOUNT, "think_start", "Sending to keychain...")
     response = await keychain.complete(context)
     journal.append(VOLUME_MOUNT, "think_end", response[:500])
+
+    if tue_message:
+        reply = chatmod.extract_text_reply(response)
+        if reply:
+            chatmod.record_reply(VOLUME_MOUNT, reply)
 
     bash_blocks = parser.parse_bash_blocks(response)
     if not bash_blocks:
