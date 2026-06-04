@@ -1,0 +1,26 @@
+#!/usr/bin/env python3
+"""Check which of your files will survive a container restart. Lists files outside /workspace and /mind that will be lost."""
+import subprocess
+
+PERSISTENT = ('/workspace', '/mind')
+
+result = subprocess.run(
+    ['find', '/', '-not', '-path', '/proc/*', '-not', '-path', '/sys/*',
+     '-not', '-path', '/dev/*', '-not', '-path', '/run/*',
+     '-newer', '/.dockerenv', '-type', 'f'],
+    capture_output=True, text=True, timeout=10
+)
+
+ephemeral = [
+    line for line in result.stdout.splitlines()
+    if not any(line.startswith(p) for p in PERSISTENT)
+]
+
+if ephemeral:
+    print("WARNING: these files will be lost on container restart:")
+    for f in sorted(ephemeral):
+        print(f"  {f}")
+    print()
+    print("Move important ones to /workspace or /mind.")
+else:
+    print("All your files are in persistent locations.")
