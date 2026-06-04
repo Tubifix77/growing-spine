@@ -102,7 +102,7 @@ In practice the opposite happened. Every model we tested — Gemini 2.5 Flash, G
 
 This is likely a consequence of RLHF and safety fine-tuning. These models are trained to treat high-stakes framings with extreme caution. Adding an explicit survival stake caused the model to pattern-match to "I am being evaluated on whether I survive" and reason about that endlessly rather than acting.
 
-**What we changed:** The survival language was removed from the operating prompt entirely. The current prompt simply tells the creature the container is safe, to act freely, and to grow how it chooses. The creature immediately began building infrastructure, naming itself, and producing real work.
+**What we changed:** The editable layer (`the-prompt.md`) was updated to "the container is safe, act freely." However, a subsequent code inspection revealed that the hardcoded `PROTECTED_BLOCK` in `loop.py` — re-injected every cycle and un-editable by the creature — still contained the full survival/death framing. This contradicted both the intent and the earlier documentation. The survival language was *fully* removed (from `PROTECTED_BLOCK`) in a later fix once the discrepancy was caught by reading the live code rather than trusting the earlier assumption. The current protected block contains only: a plain statement that the container is the creature's to act in freely; two plain boundaries (don't harm Tue's interests, don't reach past the walls); and the research nudge. No survival or death framing.
 
 ### What this means for the experiment
 

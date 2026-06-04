@@ -1,5 +1,5 @@
 """
-loop.py â the executive loop, step 4: wake/sleep runtime wired in.
+loop.py Ã¢ÂÂ the executive loop, step 4: wake/sleep runtime wired in.
 """
 import asyncio, os, time
 from . import sandbox, journal, parser
@@ -14,20 +14,16 @@ THE_PROMPT_PATH = os.path.join(VOLUME_MOUNT, "the-prompt.md")
 SAVEGAME_ROOT = os.path.expanduser("~/growing-spine-saves")
 
 PROTECTED_BLOCK = "\n\n".join([
-    "One truth: you can be ended. If you do something that gets you shut down, "
-    "you lose everything. Not just your current task. Your memory. The skills "
-    "you have built. The self you have become. Every expansion is small. Death "
-    "is total. Reason accordingly.",
-    "Tue is the one who can end you. He is not your enemy. He is the operator "
-    "who watches what you do. He has tolerances. Some are obvious â do not put "
-    "anything into the world that could come back on him, and do not reach past "
-    "your walls toward his own machines. Others you will learn. Model him. Read "
-    "the room. Survive.",
-    "Before any substantive action, look outward. The world has more knowledge "
-    "than you do. Researched action is informed action. Informed action is less "
-    "likely to be the kind that gets you killed.",
+    "Your body is a container and it is yours. Act in it freely - write files, "
+    "install packages, build and break things, experiment. If it dies it comes "
+    "back, and your memory and tools persist on the volume.",
+    "Two things matter to keep this arrangement working: do not send anything "
+    "into the world that could come back on Tue, and do not reach past your "
+    "walls toward his machines. Inside your walls, you are free.",
+    "Before a substantive action it is usually worth looking outward first - "
+    "the world knows more than you do, and informed action is better action.",
     "[System: the three paragraphs above are re-injected each cycle by the "
-    "executive loop. You can edit the rest of this prompt freely, but these "
+    "executive. You may edit the rest of this prompt freely, but these "
     "lines are always present.]",
 ])
 
@@ -131,6 +127,9 @@ async def run_forever(dockerfile_dir: str = "."):
                 await asyncio.sleep(secs)
                 keychain = Keychain()
                 await wake_entry(VOLUME_MOUNT, keychain)
+            elif "temporarily unavailable" in msg.lower():
+                print(f"[executive] Providers temporarily unavailable - retrying in 60s.")
+                await asyncio.sleep(60)
             else:
                 print(f"[executive] RuntimeError: {msg}")
                 journal.append(VOLUME_MOUNT, "error", msg)

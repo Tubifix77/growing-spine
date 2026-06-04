@@ -81,7 +81,7 @@ def sleep_duration_seconds(keychain) -> float:
             min_reset = reset_at
     if min_reset is None or min_reset <= now:
         return 60  # short nap, something's wrong
-    return min(min_reset - now, 3600)
+    return min(min_reset - now, 86400)  # cap at 24h, not 1h
 
 
 async def wake_entry(volume_mount: str, keychain):

@@ -22,42 +22,65 @@ class Keychain:
         """
         Send prompt through the highest-priority available provider.
         Returns response text. Raises RuntimeError if all quota exhausted.
+        Distinguishes transient failures (retry) from real exhaustion (sleep).
         """
         available = self.available_providers()
         if not available:
             raise RuntimeError("All providers exhausted. Sleeping.")
 
+        had_transient = False
         for cfg in available:
             messages = []
             if system:
                 messages.append({"role": "system", "content": system})
             messages.append({"role": "user", "content": prompt})
 
-            result = await prov.call(cfg, messages, max_tokens=max_tokens)
+            for attempt in range(3):
+                result = await prov.call(cfg, messages, max_tokens=max_tokens)
 
-            if result["error"] is None:
-                # track calls (1) for daily_calls quota, tokens otherwise
-                usage = 1 if cfg["quota"].get("type") == "daily_calls" else result["tokens_used"]
-                qs.record_usage(self.state, cfg["key"], usage)
-                return result["text"]
+                if result["error"] is None:
+                    usage = 1 if cfg["quota"].get("type") == "daily_calls" else result["tokens_used"]
+                    qs.record_usage(self.state, cfg["key"], usage)
+                    return result["text"]
 
-            err = str(result["error"])
-            # transient rate limit — skip this provider this cycle, don't mark exhausted
-            is_transient = "429" in err or "too_many_requests" in err.lower() or "high traffic" in err.lower()
-            if is_transient:
-                await asyncio.sleep(2)
-                continue
+                err = str(result["error"])
+                # Check quota exhaustion first — a "quota exceeded" 429
+                # must not be misclassified as a transient per-minute limit.
+                is_quota = (
+                    "quota" in err.lower() or
+                    "rate_limit_exceeded" in err.lower() or
+                    "exceeded" in err.lower() or
+                    "billing" in err.lower()
+                )
+                if is_quota:
+                    self.state[cfg["key"]]["used"] = cfg["quota"].get("limit", 999999)
+                    qs.save_state(self.state)
+                    break  # move to next provider
 
-            # true quota exhaustion — mark dead until reset
-            is_quota = "quota" in err.lower() or "rate_limit_exceeded" in err.lower() or "exceeded" in err.lower()
-            if is_quota:
-                self.state[cfg["key"]]["used"] = cfg["quota"].get("limit", 999999)
-                qs.save_state(self.state)
-                continue
+                # Transient: retry same provider with backoff
+                is_transient = (
+                    "429" in err or
+                    "too_many_requests" in err.lower() or
+                    "high traffic" in err.lower() or
+                    "HTTP 500" in err or
+                    "HTTP 502" in err or
+                    "HTTP 503" in err or
+                    "HTTP 504" in err
+                )
+                if is_transient:
+                    had_transient = True
+                    if attempt < 2:
+                        backoff = 3 * (2 ** attempt)  # 3s then 6s
+                        await asyncio.sleep(backoff)
+                        continue  # retry same provider
+                    break  # exhausted retries, move to next provider
 
-            # hard error — raise
-            raise RuntimeError(f"Provider {cfg['key']} error: {result['error']}")
+                # hard error - raise immediately
+                raise RuntimeError(f"Provider {cfg['key']} error: {err}")
+                break  # move to next provider (unreachable but clear)
 
+        if had_transient:
+            raise RuntimeError("All providers temporarily unavailable.")
         raise RuntimeError("All providers failed or exhausted.")
 
     def any_available(self) -> bool:
