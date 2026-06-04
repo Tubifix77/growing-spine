@@ -180,8 +180,9 @@ class MemoryTab(QWidget):
         super().__init__()
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(6)
+        layout.setSpacing(4)
 
+        # Status + refresh
         top = QHBoxLayout()
         self.status = QLabel("Memory")
         self.status.setFont(QFont("monospace", FONT_SIZE - 2))
@@ -193,55 +194,57 @@ class MemoryTab(QWidget):
         top.addWidget(refresh_btn)
         layout.addLayout(top)
 
-        self.table = QTableWidget(0, 5)
-        self.table.setHorizontalHeaderLabels(["Layer", "Key", "Value", "Tags", "Updated"])
-        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
-        self.table.verticalHeader().setVisible(False)
-        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.table.setAlternatingRowColors(True)
-        self.table.setFont(QFont("monospace", FONT_SIZE))
-        self.table.verticalHeader().setDefaultSectionSize(36)
-        self.table.cellDoubleClicked.connect(self._show_full)
-        layout.addWidget(self.table)
+        # Scrollable content area
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+        content_widget = QWidget()
+        self.content_layout = QVBoxLayout(content_widget)
+        self.content_layout.setSpacing(10)
+        self.content_layout.setContentsMargins(0, 0, 0, 0)
+        scroll.setWidget(content_widget)
+        layout.addWidget(scroll)
 
+        # Detail panel at bottom
         self.detail = QTextEdit()
         self.detail.setReadOnly(True)
         self.detail.setFont(QFont("monospace", FONT_SIZE))
-        self.detail.setMaximumHeight(70)
-        self.detail.setPlaceholderText("Double-click a row to see full value...")
-        self.detail.setStyleSheet("background: #1a1a2e; color: #E0E0E0; border: 1px solid #333;")
+        self.detail.setMaximumHeight(130)
+        self.detail.setPlaceholderText("Click any memory to see full content...")
+        self.detail.setStyleSheet("background: #0d1117; color: #E0E0E0; border: 1px solid #444;")
         layout.addWidget(self.detail)
-
-        # Journal section label
-        journal_label = QLabel("Recent journal (last 5 entries — also injected into creature context each cycle)")
-        journal_label.setFont(QFont("monospace", FONT_SIZE - 2))
-        journal_label.setStyleSheet("color: #FFB74D; padding-top: 6px;")
-        layout.addWidget(journal_label)
-
-        self.journal_table = QTableWidget(0, 3)
-        self.journal_table.setHorizontalHeaderLabels(["Time", "Kind", "Content"])
-        self.journal_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        self.journal_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        self.journal_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        self.journal_table.verticalHeader().setVisible(False)
-        self.journal_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.journal_table.setFont(QFont("monospace", FONT_SIZE - 1))
-        self.journal_table.verticalHeader().setDefaultSectionSize(28)
-        self.journal_table.setMaximumHeight(180)
-        layout.addWidget(self.journal_table)
 
         self.timer = QTimer()
         self.timer.timeout.connect(self.refresh)
         self.timer.start(5000)
         self.refresh()
 
+    def _section_label(self, text, color):
+        lbl = QLabel(text)
+        lbl.setFont(QFont("sans-serif", FONT_SIZE - 1, QFont.Weight.Bold))
+        lbl.setStyleSheet(f"color: {color}; padding: 4px 2px 2px 2px;")
+        return lbl
+
+    def _make_table(self, headers, stretch_col):
+        t = QTableWidget(0, len(headers))
+        t.setHorizontalHeaderLabels(headers)
+        for i in range(len(headers)):
+            if i == stretch_col:
+                t.horizontalHeader().setSectionResizeMode(i, QHeaderView.ResizeMode.Stretch)
+            else:
+                t.horizontalHeader().setSectionResizeMode(i, QHeaderView.ResizeMode.ResizeToContents)
+        t.verticalHeader().setVisible(False)
+        t.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        t.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        t.setFont(QFont("monospace", FONT_SIZE))
+        t.verticalHeader().setDefaultSectionSize(32)
+        t.setAlternatingRowColors(True)
+        t.setWordWrap(False)
+        return t
+
     def refresh(self):
         if not os.path.exists(MEMORY_DB):
-            self.status.setText("memory.db not found")
+            self.status.setText("memory.db not found — creature has not written any memories yet")
             return
         try:
             conn = sqlite3.connect(MEMORY_DB)
@@ -253,81 +256,118 @@ class MemoryTab(QWidget):
             self.status.setText(f"DB error: {e}")
             return
 
-        self.table.setRowCount(0)
+        # Clear content
+        while self.content_layout.count():
+            item = self.content_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
         total = len(rows)
+        l1 = rows[:5]
+        l2 = rows[5:50]
+        l3 = rows[50:]
 
-        for idx, (key, value, tags, updated) in enumerate(rows):
-            r = self.table.rowCount()
-            self.table.insertRow(r)
-            ts = time.strftime("%m-%d %H:%M", time.localtime(updated))
+        # ── Layer 1: Working memory ──
+        self.content_layout.addWidget(
+            self._section_label(f"🟢  Working memory — last {len(l1)} entries (full content, injected every cycle)", "#4CAF50"))
+        if l1:
+            for key, value, tags, updated in l1:
+                card = QFrame()
+                card.setStyleSheet("QFrame { background: #0d1f0d; border: 1px solid #2d5a2d; border-radius: 4px; padding: 6px; }")
+                card_layout = QVBoxLayout(card)
+                card_layout.setSpacing(2)
+                card_layout.setContentsMargins(8, 6, 8, 6)
+                ts = time.strftime("%m-%d %H:%M", time.localtime(updated))
+                header = QLabel(f"<b style=\'color:#4CAF50;\'>{key}</b>"
+                                f"<span style=\'color:#555; font-size:11px;\'> — {ts}"
+                                + (f" — {tags}" if tags else "") + "</span>")
+                header.setTextFormat(Qt.TextFormat.RichText)
+                header.setFont(QFont("monospace", FONT_SIZE - 1))
+                body = QLabel(value)
+                body.setWordWrap(True)
+                body.setFont(QFont("monospace", FONT_SIZE - 1))
+                body.setStyleSheet("color: #C8E6C9;")
+                card_layout.addWidget(header)
+                card_layout.addWidget(body)
+                card.mousePressEvent = lambda e, k=key, v=value: self.detail.setPlainText("[" + k + "]" + chr(10) + v)
+                self.content_layout.addWidget(card)
+        else:
+            lbl = QLabel("  (no memories yet — creature has not called remember)")
+            lbl.setStyleSheet("color: #555; padding: 4px 8px;")
+            lbl.setFont(QFont("monospace", FONT_SIZE - 1))
+            self.content_layout.addWidget(lbl)
 
-            # Determine layer
-            if idx < 5:
-                layer = "working"
-                preview = value.replace("\n", " ")[:200]
-                layer_color = QColor("#4CAF50")   # green
-            elif idx < 50:
-                layer = "intermediate"
-                preview = value.replace("\n", " ")[:120]
-                layer_color = QColor("#64B5F6")   # blue
-            else:
-                layer = "archive"
-                preview = ""                       # theme only — key is enough
-                layer_color = QColor("#9E9E9E")   # grey
+        # ── Layer 2: Intermediate ──
+        self.content_layout.addWidget(
+            self._section_label(f"🔵  Intermediate — {len(l2)} entries (one-liner injected, click for full)", "#64B5F6"))
+        if l2:
+            t2 = self._make_table(["Key", "Preview", "Updated"], stretch_col=1)
+            for key, value, tags, updated in l2:
+                r = t2.rowCount()
+                t2.insertRow(r)
+                ts = time.strftime("%m-%d %H:%M", time.localtime(updated))
+                headline = value.replace("\n", " ")[:120]
+                for col, (text, color) in enumerate([
+                    (key,      "#64B5F6"),
+                    (headline, "#B0BEC5"),
+                    (ts,       "#555"),
+                ]):
+                    item = QTableWidgetItem(text)
+                    item.setForeground(QColor(color))
+                    if col == 1:
+                        item.setData(Qt.ItemDataRole.UserRole, (key, value))
+                    t2.setItem(r, col, item)
+            t2.cellClicked.connect(lambda row, col, t=t2: self._expand(t, row))
+            t2.setMaximumHeight(min(len(l2) * 34 + 30, 300))
+            self.content_layout.addWidget(t2)
+        else:
+            lbl = QLabel("  (empty — fills as working memory grows past 5)")
+            lbl.setStyleSheet("color: #555; padding: 4px 8px;")
+            lbl.setFont(QFont("monospace", FONT_SIZE - 1))
+            self.content_layout.addWidget(lbl)
 
-            layer_item = QTableWidgetItem(layer)
-            layer_item.setForeground(layer_color)
-            key_item = QTableWidgetItem(key)
-            key_item.setForeground(layer_color)
-            preview_item = QTableWidgetItem(preview)
-            preview_item.setForeground(QColor(DEFAULT_COLOR))
-            preview_item.setData(Qt.ItemDataRole.UserRole, value)
-            tags_item = QTableWidgetItem(tags or "")
-            tags_item.setForeground(QColor("#9E9E9E"))
-            ts_item = QTableWidgetItem(ts)
-            ts_item.setForeground(QColor("#9E9E9E"))
+        # ── Layer 3: Archive ──
+        self.content_layout.addWidget(
+            self._section_label(f"⚫  Archive — {len(l3)} entries (key only injected, click for full)", "#9E9E9E"))
+        if l3:
+            t3 = self._make_table(["Key", "Updated"], stretch_col=0)
+            for key, value, tags, updated in l3:
+                r = t3.rowCount()
+                t3.insertRow(r)
+                ts = time.strftime("%m-%d %H:%M", time.localtime(updated))
+                for col, (text, color) in enumerate([
+                    (key, "#9E9E9E"),
+                    (ts,  "#555"),
+                ]):
+                    item = QTableWidgetItem(text)
+                    item.setForeground(QColor(color))
+                    if col == 0:
+                        item.setData(Qt.ItemDataRole.UserRole, (key, value))
+                    t3.setItem(r, col, item)
+            t3.cellClicked.connect(lambda row, col, t=t3: self._expand(t, row))
+            t3.setMaximumHeight(min(len(l3) * 34 + 30, 200))
+            self.content_layout.addWidget(t3)
+        else:
+            lbl = QLabel("  (empty — fills as intermediate grows past 50)")
+            lbl.setStyleSheet("color: #555; padding: 4px 8px;")
+            lbl.setFont(QFont("monospace", FONT_SIZE - 1))
+            self.content_layout.addWidget(lbl)
 
-            self.table.setItem(r, 0, layer_item)
-            self.table.setItem(r, 1, key_item)
-            self.table.setItem(r, 2, preview_item)
-            self.table.setItem(r, 3, tags_item)
-            self.table.setItem(r, 4, ts_item)
+        self.content_layout.addStretch()
 
         self.status.setText(
             f"{total} memories  |  "
-            f"working: {min(total,5)}  "
-            f"intermediate: {max(0,min(total,50)-5)}  "
-            f"archive: {max(0,total-50)}  |  "
+            f"working: {len(l1)}  intermediate: {len(l2)}  archive: {len(l3)}  |  "
             f"{time.strftime('%H:%M:%S')}"
         )
 
-        # Refresh journal section
-        self.journal_table.setRowCount(0)
-        if os.path.exists(JOURNAL_PATH):
-            try:
-                with open(JOURNAL_PATH, encoding="utf-8") as f:
-                    entries = [json.loads(l) for l in f if l.strip()]
-                for e in entries[-5:]:
-                    r = self.journal_table.rowCount()
-                    self.journal_table.insertRow(r)
-                    ts = time.strftime("%H:%M:%S", time.localtime(e.get("ts", 0)))
-                    kind = e.get("kind", "")
-                    text = e.get("content", "").replace("\n", " ")[:200]
-                    color = QColor(KIND_COLORS.get(kind, DEFAULT_COLOR))
-                    for col, val in enumerate([ts, kind, text]):
-                        item = QTableWidgetItem(val)
-                        item.setForeground(color)
-                        self.journal_table.setItem(r, col, item)
-            except Exception:
-                pass
-
-    def _show_full(self, row, col):
-        item = self.table.item(row, 2)
+    def _expand(self, table, row):
+        item = table.item(row, 0)
         if item:
-            key = self.table.item(row, 1).text() if self.table.item(row, 1) else ""
-            layer = self.table.item(row, 0).text() if self.table.item(row, 0) else ""
-            full = item.data(Qt.ItemDataRole.UserRole) or item.text()
-            self.detail.setPlainText(f"[{layer}] [{key}]\n{full}")
+            data = item.data(Qt.ItemDataRole.UserRole)
+            if data:
+                key, value = data
+                self.detail.setPlainText("[" + key + "]" + chr(10) + value)
 
 
 # ── Container Tab ────────────────────────────────────────────────────
