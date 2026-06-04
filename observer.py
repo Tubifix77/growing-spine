@@ -209,7 +209,7 @@ class MemoryTab(QWidget):
         self.detail = QTextEdit()
         self.detail.setReadOnly(True)
         self.detail.setFont(QFont("monospace", FONT_SIZE))
-        self.detail.setMaximumHeight(130)
+        self.detail.setMaximumHeight(400)
         self.detail.setPlaceholderText("Click any memory to see full content...")
         self.detail.setStyleSheet("background: #0d1117; color: #E0E0E0; border: 1px solid #444;")
         layout.addWidget(self.detail)
@@ -391,7 +391,7 @@ class MemoryTab(QWidget):
                         item.setData(Qt.ItemDataRole.UserRole, (ts, full))
                     tt.setItem(r, col, item)
             tt.cellClicked.connect(lambda row, col, t=tt: self._expand_thought(t, row))
-            tt.setMaximumHeight(16777215)  # no cap — scroll area handles it
+            tt.setMaximumHeight(6 * 34 + 30)  # 6 visible rows
             self.content_layout.addWidget(tt)
         else:
             lbl = QLabel("  (no thoughts yet)")
