@@ -194,7 +194,7 @@ class MemoryTab(QWidget):
         top.addWidget(refresh_btn)
         layout.addLayout(top)
 
-        # Scrollable content area
+        # Scrollable area — memory layers only
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
@@ -203,14 +203,26 @@ class MemoryTab(QWidget):
         self.content_layout.setSpacing(10)
         self.content_layout.setContentsMargins(0, 0, 0, 0)
         scroll.setWidget(content_widget)
-        layout.addWidget(scroll)
+        layout.addWidget(scroll, stretch=1)
 
-        # Detail panel at bottom
+        # Outputs section — outside scroll area, fixed height
+        outputs_label = QLabel("💭  Growing Spine outputs (click to read full)")
+        outputs_label.setFont(QFont("sans-serif", FONT_SIZE - 1, QFont.Weight.Bold))
+        outputs_label.setStyleSheet("color: #64B5F6; padding: 4px 2px 2px 2px;")
+        layout.addWidget(outputs_label)
+
+        self.outputs_table = self._make_table(["Time", "Preview"], stretch_col=1)
+        self.outputs_table.cellClicked.connect(lambda row, col: self._expand_thought(self.outputs_table, row))
+        self.outputs_table.setFixedHeight(6 * self.outputs_table.verticalHeader().defaultSectionSize()
+                                          + self.outputs_table.horizontalHeader().sizeHint().height() + 4)
+        layout.addWidget(self.outputs_table)
+
+        # Detail panel — fixed at bottom
         self.detail = QTextEdit()
         self.detail.setReadOnly(True)
         self.detail.setFont(QFont("monospace", FONT_SIZE))
-        self.detail.setMaximumHeight(400)
-        self.detail.setPlaceholderText("Click any memory to see full content...")
+        self.detail.setFixedHeight(300)
+        self.detail.setPlaceholderText("Click any memory or output to read it here...")
         self.detail.setStyleSheet("background: #0d1117; color: #E0E0E0; border: 1px solid #444;")
         layout.addWidget(self.detail)
 
@@ -354,9 +366,7 @@ class MemoryTab(QWidget):
             self.content_layout.addWidget(lbl)
 
 
-        # ── Recent thoughts (think_end) ──
-        self.content_layout.addWidget(
-            self._section_label("💭  Growing Spine outputs (click to read full)", "#64B5F6"))
+        # Refresh outputs table (outside scroll area)
         thoughts = []
         if os.path.exists(JOURNAL_PATH):
             try:
@@ -373,31 +383,22 @@ class MemoryTab(QWidget):
             except Exception:
                 pass
         thoughts = thoughts[::-1]  # newest first
-        if thoughts:
-            tt = self._make_table(["Time", "Preview"], stretch_col=1)
-            for e in thoughts:
-                r = tt.rowCount()
-                tt.insertRow(r)
-                ts = time.strftime("%m-%d %H:%M", time.localtime(e.get("ts", 0)))
-                preview = e.get("content", "").replace("\n", " ")[:120]
-                full = e.get("content", "")
-                for col, (text, color) in enumerate([
-                    (ts,      "#64B5F6"),
-                    (preview, "#B0BEC5"),
-                ]):
-                    item = QTableWidgetItem(text)
-                    item.setForeground(QColor(color))
-                    if col == 1:
-                        item.setData(Qt.ItemDataRole.UserRole, (ts, full))
-                    tt.setItem(r, col, item)
-            tt.setFixedHeight(226)  # 6 rows * 32px + 30px header, measured
-            tt.setMaximumHeight(226)  # 6 rows * 32px + 30px header
-            self.content_layout.addWidget(tt)
-        else:
-            lbl = QLabel("  (no thoughts yet)")
-            lbl.setStyleSheet("color: #555; padding: 4px 8px;")
-            lbl.setFont(QFont("monospace", FONT_SIZE - 1))
-            self.content_layout.addWidget(lbl)
+        self.outputs_table.setRowCount(0)
+        for e in thoughts:
+            r = self.outputs_table.rowCount()
+            self.outputs_table.insertRow(r)
+            ts = time.strftime("%m-%d %H:%M", time.localtime(e.get("ts", 0)))
+            preview = e.get("content", "").replace("\n", " ")[:120]
+            full = e.get("content", "")
+            for col, (text, color) in enumerate([
+                (ts,      "#64B5F6"),
+                (preview, "#B0BEC5"),
+            ]):
+                item = QTableWidgetItem(text)
+                item.setForeground(QColor(color))
+                if col == 1:
+                    item.setData(Qt.ItemDataRole.UserRole, (ts, full))
+                self.outputs_table.setItem(r, col, item)
 
         self.status.setText(
             f"{total} memories  |  "
