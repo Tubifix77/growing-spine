@@ -391,7 +391,7 @@ class MemoryTab(QWidget):
                         item.setData(Qt.ItemDataRole.UserRole, (ts, full))
                     tt.setItem(r, col, item)
             tt.cellClicked.connect(lambda row, col, t=tt: self._expand_thought(t, row))
-            tt.setMaximumHeight(6 * 44 + 34)  # 6 visible rows (44px per row on Linux)
+            tt.setMaximumHeight(226)  # 6 rows * 32px + 30px header
             self.content_layout.addWidget(tt)
         else:
             lbl = QLabel("  (no thoughts yet)")
