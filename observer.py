@@ -390,7 +390,7 @@ class MemoryTab(QWidget):
                     if col == 1:
                         item.setData(Qt.ItemDataRole.UserRole, (ts, full))
                     tt.setItem(r, col, item)
-            tt.cellClicked.connect(lambda row, col, t=tt: self._expand_thought(t, row))
+            tt.setFixedHeight(226)  # 6 rows * 32px + 30px header, measured
             tt.setMaximumHeight(226)  # 6 rows * 32px + 30px header
             self.content_layout.addWidget(tt)
         else:
