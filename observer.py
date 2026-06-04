@@ -240,6 +240,24 @@ class MemoryTab(QWidget):
         self.detail.setStyleSheet("background: #1a1a2e; color: #E0E0E0; border: 1px solid #333;")
         layout.addWidget(self.detail)
 
+        # Journal section label
+        journal_label = QLabel("Recent journal (last 5 entries — also injected into creature context each cycle)")
+        journal_label.setFont(QFont("monospace", FONT_SIZE - 2))
+        journal_label.setStyleSheet("color: #FFB74D; padding-top: 6px;")
+        layout.addWidget(journal_label)
+
+        self.journal_table = QTableWidget(0, 3)
+        self.journal_table.setHorizontalHeaderLabels(["Time", "Kind", "Content"])
+        self.journal_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        self.journal_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        self.journal_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        self.journal_table.verticalHeader().setVisible(False)
+        self.journal_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.journal_table.setFont(QFont("monospace", FONT_SIZE - 1))
+        self.journal_table.verticalHeader().setDefaultSectionSize(28)
+        self.journal_table.setMaximumHeight(180)
+        layout.addWidget(self.journal_table)
+
         self.timer = QTimer()
         self.timer.timeout.connect(self.refresh)
         self.timer.start(5000)
@@ -306,6 +324,26 @@ class MemoryTab(QWidget):
             f"archive: {max(0,total-50)}  |  "
             f"{time.strftime('%H:%M:%S')}"
         )
+
+        # Refresh journal section
+        self.journal_table.setRowCount(0)
+        if os.path.exists(JOURNAL_PATH):
+            try:
+                with open(JOURNAL_PATH, encoding="utf-8") as f:
+                    entries = [json.loads(l) for l in f if l.strip()]
+                for e in entries[-5:]:
+                    r = self.journal_table.rowCount()
+                    self.journal_table.insertRow(r)
+                    ts = time.strftime("%H:%M:%S", time.localtime(e.get("ts", 0)))
+                    kind = e.get("kind", "")
+                    text = e.get("content", "").replace("\n", " ")[:200]
+                    color = QColor(KIND_COLORS.get(kind, DEFAULT_COLOR))
+                    for col, val in enumerate([ts, kind, text]):
+                        item = QTableWidgetItem(val)
+                        item.setForeground(color)
+                        self.journal_table.setItem(r, col, item)
+            except Exception:
+                pass
 
     def _show_full(self, row, col):
         item = self.table.item(row, 2)
