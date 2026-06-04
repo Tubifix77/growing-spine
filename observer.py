@@ -399,8 +399,6 @@ class MemoryTab(QWidget):
             lbl.setFont(QFont("monospace", FONT_SIZE - 1))
             self.content_layout.addWidget(lbl)
 
-        self.content_layout.addStretch()
-
         self.status.setText(
             f"{total} memories  |  "
             f"working: {len(l1)}  intermediate: {len(l2)}  archive: {len(l3)}  |  "
