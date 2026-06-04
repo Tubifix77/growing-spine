@@ -1,0 +1,20 @@
+#!/usr/bin/env python3
+"""Show your available tools. Usage: tools"""
+import os
+def first_doc(path):
+    try:
+        with open(path) as f:
+            for line in f:
+                s = line.strip().strip(chr(34)).strip(chr(39)).strip("#").strip()
+                if s and not s.startswith(("!", "import", "from", "def ", "class ")):
+                    return s
+    except Exception:
+        pass
+    return "(no description)"
+for label, d in [("BUILT-IN TOOLS (always here)", "/mind/tools/framework"), ("YOUR TOOLS (you made these)", "/mind/tools/own")]:
+    print(); print(f"## {label}")
+    if os.path.isdir(d) and os.listdir(d):
+        for name in sorted(os.listdir(d)):
+            print(f"  {name} - {first_doc(os.path.join(d, name))}")
+    else:
+        print("  (none yet - make one with: tool-new <name>)" if "YOUR" in label else "  (none)")

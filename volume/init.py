@@ -1,4 +1,4 @@
-"""init.py â initialise the mind volume on first run."""
+"""init.py Ã¢ÂÂ initialise the mind volume on first run."""
 import os, shutil, time
 
 from . import memory
@@ -14,10 +14,12 @@ def init_volume(volume_mount: str, repo_root: str, force: bool = False):
     """
     Set up the mind volume for first run (or force re-init).
     Creates dirs, seeds editable-prompt, initialises memory DB, writes first journal entry.
-    Safe to call on every startup â skips steps already done unless force=True.
+    Safe to call on every startup Ã¢ÂÂ skips steps already done unless force=True.
     """
     os.makedirs(volume_mount, exist_ok=True)
     os.makedirs(os.path.join(volume_mount, SKILLS_DIR), exist_ok=True)
+    os.makedirs(os.path.join(volume_mount, "tools", "framework"), exist_ok=True)
+    os.makedirs(os.path.join(volume_mount, "tools", "own"), exist_ok=True)
 
     # Seed editable-prompt from starter-prompt.md if not present
     prompt_path = os.path.join(volume_mount, PROMPT_FILENAME)
@@ -30,14 +32,14 @@ def init_volume(volume_mount: str, repo_root: str, force: bool = False):
             # write a minimal stub so the loop doesn't crash
             with open(prompt_path, "w") as f:
                 f.write("You are a creature in a box. You exist to grow.\n")
-            print(f"[init] WARNING: starter-prompt.md not found â wrote minimal stub")
+            print(f"[init] WARNING: starter-prompt.md not found Ã¢ÂÂ wrote minimal stub")
 
     # Initialise memory DB
     db_path = os.path.join(volume_mount, memory.DB_FILENAME)
     if not os.path.exists(db_path) or force:
         memory.init_db(volume_mount)
         print(f"[init] memory.db initialised")
-        # Seed first memory â the creature's birth record
+        # Seed first memory Ã¢ÂÂ the creature's birth record
         memory.store(
             volume_mount,
             key="birth",
@@ -47,7 +49,7 @@ def init_volume(volume_mount: str, repo_root: str, force: bool = False):
         )
         print(f"[init] birth memory seeded")
     else:
-        # DB exists â ensure schema is current (idempotent)
+        # DB exists Ã¢ÂÂ ensure schema is current (idempotent)
         memory.init_db(volume_mount)
 
     # Write first journal entry if journal is empty
@@ -62,7 +64,7 @@ def init_volume(volume_mount: str, repo_root: str, force: bool = False):
     return True
 
 def volume_is_initialised(volume_mount: str) -> bool:
-    """Quick check â does the volume look like it's been set up?"""
+    """Quick check Ã¢ÂÂ does the volume look like it's been set up?"""
     return (
         os.path.exists(os.path.join(volume_mount, PROMPT_FILENAME)) and
         os.path.exists(os.path.join(volume_mount, memory.DB_FILENAME))

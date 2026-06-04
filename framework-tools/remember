@@ -1,0 +1,19 @@
+#!/usr/bin/env python3
+"""Save a fact to long-term memory so it survives sleep. Usage: remember <key> <value> [--tags a,b]"""
+import sqlite3, time, argparse
+DB = "/mind/memory.db"
+p = argparse.ArgumentParser()
+p.add_argument("key"); p.add_argument("value"); p.add_argument("--tags", default="")
+a = p.parse_args()
+now = time.time()
+conn = sqlite3.connect(DB, timeout=5)
+conn.execute("PRAGMA journal_mode=WAL")
+conn.execute("CREATE TABLE IF NOT EXISTS memories (id INTEGER PRIMARY KEY AUTOINCREMENT, key TEXT NOT NULL, value TEXT NOT NULL, tags TEXT DEFAULT '', created REAL NOT NULL, updated REAL NOT NULL)")
+ex = conn.execute("SELECT id FROM memories WHERE key=?", (a.key,)).fetchone()
+if ex:
+    conn.execute("UPDATE memories SET value=?, tags=?, updated=? WHERE key=?", (a.value, a.tags, now, a.key))
+    print(f"Updated memory '{a.key}'.")
+else:
+    conn.execute("INSERT INTO memories (key,value,tags,created,updated) VALUES (?,?,?,?,?)", (a.key, a.value, a.tags, now, now))
+    print(f"Saved memory '{a.key}'. It will be in your working memory next cycle.")
+conn.commit(); conn.close()

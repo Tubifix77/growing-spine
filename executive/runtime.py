@@ -2,6 +2,7 @@
 import asyncio, os, time, subprocess
 from . import sandbox, journal
 from volume import savegame
+from volume import tools as toolmod
 
 
 def _death_log_entry(volume_mount: str, last_cmd: str, cause: str):
@@ -85,7 +86,14 @@ def sleep_duration_seconds(keychain) -> float:
 
 
 async def wake_entry(volume_mount: str, keychain):
-    """Log a coherent wake entry with budget info."""
+    """Restore framework tools, then log a coherent wake entry with budget info."""
+    # Immutability by restoration: re-materialize the canonical framework
+    # toolset onto the volume each wake, overwriting any prior-life tampering.
+    try:
+        toolmod.materialize_framework(volume_mount)
+    except Exception as e:
+        print(f"[runtime] framework materialize failed: {e}")
+
     available = keychain.available_providers()
     provider_names = [p["key"] for p in available]
     budget_info = ", ".join(

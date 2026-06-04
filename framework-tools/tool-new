@@ -1,0 +1,16 @@
+#!/usr/bin/env python3
+"""Create a new tool of your own that persists across sleep. Usage: tool-new <name>"""
+import sys, os
+OWN = "/mind/tools/own"
+if len(sys.argv) < 2:
+    print("Usage: tool-new <name>"); sys.exit(1)
+name = sys.argv[1]
+os.makedirs(OWN, exist_ok=True)
+path = os.path.join(OWN, name)
+if os.path.exists(path):
+    print(f"Tool '{name}' already exists at {path}."); sys.exit(1)
+template = "#!/usr/bin/env python3\n" + chr(34)*3 + "ONE LINE DESCRIBING WHAT THIS TOOL DOES - edit me." + chr(34)*3 + "\n# Your code here.\nprint(\"hello from " + name + "\")\n"
+open(path, "w").write(template)
+os.chmod(path, 0o755)
+print(f"Created {path}. Edit it, then run it as: {name}")
+print("Its first docstring line becomes its description in your tool list.")

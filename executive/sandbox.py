@@ -28,11 +28,13 @@ def start(dockerfile_dir: str = "."):
     if r.returncode != 0:
         build_image(dockerfile_dir)
 
+    import os
+    host_mind = os.path.expanduser("~/growing-spine-mind")
     subprocess.run([
         "docker", "run", "-d",
         "--name", CONTAINER_NAME,
         "--rm",  # auto-remove when stopped (we respawn from image)
-        "-v", f"{VOLUME_NAME}:/mind",
+        "-v", f"{host_mind}:/mind",  # bind-mount the real host mind dir
         "--network", "bridge",
         IMAGE_NAME,
         "sleep", "infinity"
@@ -51,9 +53,10 @@ def run_command(cmd: str) -> tuple:
     Returns (stdout, stderr, exit_code).
     """
     enc = base64.b64encode(cmd.encode()).decode()
+    pathline = 'export PATH="/mind/tools/framework:/mind/tools/own:$PATH"; '
     r = subprocess.run(
         ["docker", "exec", CONTAINER_NAME,
-         "bash", "-c", f"echo {enc} | base64 -d | bash"],
+         "bash", "-c", pathline + f"echo {enc} | base64 -d | bash"],
         capture_output=True, text=True, timeout=300
     )
     return r.stdout, r.stderr, r.returncode

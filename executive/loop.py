@@ -8,6 +8,7 @@ from .runtime import (managed_exec, ensure_body, wake_entry,
 from keychain import Keychain
 from volume import memory as mem
 from volume import savegame
+from volume import tools as toolmod
 
 VOLUME_MOUNT = os.path.expanduser("~/growing-spine-mind")
 EDITABLE_PROMPT_PATH = os.path.join(VOLUME_MOUNT, "editable-prompt.md")
@@ -54,18 +55,37 @@ def _build_memory_context() -> str:
     return ("\n\n" + "\n\n".join(parts)) if parts else ""
 
 
+# Journal kinds worth showing the creature — its thoughts and results,
+# not executive plumbing (think_start, wake, sleep, exec_start, exec_skip).
+MEANINGFUL_KINDS = {"think_end", "exec_end", "error", "exec_timeout",
+                    "respawn", "death", "birth"}
+
+
+def _build_tool_catalogue() -> str:
+    try:
+        return toolmod.build_catalogue(VOLUME_MOUNT)
+    except Exception:
+        return ""
+
+
 def _build_context(recent_journal: list) -> str:
     protected = _load_protected_prompt()
     editable = _load_editable_prompt()
+    catalogue = _build_tool_catalogue()
     memory_text = _build_memory_context()
+
     journal_text = ""
     if recent_journal:
+        meaningful = [e for e in recent_journal if e["kind"] in MEANINGFUL_KINDS]
         lines = []
-        for e in recent_journal[-10:]:
-            ts = time.strftime("%Y-%m-%d %H:%M", time.localtime(e["ts"]))
+        for e in meaningful[-8:]:
+            ts = time.strftime("%H:%M", time.localtime(e["ts"]))
             lines.append(f"[{ts}] {e['kind']}: {e['content'][:300]}")
-        journal_text = "\n\nRecent journal:\n" + "\n".join(lines)
-    return protected + "\n\n" + editable + memory_text + journal_text
+        if lines:
+            journal_text = "\n\nRecent activity (your thoughts and their results):\n" + "\n".join(lines)
+
+    catalogue_block = ("\n\n" + catalogue) if catalogue else ""
+    return protected + "\n\n" + editable + catalogue_block + memory_text + journal_text
 
 
 async def run_cycle(keychain: Keychain, dockerfile_dir: str):
