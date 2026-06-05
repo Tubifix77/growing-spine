@@ -164,7 +164,7 @@ async def run_forever(dockerfile_dir: str = "."):
             # hourly probe to actually reach the API instead of short-circuiting
             # on any_available() while exhausted_at is set.
             await run_cycle(keychain, dockerfile_dir)
-            await asyncio.sleep(5)
+            await asyncio.sleep(30)  # breathe between cycles
 
         except RuntimeError as e:
             msg = str(e)
@@ -184,11 +184,16 @@ async def run_forever(dockerfile_dir: str = "."):
                 await asyncio.sleep(60)
         except Exception as e:
             import subprocess
+            err_str = str(e).lower()
             if isinstance(e, subprocess.TimeoutExpired):
                 journal.append(VOLUME_MOUNT, "exec_timeout",
                                f"Command timed out after {e.timeout}s - continuing.")
                 print(f"[executive] Exec timeout - continuing.")
+                await asyncio.sleep(30)
+            elif "name resolution" in err_str or "network" in err_str or "errno -3" in err_str:
+                print(f"[executive] Network error, waiting 60s for DNS: {e}")
+                await asyncio.sleep(60)
             else:
                 print(f"[executive] Unexpected error: {e}")
                 journal.append(VOLUME_MOUNT, "error", f"UNEXPECTED: {e}")
-            await asyncio.sleep(5)
+                await asyncio.sleep(30)

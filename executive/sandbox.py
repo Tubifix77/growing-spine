@@ -40,6 +40,9 @@ def start(dockerfile_dir: str = "."):
         "-v", f"{host_mind}:/mind",            # curated durable mind (memory, prompts, tools)
         "-v", f"{host_ws}:/workspace",         # the creature's persistent build space
         "--network", "bridge",
+        "--memory", "1g",          # hard cap — prevent OOM kills of host
+        "--memory-swap", "1g",     # no swap either — fail fast inside container
+        "--cpus", "1.5",           # leave headroom for host OS and observer
         IMAGE_NAME,
         "sleep", "infinity"
     ], check=True)
