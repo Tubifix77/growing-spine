@@ -112,9 +112,6 @@ def _build_context(recent_journal: list, tue_message: str = None) -> str:
 
 
 async def run_cycle(keychain: Keychain, dockerfile_dir: str):
-    if not keychain.any_available():
-        raise RuntimeError("All providers exhausted.")
-
     recent_j = journal.recent(VOLUME_MOUNT, n=20)
     tue_message = chatmod.pop_unread(VOLUME_MOUNT)
     context = _build_context(recent_j, tue_message)
@@ -162,14 +159,10 @@ async def run_forever(dockerfile_dir: str = "."):
 
     while True:
         try:
-            if not keychain.any_available():
-                secs = await sleep_entry(VOLUME_MOUNT, keychain)
-                print(f"[executive] Sleeping {secs/60:.1f} min until quota resets.")
-                await asyncio.sleep(secs)
-                keychain = Keychain()  # reload state after sleep
-                await wake_entry(VOLUME_MOUNT, keychain)
-                continue
-
+            # Always attempt run_cycle — keychain.complete() will try each
+            # provider and raise RuntimeError if all reject. This allows the
+            # hourly probe to actually reach the API instead of short-circuiting
+            # on any_available() while exhausted_at is set.
             await run_cycle(keychain, dockerfile_dir)
             await asyncio.sleep(5)
 
