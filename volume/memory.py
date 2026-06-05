@@ -6,13 +6,22 @@ Layer 3 (archive):      entries 51+, key/theme only, always injected.
 
 recall(query) fetches full content from any layer on demand.
 """
-import sqlite3, os, time
+import sqlite3, os, time, re
 
 DB_FILENAME = "memory.db"
 
 LAYER1_SIZE = 5    # working memory — full content
 LAYER2_MAX  = 50   # intermediate ceiling (entries 6-50)
                    # entries 51+ are archive
+
+
+# Executive control-state keys: already surfaced via the active-project block,
+# so they are excluded from the ranked memory layers (they otherwise crowd out
+# genuine memory). The creature's own ad-hoc keys are NOT listed here.
+CONTROL_KEYS = {
+    "current-project", "current-phase", "current-plan",
+    "current-project-done-when", "completed-projects",
+}
 
 
 def _db(volume_mount: str) -> sqlite3.Connection:
@@ -35,6 +44,11 @@ def init_db(volume_mount: str):
                 updated REAL NOT NULL
             )
         """)
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(memories)").fetchall()]
+        if "project" not in cols:
+            conn.execute(
+                "ALTER TABLE memories ADD COLUMN project TEXT NOT NULL DEFAULT ''"
+            )
 
 
 def store(volume_mount: str, key: str, value: str, tags: list = None):
@@ -71,28 +85,94 @@ def _all_by_recency(volume_mount: str) -> list:
     ]
 
 
+def _slug(text: str) -> str:
+    """Stable project slug from a current-project value: the title before the
+    first ':' (or first 60 chars), lowercased, non-alphanumerics -> hyphens."""
+    if not text:
+        return ""
+    head = text.split(":", 1)[0] if ":" in text else text[:60]
+    head = head.strip().lower()[:60]
+    return re.sub(r"[^a-z0-9]+", "-", head).strip("-")
+
+
+def _state(project: str, cur: str) -> int:
+    """Gage state rank: 0=ACTIVE, 1=STANDING, 2=ARCHIVED."""
+    p = project or ""
+    if p == "":
+        return 1          # STANDING: written with no active project
+    if cur and p == cur:
+        return 0          # ACTIVE: belongs to the current project
+    return 2              # ARCHIVED: a finished or abandoned project
+
+
+def _candidates(volume_mount: str) -> list:
+    """All non-control memories, newest-first by id, each carrying project."""
+    with _db(volume_mount) as conn:
+        rows = conn.execute(
+            "SELECT id, key, value, tags, updated, project "
+            "FROM memories ORDER BY id DESC"
+        ).fetchall()
+    return [
+        {"id": r[0], "key": r[1], "value": r[2], "tags": r[3],
+         "updated": r[4], "project": r[5]}
+        for r in rows if r[1] not in CONTROL_KEYS
+    ]
+
+
+def _cur_slug(volume_mount: str) -> str:
+    row = retrieve(volume_mount, "current-project")
+    return _slug(row["value"]) if row else ""
+
+
+def _ranked_rest(volume_mount: str) -> list:
+    """Candidates beyond working memory, ordered by (gage state, recency)."""
+    rest = _candidates(volume_mount)[LAYER1_SIZE:]
+    cur = _cur_slug(volume_mount)
+    rest.sort(key=lambda m: (_state(m["project"], cur), -m["id"]))
+    return rest
+
+
+def stamp_project(volume_mount: str, project_text: str,
+                  since_ts: float, exclude=None) -> int:
+    """Stamp project=slug(project_text) on every memory updated at/after
+    since_ts, except excluded keys. Sets `project` ONLY (never `updated`), so a
+    stamped-but-untouched row will not re-qualify on a later cycle."""
+    slug = _slug(project_text)
+    if not slug:
+        return 0
+    exclude = exclude or set()
+    with _db(volume_mount) as conn:
+        rows = conn.execute(
+            "SELECT id, key FROM memories WHERE updated >= ?", (since_ts,)
+        ).fetchall()
+        ids = [rid for (rid, k) in rows if k not in exclude]
+        if not ids:
+            return 0
+        qmarks = ",".join("?" for _ in ids)
+        conn.execute(
+            f"UPDATE memories SET project=? WHERE id IN ({qmarks})",
+            [slug, *ids]
+        )
+    return len(ids)
+
+
 def layer1(volume_mount: str) -> list:
-    """Last 5 memories — full content."""
-    return _all_by_recency(volume_mount)[:LAYER1_SIZE]
+    """Working memory: the 5 most recent non-control memories, full content."""
+    return _candidates(volume_mount)[:LAYER1_SIZE]
 
 
 def layer2_headlines(volume_mount: str) -> list:
-    """Entries 6-50 — key + one-line headline (first 120 chars of value)."""
-    all_m = _all_by_recency(volume_mount)
-    intermediate = all_m[LAYER1_SIZE:LAYER2_MAX]
+    """Intermediate: next entries by (gage state, recency) — one-line headlines."""
+    intermediate = _ranked_rest(volume_mount)[:LAYER2_MAX - LAYER1_SIZE]
     return [
-        {
-            "key": m["key"],
-            "headline": m["value"][:120].replace("\n", " "),
-        }
+        {"key": m["key"], "headline": m["value"][:120].replace("\n", " ")}
         for m in intermediate
     ]
 
 
 def layer3_themes(volume_mount: str) -> list:
-    """Entries 51+ — keys/themes only."""
-    all_m = _all_by_recency(volume_mount)
-    return [m["key"] for m in all_m[LAYER2_MAX:]]
+    """Archive: remaining entries by (gage state, recency) — keys only."""
+    return [m["key"] for m in _ranked_rest(volume_mount)[LAYER2_MAX - LAYER1_SIZE:]]
 
 
 def retrieve(volume_mount: str, key: str) -> dict:

@@ -148,6 +148,27 @@ def _enforce_done_gate(executed):
         pass
 
 
+def _stamp_gage(cycle_start: float):
+    """Gage grouping: tag this cycle's memories with the active project's slug.
+
+    Runs AFTER the done-gate so a reverted phase (done->code) is reflected: if a
+    project is active, every non-control memory written this cycle joins that
+    project's cluster (grouping is a fact about WHEN written, not a judgment).
+    Between projects (phase done / no project) nothing is stamped, so those
+    memories stay STANDING. State (ACTIVE/STANDING/ARCHIVED) is derived later at
+    read-time; this only records membership.
+    """
+    try:
+        proj = mem.retrieve(VOLUME_MOUNT, "current-project")
+        phase = mem.retrieve(VOLUME_MOUNT, "current-phase")
+        phase_v = (phase or {}).get("value", "").strip().lower()
+        if proj and proj["value"].strip() and phase_v != "done":
+            mem.stamp_project(VOLUME_MOUNT, proj["value"],
+                              since_ts=cycle_start, exclude=mem.CONTROL_KEYS)
+    except Exception:
+        pass
+
+
 def _build_loop_warning() -> str:
     """Detect cross-cycle repetition of one command and nudge — softly.
 
@@ -251,6 +272,7 @@ async def run_cycle(keychain: Keychain, dockerfile_dir: str):
         journal.append(VOLUME_MOUNT, "exec_skip", "No bash blocks in response.")
         return
 
+    cycle_start = time.time()
     executed = []
     last_cmd = ""
     for i, cmd in enumerate(bash_blocks):
@@ -273,6 +295,7 @@ async def run_cycle(keychain: Keychain, dockerfile_dir: str):
         executed.append((cmd, code))
 
     _enforce_done_gate(executed)
+    _stamp_gage(cycle_start)
 
 
 async def run_forever(dockerfile_dir: str = "."):
