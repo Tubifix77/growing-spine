@@ -23,6 +23,13 @@ CONFIG_PATH   = os.path.expanduser("~/growing-spine/config.yaml")
 QUOTA_PATH    = os.path.expanduser("~/growing-spine/keychain/quota_state.json")
 CONTAINER     = "growing-spine-body"
 
+# -- Live memory module (same code the creature uses -> Memory tab can't drift) --
+import importlib.util as _ilu
+_memspec = _ilu.spec_from_file_location(
+    "gmem", os.path.join(os.path.dirname(os.path.abspath(__file__)), "volume", "memory.py"))
+gmem = _ilu.module_from_spec(_memspec)
+_memspec.loader.exec_module(gmem)
+
 # ── Colours per journal kind ─────────────────────────────────────────
 KIND_COLORS = {
     "wake":       "#4CAF50",
@@ -234,62 +241,105 @@ class MemoryTab(QWidget):
 
         self.tree.clear()
 
-        # Load memories
-        rows = []
-        if os.path.exists(MEMORY_DB):
-            try:
-                conn = sqlite3.connect(MEMORY_DB)
-                rows = conn.execute(
-                    "SELECT key, value, tags, updated FROM memories ORDER BY id DESC"
-                ).fetchall()
-                conn.close()
-            except Exception as e:
-                self.status.setText(f"DB error: {e}")
-                return
+        # -- Memory (gage view: exactly what the creature sees) --
+        # Rendered via the live memory.py layer functions so this panel can
+        # never drift from the creature's actual context. Control-state keys
+        # are surfaced separately below (the creature acts on them but no
+        # longer sees them in its ranked memory).
+        try:
+            cur = gmem._cur_slug(MIND_DIR)
+            l1 = gmem.layer1(MIND_DIR)
+            rest = gmem._ranked_rest(MIND_DIR)
+            split = gmem.LAYER2_MAX - gmem.LAYER1_SIZE
+            l2 = rest[:split]
+            l3 = rest[split:]
+            total_all = gmem.count(MIND_DIR)
+            control_n = total_all - (len(l1) + len(rest))
+        except Exception as e:
+            self.status.setText(f"DB error: {e}")
+            return
+        total = total_all
 
-        total = len(rows)
-        l1 = rows[:5]
-        l2 = rows[5:50]
-        l3 = rows[50:]
+        STATE_NAMES = {0: "ACTIVE", 1: "STANDING", 2: "ARCHIVED"}
+        STATE_COLORS = {0: "#80DEEA", 1: "#B0BEC5", 2: "#9E9E9E"}
 
-        # Working Memory (Layer 1)
-        l1_label = f"Working Memory  ({len(l1)} entries, full content each cycle)"
-        l1_root = self._make_root(l1_label, "#4CAF50")
+        def _gtag(m):
+            st = gmem._state(m.get("project", ""), cur)
+            return st, f"{STATE_NAMES[st]} / {m.get('project') or '-'}"
+
+        # Working Memory (Layer 1) -- 5 newest non-control, full content
+        l1_root = self._make_root(
+            f"Working Memory  ({len(l1)} entries, full content each cycle)", "#4CAF50")
         if l1:
-            for key, value, tags, updated in l1:
-                ts = time.strftime("%m-%d %H:%M", time.localtime(updated))
-                headline = value.replace("\n", " ")[:80]
-                child = QTreeWidgetItem(l1_root, [f"{key}  —  {headline}  [{ts}]"])
+            for m in l1:
+                st, tag = _gtag(m)
+                ts = time.strftime("%m-%d %H:%M", time.localtime(m["updated"]))
+                headline = m["value"].replace("\n", " ")[:78]
+                child = QTreeWidgetItem(l1_root, [f"{m['key']}  -  {headline}   [{tag}]  [{ts}]"])
                 child.setForeground(0, QColor("#C8E6C9"))
-                child.setData(0, Qt.ItemDataRole.UserRole, ("memory", key, value))
+                child.setData(0, Qt.ItemDataRole.UserRole, ("memory", m["key"], m["value"]))
         else:
-            empty = QTreeWidgetItem(l1_root, ["(no memories yet — creature has not called remember)"])
+            empty = QTreeWidgetItem(l1_root, ["(no memories yet -- creature has not called remember)"])
             empty.setForeground(0, QColor("#555"))
 
-        # Intermediate (Layer 2)
-        l2_label = f"Intermediate  ({len(l2)} entries, headline in context)"
-        l2_root = self._make_root(l2_label, "#64B5F6")
-        for key, value, tags, updated in l2:
-            ts = time.strftime("%m-%d %H:%M", time.localtime(updated))
-            headline = value.replace("\n", " ")[:80]
-            child = QTreeWidgetItem(l2_root, [f"{key}  —  {headline}  [{ts}]"])
-            child.setForeground(0, QColor("#B0BEC5"))
-            child.setData(0, Qt.ItemDataRole.UserRole, ("memory", key, value))
+        # Intermediate (Layer 2) -- ordered by (gage state, recency); active first
+        l2_root = self._make_root(
+            f"Intermediate  ({len(l2)} entries, headline -- active first)", "#64B5F6")
+        for m in l2:
+            st, tag = _gtag(m)
+            ts = time.strftime("%m-%d %H:%M", time.localtime(m["updated"]))
+            headline = m["value"].replace("\n", " ")[:78]
+            child = QTreeWidgetItem(l2_root, [f"{m['key']}  -  {headline}   [{tag}]  [{ts}]"])
+            child.setForeground(0, QColor(STATE_COLORS[st]))
+            child.setData(0, Qt.ItemDataRole.UserRole, ("memory", m["key"], m["value"]))
         if not l2:
-            empty = QTreeWidgetItem(l2_root, ["(empty — fills as working memory grows past 5)"])
+            empty = QTreeWidgetItem(l2_root, ["(empty -- fills as working memory grows past 5)"])
             empty.setForeground(0, QColor("#555"))
 
-        # Archive (Layer 3)
-        l3_label = f"Archive  ({len(l3)} entries, key only in context)"
-        l3_root = self._make_root(l3_label, "#9E9E9E")
-        for key, value, tags, updated in l3:
-            ts = time.strftime("%m-%d %H:%M", time.localtime(updated))
-            child = QTreeWidgetItem(l3_root, [f"{key}  [{ts}]"])
-            child.setForeground(0, QColor("#757575"))
-            child.setData(0, Qt.ItemDataRole.UserRole, ("memory", key, value))
+        # Archive (Layer 3) -- ordered by (gage state, recency); keys only
+        l3_root = self._make_root(
+            f"Archive  ({len(l3)} entries, key only in context)", "#9E9E9E")
+        for m in l3:
+            st, tag = _gtag(m)
+            ts = time.strftime("%m-%d %H:%M", time.localtime(m["updated"]))
+            child = QTreeWidgetItem(l3_root, [f"{m['key']}   [{tag}]  [{ts}]"])
+            child.setForeground(0, QColor(STATE_COLORS[st]))
+            child.setData(0, Qt.ItemDataRole.UserRole, ("memory", m["key"], m["value"]))
         if not l3:
             empty = QTreeWidgetItem(l3_root, ["(empty)"])
             empty.setForeground(0, QColor("#555"))
+
+        # Control state -- executive keys, hidden from the creature's ranked
+        # layers; shown here so the overview is complete.
+        ctrl_root = self._make_root(
+            f"Control state  ({control_n} keys -- not in creature's ranked memory)", "#FFB74D")
+        _any_ctrl = False
+        for k in ("current-project", "current-phase", "current-plan",
+                  "current-project-done-when", "completed-projects"):
+            row = gmem.retrieve(MIND_DIR, k)
+            if not row:
+                continue
+            _any_ctrl = True
+            ts = time.strftime("%m-%d %H:%M", time.localtime(row["updated"]))
+            headline = row["value"].replace("\n", " ")[:90]
+            child = QTreeWidgetItem(ctrl_root, [f"{k}  -  {headline}  [{ts}]"])
+            child.setForeground(0, QColor("#FFE0B2"))
+            child.setData(0, Qt.ItemDataRole.UserRole, ("memory", k, row["value"]))
+        if not _any_ctrl:
+            empty = QTreeWidgetItem(ctrl_root, ["(no control state yet)"])
+            empty.setForeground(0, QColor("#555"))
+
+        # Pending done-gate block (transient; shown to creature next cycle)
+        _dbpath = os.path.join(MIND_DIR, "done_block.txt")
+        if os.path.exists(_dbpath):
+            try:
+                _reason = open(_dbpath, encoding="utf-8").read().strip()
+            except Exception:
+                _reason = ""
+            if _reason:
+                dg_root = self._make_root("Pending done-gate block (next cycle)", "#EF5350")
+                child = QTreeWidgetItem(dg_root, [_reason.replace("\n", " ")[:200]])
+                child.setForeground(0, QColor("#FFCDD2"))
 
         # Outputs (think_end entries)
         thoughts = []
