@@ -174,15 +174,15 @@ class JournalTab(QWidget):
 
 
 
-# ── Memory Tab ───────────────────────────────────────────────────────
+# ── Memory Tab (tree-style, like Container tab) ────────────────────────────────
 class MemoryTab(QWidget):
     def __init__(self):
         super().__init__()
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(4)
+        layout.setSpacing(6)
 
-        # Status + refresh
+        # Status + refresh row
         top = QHBoxLayout()
         self.status = QLabel("Memory")
         self.status.setFont(QFont("monospace", FONT_SIZE - 2))
@@ -194,141 +194,104 @@ class MemoryTab(QWidget):
         top.addWidget(refresh_btn)
         layout.addLayout(top)
 
-        # Scrollable area — memory layers only
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
-        content_widget = QWidget()
-        self.content_layout = QVBoxLayout(content_widget)
-        self.content_layout.setSpacing(10)
-        self.content_layout.setContentsMargins(0, 0, 0, 0)
-        scroll.setWidget(content_widget)
-        layout.addWidget(scroll, stretch=1)
+        # Horizontal splitter: tree (left) + detail (right)
+        splitter = QSplitter(Qt.Orientation.Horizontal)
 
-        # Outputs section — outside scroll area, fixed height
-        outputs_label = QLabel("💭  Growing Spine outputs (click to read full)")
-        outputs_label.setFont(QFont("sans-serif", FONT_SIZE - 1, QFont.Weight.Bold))
-        outputs_label.setStyleSheet("color: #64B5F6; padding: 4px 2px 2px 2px;")
-        layout.addWidget(outputs_label)
+        self.tree = QTreeWidget()
+        self.tree.setHeaderLabel("Memory & Outputs")
+        self.tree.setFont(QFont("monospace", FONT_SIZE))
+        self.tree.itemClicked.connect(self._on_item_clicked)
+        splitter.addWidget(self.tree)
 
-        self.outputs_table = self._make_table(["Time", "Preview"], stretch_col=1)
-        self.outputs_table.cellClicked.connect(lambda row, col: self._expand_thought(self.outputs_table, row))
-        self.outputs_table.setFixedHeight(6 * self.outputs_table.verticalHeader().defaultSectionSize()
-                                          + self.outputs_table.horizontalHeader().sizeHint().height() + 4)
-        layout.addWidget(self.outputs_table)
-
-        # Detail panel — fixed at bottom
         self.detail = QTextEdit()
         self.detail.setReadOnly(True)
-        self.detail.setFont(QFont("monospace", FONT_SIZE))
-        self.detail.setFixedHeight(300)
-        self.detail.setPlaceholderText("Click any memory or output to read it here...")
-        self.detail.setStyleSheet("background: #0d1117; color: #E0E0E0; border: 1px solid #444;")
-        layout.addWidget(self.detail)
+        self.detail.setFont(QFont("monospace", FONT_SIZE - 1))
+        self.detail.setPlaceholderText("Click any entry to read it here...")
+        self.detail.setStyleSheet("background: #0d1117; color: #c9d1d9; border: 1px solid #333;")
+        splitter.addWidget(self.detail)
+
+        splitter.setSizes([420, 860])
+        layout.addWidget(splitter)
 
         self.timer = QTimer()
         self.timer.timeout.connect(self.refresh)
         self.timer.start(5000)
         self.refresh()
 
-    def _section_label(self, text, color):
-        lbl = QLabel(text)
-        lbl.setFont(QFont("sans-serif", FONT_SIZE - 1, QFont.Weight.Bold))
-        lbl.setStyleSheet(f"color: {color}; padding: 4px 2px 2px 2px;")
-        return lbl
-
-    def _make_table(self, headers, stretch_col):
-        t = QTableWidget(0, len(headers))
-        t.setHorizontalHeaderLabels(headers)
-        for i in range(len(headers)):
-            if i == stretch_col:
-                t.horizontalHeader().setSectionResizeMode(i, QHeaderView.ResizeMode.Stretch)
-            else:
-                t.horizontalHeader().setSectionResizeMode(i, QHeaderView.ResizeMode.ResizeToContents)
-        t.verticalHeader().setVisible(False)
-        t.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        t.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        t.setFont(QFont("monospace", FONT_SIZE))
-        t.verticalHeader().setDefaultSectionSize(32)
-        t.setAlternatingRowColors(True)
-        t.setWordWrap(False)
-        return t
+    def _make_root(self, label, color):
+        item = QTreeWidgetItem(self.tree, [label])
+        item.setForeground(0, QColor(color))
+        item.setFont(0, QFont("sans-serif", FONT_SIZE - 1, QFont.Weight.Bold))
+        return item
 
     def refresh(self):
-        if not os.path.exists(MEMORY_DB):
-            self.status.setText("memory.db not found — creature has not written any memories yet")
-            return
-        try:
-            conn = sqlite3.connect(MEMORY_DB)
-            rows = conn.execute(
-                "SELECT key, value, tags, updated FROM memories ORDER BY id DESC"
-            ).fetchall()
-            conn.close()
-        except Exception as e:
-            self.status.setText(f"DB error: {e}")
-            return
+        # Remember which roots were expanded
+        expanded = set()
+        for i in range(self.tree.topLevelItemCount()):
+            root = self.tree.topLevelItem(i)
+            if root.isExpanded():
+                expanded.add(root.text(0).split("  ")[0])
 
-        # Clear content
-        while self.content_layout.count():
-            item = self.content_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+        self.tree.clear()
+
+        # Load memories
+        rows = []
+        if os.path.exists(MEMORY_DB):
+            try:
+                conn = sqlite3.connect(MEMORY_DB)
+                rows = conn.execute(
+                    "SELECT key, value, tags, updated FROM memories ORDER BY id DESC"
+                ).fetchall()
+                conn.close()
+            except Exception as e:
+                self.status.setText(f"DB error: {e}")
+                return
 
         total = len(rows)
         l1 = rows[:5]
         l2 = rows[5:50]
         l3 = rows[50:]
 
-        # ── Layer 1: Working memory ──
-        self.content_layout.addWidget(
-            self._section_label(f"🟢  Working memory — {len(l1)} entries (full content injected every cycle)", "#4CAF50"))
+        # Working Memory (Layer 1)
+        l1_label = f"Working Memory  ({len(l1)} entries, full content each cycle)"
+        l1_root = self._make_root(l1_label, "#4CAF50")
         if l1:
-            t1 = self._make_table(["Key", "Preview", "Updated"], stretch_col=1)
             for key, value, tags, updated in l1:
-                r = t1.rowCount()
-                t1.insertRow(r)
                 ts = time.strftime("%m-%d %H:%M", time.localtime(updated))
-                headline = value.replace("\n", " ")[:120]
-                for col, (text, color) in enumerate([
-                    (key,      "#4CAF50"),
-                    (headline, "#C8E6C9"),
-                    (ts,       "#555"),
-                ]):
-                    item = QTableWidgetItem(text)
-                    item.setForeground(QColor(color))
-                    if col == 1:
-                        item.setData(Qt.ItemDataRole.UserRole, (key, value))
-                    t1.setItem(r, col, item)
-            t1.cellClicked.connect(lambda row, col, t=t1: self._expand(t, row))
-            t1.setMaximumHeight(min(len(l1) * 34 + 30, 200))
-            self.content_layout.addWidget(t1)
+                headline = value.replace("\n", " ")[:80]
+                child = QTreeWidgetItem(l1_root, [f"{key}  —  {headline}  [{ts}]"])
+                child.setForeground(0, QColor("#C8E6C9"))
+                child.setData(0, Qt.ItemDataRole.UserRole, ("memory", key, value))
         else:
-            lbl = QLabel("  (no memories yet — creature has not called remember)")
-            lbl.setStyleSheet("color: #555; padding: 4px 8px;")
-            lbl.setFont(QFont("monospace", FONT_SIZE - 1))
-            self.content_layout.addWidget(lbl)
+            empty = QTreeWidgetItem(l1_root, ["(no memories yet — creature has not called remember)"])
+            empty.setForeground(0, QColor("#555"))
 
+        # Intermediate (Layer 2)
+        l2_label = f"Intermediate  ({len(l2)} entries, headline in context)"
+        l2_root = self._make_root(l2_label, "#64B5F6")
+        for key, value, tags, updated in l2:
+            ts = time.strftime("%m-%d %H:%M", time.localtime(updated))
+            headline = value.replace("\n", " ")[:80]
+            child = QTreeWidgetItem(l2_root, [f"{key}  —  {headline}  [{ts}]"])
+            child.setForeground(0, QColor("#B0BEC5"))
+            child.setData(0, Qt.ItemDataRole.UserRole, ("memory", key, value))
+        if not l2:
+            empty = QTreeWidgetItem(l2_root, ["(empty — fills as working memory grows past 5)"])
+            empty.setForeground(0, QColor("#555"))
 
-        # ── Layer 2: Intermediate (collapsed summary) ──
-        lbl2 = QLabel(f"🔵  Intermediate — {len(l2)} entries  |  " + (", ".join(k for k,*_ in l2[:6]) + ("…" if len(l2)>6 else "")) if l2 else "🔵  Intermediate — empty (fills as working memory grows past 5)")
-        lbl2.setFont(QFont("monospace", FONT_SIZE - 2))
-        lbl2.setStyleSheet("color: #64B5F6; padding: 3px 4px; background: #0a0a1a; border: 1px solid #1a2a3a;")
-        lbl2.setWordWrap(True)
-        if l2:
-            lbl2.mousePressEvent = lambda e, rows=l2: self.detail.setPlainText("\n".join(f"[{k}] {v[:200]}" for k,v,*_ in rows))
-        self.content_layout.addWidget(lbl2)
+        # Archive (Layer 3)
+        l3_label = f"Archive  ({len(l3)} entries, key only in context)"
+        l3_root = self._make_root(l3_label, "#9E9E9E")
+        for key, value, tags, updated in l3:
+            ts = time.strftime("%m-%d %H:%M", time.localtime(updated))
+            child = QTreeWidgetItem(l3_root, [f"{key}  [{ts}]"])
+            child.setForeground(0, QColor("#757575"))
+            child.setData(0, Qt.ItemDataRole.UserRole, ("memory", key, value))
+        if not l3:
+            empty = QTreeWidgetItem(l3_root, ["(empty)"])
+            empty.setForeground(0, QColor("#555"))
 
-        # ── Layer 3: Archive (collapsed summary) ──
-        lbl3 = QLabel(f"⚫  Archive — {len(l3)} entries  |  " + (", ".join(k for k,*_ in l3[:8]) + ("…" if len(l3)>8 else "")) if l3 else "⚫  Archive — empty")
-        lbl3.setFont(QFont("monospace", FONT_SIZE - 2))
-        lbl3.setStyleSheet("color: #9E9E9E; padding: 3px 4px; background: #0a0a0a; border: 1px solid #222;")
-        lbl3.setWordWrap(True)
-        if l3:
-            lbl3.mousePressEvent = lambda e, rows=l3: self.detail.setPlainText("Keys:\n" + "\n".join(k for k,*_ in rows))
-        self.content_layout.addWidget(lbl3)
-
-
-        # Refresh outputs table (outside scroll area)
+        # Outputs (think_end entries)
         thoughts = []
         if os.path.exists(JOURNAL_PATH):
             try:
@@ -344,45 +307,46 @@ class MemoryTab(QWidget):
                                 pass
             except Exception:
                 pass
-        thoughts = thoughts[::-1]  # newest first
-        self.outputs_table.setRowCount(0)
+        thoughts = thoughts[::-1]
+
+        out_label = f"Outputs  ({len(thoughts)} think_end cycles)"
+        out_root = self._make_root(out_label, "#64B5F6")
         for e in thoughts:
-            r = self.outputs_table.rowCount()
-            self.outputs_table.insertRow(r)
             ts = time.strftime("%m-%d %H:%M", time.localtime(e.get("ts", 0)))
-            preview = e.get("content", "").replace("\n", " ")[:120]
+            preview = e.get("content", "").replace("\n", " ")[:80]
             full = e.get("content", "")
-            for col, (text, color) in enumerate([
-                (ts,      "#64B5F6"),
-                (preview, "#B0BEC5"),
-            ]):
-                item = QTableWidgetItem(text)
-                item.setForeground(QColor(color))
-                if col == 1:
-                    item.setData(Qt.ItemDataRole.UserRole, (ts, full))
-                self.outputs_table.setItem(r, col, item)
+            child = QTreeWidgetItem(out_root, [f"{ts}  —  {preview}"])
+            child.setForeground(0, QColor("#B0BEC5"))
+            child.setData(0, Qt.ItemDataRole.UserRole, ("output", ts, full))
+        if not thoughts:
+            empty = QTreeWidgetItem(out_root, ["(no outputs yet)"])
+            empty.setForeground(0, QColor("#555"))
+
+        # Restore expansion state (defaults: Working Memory + Outputs open)
+        defaults_open = {"Working Memory", "Outputs"}
+        for i in range(self.tree.topLevelItemCount()):
+            root = self.tree.topLevelItem(i)
+            key = root.text(0).split("  ")[0]
+            should_open = key in expanded if expanded else key in defaults_open
+            root.setExpanded(should_open)
 
         self.status.setText(
             f"{total} memories  |  "
             f"working: {len(l1)}  intermediate: {len(l2)}  archive: {len(l3)}  |  "
-            f"{time.strftime('%H:%M:%S')}"
+            f"outputs: {len(thoughts)}  |  {time.strftime('%H:%M:%S')}"
         )
 
-    def _expand(self, table, row):
-        item = table.item(row, 0)
-        if item:
-            data = item.data(Qt.ItemDataRole.UserRole)
-            if data:
-                key, value = data
-                self.detail.setPlainText("[" + key + "]" + chr(10) + value)
-
-    def _expand_thought(self, table, row):
-        item = table.item(row, 1)
-        if item:
-            data = item.data(Qt.ItemDataRole.UserRole)
-            if data:
-                ts, full = data
-                self.detail.setPlainText("[" + ts + "]" + chr(10) + full)
+    def _on_item_clicked(self, item, col):
+        data = item.data(0, Qt.ItemDataRole.UserRole)
+        if not data:
+            return
+        kind = data[0]
+        if kind == "memory":
+            _, key, value = data
+            self.detail.setPlainText(f"[{key}]\n\n{value}")
+        elif kind == "output":
+            _, ts, full = data
+            self.detail.setPlainText(f"[{ts}]\n\n{full}")
 
 
 # ── Container Tab ────────────────────────────────────────────────────
