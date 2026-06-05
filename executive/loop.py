@@ -1,7 +1,8 @@
 """
 loop.py Ã¢ÂÂ the executive loop, step 4: wake/sleep runtime wired in.
 """
-import asyncio, os, time
+import asyncio, os, time, re
+from collections import Counter
 from . import sandbox, journal, parser
 from .runtime import (managed_exec, ensure_body, wake_entry,
                       sleep_entry, sleep_duration_seconds)
@@ -87,6 +88,40 @@ def _build_tool_catalogue() -> str:
 
 
 
+def _build_loop_warning() -> str:
+    """Detect cross-cycle repetition of one command and nudge — softly.
+
+    Parser dedup means a command runs at most once per response, so repetition
+    now only shows up ACROSS cycles. If a single command dominates the recent
+    journal the creature is stuck observing without acting; inject a one-line
+    nudge that names it. This is a nudge, never a block: the creature can ignore
+    it, but it cannot fail to see it. Suppressed once the project is done.
+    """
+    try:
+        phase = mem.retrieve(VOLUME_MOUNT, "current-phase")
+        if phase and phase["value"].strip().lower() == "done":
+            return ""
+        entries = journal.recent(VOLUME_MOUNT, n=25)
+        cmds = []
+        for e in entries:
+            if e["kind"] == "exec_start":
+                m = re.match(r"Block \d+:\s*(.*)", e["content"], re.DOTALL)
+                cmds.append((m.group(1) if m else e["content"]).strip())
+        if not cmds:
+            return ""
+        recent = cmds[-10:]
+        cmd, n = Counter(recent).most_common(1)[0]
+        if n >= 4:
+            return ("## Attention\n"
+                    f"You have run `{cmd[:120]}` {n} times recently and the result has "
+                    "not changed. Running it again will not change it. Act on the result "
+                    "you already have — and if your DONE WHEN is met, write "
+                    '`remember current-phase "done"`. Do not run that command again.\n\n')
+    except Exception:
+        return ""
+    return ""
+
+
 def _build_active_project_block() -> str:
     """Inject current-project and current-phase at the top of context."""
     try:
@@ -132,7 +167,8 @@ def _build_context(recent_journal: list, tue_message: str = None) -> str:
     if tue_message:
         chat_block = f"\n\nMessage from Tue: {tue_message}\nReply to this in plain text before your bash blocks."
     active_project = _build_active_project_block()
-    return active_project + protected + "\n\n" + editable + catalogue_block + workspace_block + memory_text + journal_text + chat_block
+    loop_warning = _build_loop_warning()
+    return loop_warning + active_project + protected + "\n\n" + editable + catalogue_block + workspace_block + memory_text + journal_text + chat_block
 
 
 async def run_cycle(keychain: Keychain, dockerfile_dir: str):
