@@ -308,61 +308,24 @@ class MemoryTab(QWidget):
             lbl.setFont(QFont("monospace", FONT_SIZE - 1))
             self.content_layout.addWidget(lbl)
 
-        # ── Layer 2: Intermediate ──
-        self.content_layout.addWidget(
-            self._section_label(f"🔵  Intermediate — {len(l2)} entries (one-liner injected, click for full)", "#64B5F6"))
-        if l2:
-            t2 = self._make_table(["Key", "Preview", "Updated"], stretch_col=1)
-            for key, value, tags, updated in l2:
-                r = t2.rowCount()
-                t2.insertRow(r)
-                ts = time.strftime("%m-%d %H:%M", time.localtime(updated))
-                headline = value.replace("\n", " ")[:120]
-                for col, (text, color) in enumerate([
-                    (key,      "#64B5F6"),
-                    (headline, "#B0BEC5"),
-                    (ts,       "#555"),
-                ]):
-                    item = QTableWidgetItem(text)
-                    item.setForeground(QColor(color))
-                    if col == 1:
-                        item.setData(Qt.ItemDataRole.UserRole, (key, value))
-                    t2.setItem(r, col, item)
-            t2.cellClicked.connect(lambda row, col, t=t2: self._expand(t, row))
-            t2.setMaximumHeight(min(len(l2) * 34 + 30, 300))
-            self.content_layout.addWidget(t2)
-        else:
-            lbl = QLabel("  (empty — fills as working memory grows past 5)")
-            lbl.setStyleSheet("color: #555; padding: 4px 8px;")
-            lbl.setFont(QFont("monospace", FONT_SIZE - 1))
-            self.content_layout.addWidget(lbl)
 
-        # ── Layer 3: Archive ──
-        self.content_layout.addWidget(
-            self._section_label(f"⚫  Archive — {len(l3)} entries (key only injected, click for full)", "#9E9E9E"))
+        # ── Layer 2: Intermediate (collapsed summary) ──
+        lbl2 = QLabel(f"🔵  Intermediate — {len(l2)} entries  |  " + (", ".join(k for k,*_ in l2[:6]) + ("…" if len(l2)>6 else "")) if l2 else "🔵  Intermediate — empty (fills as working memory grows past 5)")
+        lbl2.setFont(QFont("monospace", FONT_SIZE - 2))
+        lbl2.setStyleSheet("color: #64B5F6; padding: 3px 4px; background: #0a0a1a; border: 1px solid #1a2a3a;")
+        lbl2.setWordWrap(True)
+        if l2:
+            lbl2.mousePressEvent = lambda e, rows=l2: self.detail.setPlainText("\n".join(f"[{k}] {v[:200]}" for k,v,*_ in rows))
+        self.content_layout.addWidget(lbl2)
+
+        # ── Layer 3: Archive (collapsed summary) ──
+        lbl3 = QLabel(f"⚫  Archive — {len(l3)} entries  |  " + (", ".join(k for k,*_ in l3[:8]) + ("…" if len(l3)>8 else "")) if l3 else "⚫  Archive — empty")
+        lbl3.setFont(QFont("monospace", FONT_SIZE - 2))
+        lbl3.setStyleSheet("color: #9E9E9E; padding: 3px 4px; background: #0a0a0a; border: 1px solid #222;")
+        lbl3.setWordWrap(True)
         if l3:
-            t3 = self._make_table(["Key", "Updated"], stretch_col=0)
-            for key, value, tags, updated in l3:
-                r = t3.rowCount()
-                t3.insertRow(r)
-                ts = time.strftime("%m-%d %H:%M", time.localtime(updated))
-                for col, (text, color) in enumerate([
-                    (key, "#9E9E9E"),
-                    (ts,  "#555"),
-                ]):
-                    item = QTableWidgetItem(text)
-                    item.setForeground(QColor(color))
-                    if col == 0:
-                        item.setData(Qt.ItemDataRole.UserRole, (key, value))
-                    t3.setItem(r, col, item)
-            t3.cellClicked.connect(lambda row, col, t=t3: self._expand(t, row))
-            t3.setMaximumHeight(min(len(l3) * 34 + 30, 200))
-            self.content_layout.addWidget(t3)
-        else:
-            lbl = QLabel("  (empty — fills as intermediate grows past 50)")
-            lbl.setStyleSheet("color: #555; padding: 4px 8px;")
-            lbl.setFont(QFont("monospace", FONT_SIZE - 1))
-            self.content_layout.addWidget(lbl)
+            lbl3.mousePressEvent = lambda e, rows=l3: self.detail.setPlainText("Keys:\n" + "\n".join(k for k,*_ in rows))
+        self.content_layout.addWidget(lbl3)
 
 
         # Refresh outputs table (outside scroll area)
