@@ -35,12 +35,23 @@ def materialize_framework(volume_mount: str):
 
 
 def _first_doc_line(path: str) -> str:
+    """Extract a one-line description from a tool file.
+    Prefers a 'does: ...' line (creature's own format), then falls back
+    to first meaningful non-boilerplate line (docstring, comment, etc).
+    """
     try:
         with open(path) as f:
-            for line in f:
-                s = line.strip().strip('"').strip("'").strip("#").strip()
-                if s and not s.startswith(("!", "import", "from", "def ", "class ")):
-                    return s
+            lines = f.readlines()
+        # Prefer explicit 'does:' line anywhere in the file
+        for line in lines:
+            s = line.strip()
+            if s.lower().startswith("does:"):
+                return s[5:].strip()
+        # Fall back to first meaningful non-boilerplate line
+        for line in lines:
+            s = line.strip().strip('"').strip("'").strip("#").strip()
+            if s and not s.startswith(("!", "import", "from", "def ", "class ", "tool:", "call:")):
+                return s
     except Exception:
         pass
     return "(no description)"

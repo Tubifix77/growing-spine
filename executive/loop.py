@@ -121,7 +121,7 @@ async def run_cycle(keychain: Keychain, dockerfile_dir: str):
 
     journal.append(VOLUME_MOUNT, "think_start", "Sending to keychain...")
     response = await keychain.complete(context)
-    journal.append(VOLUME_MOUNT, "think_end", response[:500])
+    journal.append(VOLUME_MOUNT, "think_end", response)
 
     if tue_message:
         reply = chatmod.extract_text_reply(response)
