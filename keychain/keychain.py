@@ -60,11 +60,13 @@ class Keychain:
                     "billing" in err.lower()
                 )
                 if is_quota:
-                    # Record actual call count at exhaustion as discovered limit
                     current_used = self.state[cfg["key"]].get("used", 0)
-                    self.state[cfg["key"]]["discovered_limit"] = current_used
                     self.state[cfg["key"]]["used"] = current_used + 1  # mark exhausted
-                    self.state[cfg["key"]]["exhausted_at"] = time.time()
+                    # Only record ceiling + start the clock on the first hit.
+                    # Subsequent probe rejections leave both fields untouched.
+                    if "exhausted_at" not in self.state[cfg["key"]]:
+                        self.state[cfg["key"]]["discovered_limit"] = current_used
+                        self.state[cfg["key"]]["exhausted_at"] = time.time()
                     qs.save_state(self.state)
                     break  # move to next provider
 
