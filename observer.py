@@ -281,28 +281,27 @@ class MemoryTab(QWidget):
 
         # ── Layer 1: Working memory ──
         self.content_layout.addWidget(
-            self._section_label(f"🟢  Working memory — last {len(l1)} entries (full content, injected every cycle)", "#4CAF50"))
+            self._section_label(f"🟢  Working memory — {len(l1)} entries (full content injected every cycle)", "#4CAF50"))
         if l1:
+            t1 = self._make_table(["Key", "Preview", "Updated"], stretch_col=1)
             for key, value, tags, updated in l1:
-                card = QFrame()
-                card.setStyleSheet("QFrame { background: #0d1f0d; border: 1px solid #2d5a2d; border-radius: 4px; padding: 6px; }")
-                card_layout = QVBoxLayout(card)
-                card_layout.setSpacing(2)
-                card_layout.setContentsMargins(8, 6, 8, 6)
+                r = t1.rowCount()
+                t1.insertRow(r)
                 ts = time.strftime("%m-%d %H:%M", time.localtime(updated))
-                header = QLabel(f"<b style=\'color:#4CAF50;\'>{key}</b>"
-                                f"<span style=\'color:#555; font-size:11px;\'> — {ts}"
-                                + (f" — {tags}" if tags else "") + "</span>")
-                header.setTextFormat(Qt.TextFormat.RichText)
-                header.setFont(QFont("monospace", FONT_SIZE - 1))
-                body = QLabel(value)
-                body.setWordWrap(True)
-                body.setFont(QFont("monospace", FONT_SIZE - 1))
-                body.setStyleSheet("color: #C8E6C9;")
-                card_layout.addWidget(header)
-                card_layout.addWidget(body)
-                card.mousePressEvent = lambda e, k=key, v=value: self.detail.setPlainText("[" + k + "]" + chr(10) + v)
-                self.content_layout.addWidget(card)
+                headline = value.replace("\n", " ")[:120]
+                for col, (text, color) in enumerate([
+                    (key,      "#4CAF50"),
+                    (headline, "#C8E6C9"),
+                    (ts,       "#555"),
+                ]):
+                    item = QTableWidgetItem(text)
+                    item.setForeground(QColor(color))
+                    if col == 1:
+                        item.setData(Qt.ItemDataRole.UserRole, (key, value))
+                    t1.setItem(r, col, item)
+            t1.cellClicked.connect(lambda row, col, t=t1: self._expand(t, row))
+            t1.setMaximumHeight(min(len(l1) * 34 + 30, 200))
+            self.content_layout.addWidget(t1)
         else:
             lbl = QLabel("  (no memories yet — creature has not called remember)")
             lbl.setStyleSheet("color: #555; padding: 4px 8px;")
