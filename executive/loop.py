@@ -62,6 +62,23 @@ MEANINGFUL_KINDS = {"think_end", "exec_end", "error", "exec_timeout",
                     "respawn", "death", "birth"}
 
 
+def _load_workspace_map() -> str:
+    """Read /workspace/README.md from the container if it exists."""
+    try:
+        import subprocess
+        from executive.sandbox import CONTAINER_NAME
+        r = subprocess.run(
+            ["docker", "exec", CONTAINER_NAME,
+             "cat", "/workspace/README.md"],
+            capture_output=True, text=True, timeout=5
+        )
+        if r.returncode == 0 and r.stdout.strip():
+            return r.stdout.strip()
+    except Exception:
+        pass
+    return ""
+
+
 def _build_tool_catalogue() -> str:
     try:
         return toolmod.build_catalogue(VOLUME_MOUNT)
@@ -85,11 +102,13 @@ def _build_context(recent_journal: list, tue_message: str = None) -> str:
         if lines:
             journal_text = "\n\nRecent activity (your thoughts and their results):\n" + "\n".join(lines)
 
+    workspace_map = _load_workspace_map()
     catalogue_block = ("\n\n" + catalogue) if catalogue else ""
+    workspace_block = ("\n\nYour workspace (/workspace/README.md):\n" + workspace_map) if workspace_map else ""
     chat_block = ""
     if tue_message:
         chat_block = f"\n\nMessage from Tue: {tue_message}\nReply to this in plain text before your bash blocks."
-    return protected + "\n\n" + editable + catalogue_block + memory_text + journal_text + chat_block
+    return protected + "\n\n" + editable + catalogue_block + workspace_block + memory_text + journal_text + chat_block
 
 
 async def run_cycle(keychain: Keychain, dockerfile_dir: str):
