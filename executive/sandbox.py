@@ -53,7 +53,7 @@ def start(dockerfile_dir: str = "."):
         ["docker", "exec", CONTAINER_NAME, "bash", "-c",
          "ln -sf /usr/bin/python3 /usr/local/bin/python; "
          "mkdir -p /mind/tools/framework /mind/tools/own; "
-         "git config --global safe.directory '*'"],
+         "git config --global --replace-all safe.directory '*'"],
         check=False
     )
 
