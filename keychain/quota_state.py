@@ -42,6 +42,7 @@ def load_state(providers: list) -> dict:
         if _now_ts() >= state[k]["reset_at"]:
             state[k]["used"] = 0
             state[k]["reset_at"] = _reset_ts(p["quota"].get("resets", "00:00 UTC"))
+            state[k].pop("exhausted_at", None)  # clear so next 429 starts a fresh interval
             # discovered_limit is kept across resets — it's the last known ceiling,
             # used for display only. No hard stop; creature pushes until the next 429.
     return state

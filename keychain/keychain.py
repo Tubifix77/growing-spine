@@ -62,11 +62,16 @@ class Keychain:
                 if is_quota:
                     current_used = self.state[cfg["key"]].get("used", 0)
                     self.state[cfg["key"]]["used"] = current_used + 1  # mark exhausted
-                    # Only record ceiling + start the clock on the first hit.
-                    # Subsequent probe rejections leave both fields untouched.
+                    # Start the clock on the first hit this window.
+                    # Subsequent probe rejections leave exhausted_at untouched.
                     if "exhausted_at" not in self.state[cfg["key"]]:
-                        self.state[cfg["key"]]["discovered_limit"] = current_used
                         self.state[cfg["key"]]["exhausted_at"] = time.time()
+                    # Only update discovered_limit if we genuinely ran this window
+                    # (current_used > 0 and reached at least the previous ceiling).
+                    # Probe rejections at used=0 or 1 must not trash last window's value.
+                    prev = self.state[cfg["key"]].get("discovered_limit", 0)
+                    if current_used > 0 and current_used >= max(prev, 1):
+                        self.state[cfg["key"]]["discovered_limit"] = current_used
                     qs.save_state(self.state)
                     break  # move to next provider
 
