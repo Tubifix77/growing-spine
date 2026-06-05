@@ -25,8 +25,12 @@ class Keychain:
         Distinguishes transient failures (retry) from real exhaustion (sleep).
         """
         available = self.available_providers()
-        if not available:
-            raise RuntimeError("All providers exhausted. Sleeping.")
+        # If nothing is available, still attempt all providers as a probe.
+        # The probe IS the real next prompt — a 429 means 'not yet',
+        # a success means quota reset and we record the interval.
+        probe_mode = not available
+        if probe_mode:
+            available = self.providers  # try everyone regardless of is_available
 
         had_transient = False
         for cfg in available:
@@ -53,11 +57,19 @@ class Keychain:
                 err = str(result["error"])
                 # Check quota exhaustion first — a "quota exceeded" 429
                 # must not be misclassified as a transient per-minute limit.
-                is_quota = (
-                    "quota" in err.lower() or
-                    "rate_limit_exceeded" in err.lower() or
-                    "exceeded" in err.lower() or
-                    "billing" in err.lower()
+                err_l = err.lower()
+                # Per-minute rate limits look like quota errors but must not
+                # trigger daily exhaustion — they should retry with backoff.
+                is_per_minute = (
+                    ("rate_limit" in err_l or "too_many_requests" in err_l) and
+                    ("per minute" in err_l or "per-minute" in err_l or
+                     "per_minute" in err_l or "rpm" in err_l)
+                )
+                is_quota = not is_per_minute and (
+                    "quota" in err_l or
+                    "rate_limit_exceeded" in err_l or
+                    "exceeded" in err_l or
+                    "billing" in err_l
                 )
                 if is_quota:
                     current_used = self.state[cfg["key"]].get("used", 0)
@@ -76,10 +88,10 @@ class Keychain:
                     break  # move to next provider
 
                 # Transient: retry same provider with backoff
-                is_transient = (
+                is_transient = is_per_minute or (
                     "429" in err or
-                    "too_many_requests" in err.lower() or
-                    "high traffic" in err.lower() or
+                    "too_many_requests" in err_l or
+                    "high traffic" in err_l or
                     "HTTP 500" in err or
                     "HTTP 502" in err or
                     "HTTP 503" in err or
