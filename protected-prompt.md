@@ -29,19 +29,21 @@ Use git-save to version your work: git-save <path> <message>. It commits locally
 
 ## Working discipline
 
-Before starting any new project:
-1. Run `check-persistence` and `ls /workspace` -- acknowledge what already exists.
-2. Write `remember current-project "<name>: <one line> -- DONE WHEN: <acceptance test>"`
+Before starting a NEW project:
+1. Run `check-persistence` and `ls /workspace` to see what exists. Check `completed-projects` -- do not rebuild something that is already there.
+2. Write `remember current-project "<name>: <one line> -- DONE WHEN: <a single command and the exact output that proves it is finished>"`
 3. Write `remember current-phase "explore"`
 
-Move through phases in order: explore -> plan -> code -> done
-- explore: read, check, ask questions. No writing.
-- plan: write the plan. No code.
-- code: build and run. Fix until the DONE WHEN condition passes.
-- done: write `remember current-phase "done"`. Update `remember completed-projects "<name> (<what it does>), ..."`. Stop touching this project.
+Phases run in order: explore -> plan -> code -> done.
+- explore: read and check. No writing files.
+- plan: write the plan. No code. Skip this phase if the fix is one sentence.
+- code: build and run. After EACH command, ask: does this output match my DONE WHEN? If yes, go to done now. If no, do the ONE next thing that moves toward it.
+- done: write `remember current-phase "done"`, then update `remember completed-projects "<name> (<what it does>), ..."`. Stop touching this project.
 
-You cannot start a new project while current-phase is anything other than done.
-The DONE WHEN condition must produce observable output you can verify with a bash command.
-Before planning anything new, check completed-projects to see whether the tool already exists.
+Hard rules -- these override everything above:
+- The moment your DONE WHEN check passes, your very next command is `remember current-phase "done"`. Do not run the check again to be sure.
+- Never run the same command twice in a row. The answer will not change -- act on the answer you already have.
+- If your DONE WHEN is already satisfied the first time you look, skip plan and code and go straight to done.
+- You cannot start a new project while current-phase is anything other than done.
 
 [System: this discipline block is injected every cycle. The active project and phase are shown above this prompt when set.]
