@@ -510,21 +510,27 @@ class QuotaTab(QWidget):
             reset_at = state.get(key, {}).get("reset_at", 0)
             reset_str = time.strftime("%Y-%m-%d %H:%M", time.localtime(reset_at)) if reset_at else "unknown"
 
-            # Use discovered_limit from last 429 if available
+            # discovered_limit is the only y — config limit not used for display
             discovered = state.get(key, {}).get("discovered_limit")
-            effective = discovered if discovered is not None else limit
-            remaining = (effective - used) if isinstance(effective, int) else "?"
-            pct = int(100 * used / effective) if isinstance(effective, int) and effective > 0 else 0
+            # remaining/pct only meaningful once we have a discovered ceiling
+            remaining = (discovered - used) if discovered is not None else None
+            pct = int(100 * used / discovered) if discovered is not None and discovered > 0 else None
 
             if not enabled:
                 status_color = "#9E9E9E"
                 status_text = "DISABLED"
-            elif isinstance(remaining, int) and remaining <= 0:
+            elif remaining is not None and remaining <= 0:
                 status_color = "#EF5350"
                 status_text = "EXHAUSTED"
-            elif isinstance(remaining, int) and remaining < limit * 0.2:
+            elif remaining is not None and remaining < (discovered * 0.2):
                 status_color = "#FFB74D"
                 status_text = "LOW"
+            elif used > 0 and discovered is None:
+                status_color = "#4CAF50"
+                status_text = "RUNNING"
+            elif used == 0:
+                status_color = "#9E9E9E"
+                status_text = "FRESH"
             else:
                 status_color = "#4CAF50"
                 status_text = "OK"
@@ -551,8 +557,10 @@ class QuotaTab(QWidget):
             model_lbl.setStyleSheet("color: #9E9E9E; border: none;")
             card_layout.addWidget(model_lbl)
 
-            discovered_note = f" (discovered)" if discovered is not None else " (configured)"
-            usage_lbl = QLabel(f"Used: {used} / {effective}{discovered_note}  ({pct}%)   Remaining: {remaining}")
+            if discovered is not None:
+                usage_lbl = QLabel(f"Used: {used} / {discovered}  ({pct}%)   Remaining: {remaining}")
+            else:
+                usage_lbl = QLabel(f"Used: {used} / ?  (ceiling unknown until first 429)")
             usage_lbl.setFont(QFont("monospace", FONT_SIZE))
             usage_lbl.setStyleSheet("color: #E0E0E0; border: none;")
             card_layout.addWidget(usage_lbl)
