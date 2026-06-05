@@ -9,8 +9,18 @@ os.makedirs(OWN, exist_ok=True)
 path = os.path.join(OWN, name)
 if os.path.exists(path):
     print(f"Tool '{name}' already exists at {path}."); sys.exit(1)
-template = "#!/usr/bin/env python3\n" + chr(34)*3 + "ONE LINE DESCRIBING WHAT THIS TOOL DOES - edit me." + chr(34)*3 + "\n# Your code here.\nprint(\"hello from " + name + "\")\n"
+template = (
+    "#!/usr/bin/env python3\n"
+    "# tool: " + name + "\n"
+    "# call: " + name + " <arguments>\n"
+    "# does: DESCRIBE WHAT THIS TOOL DOES - edit this line\n"
+    "# Replace this whole file with real executable code.\n"
+    "# A file with no real code fails with 'command not found' when run.\n"
+    "import sys\n"
+    "print('hello from ' + sys.argv[0])\n"
+)
 open(path, "w").write(template)
 os.chmod(path, 0o755)
-print(f"Created {path}. Edit it, then run it as: {name}")
-print("Its first docstring line becomes its description in your tool list.")
+print(f"Created {path}.")
+print("Edit it — replace the placeholder with real code.")
+print("The '# does:' line becomes its description in your tool catalogue.")

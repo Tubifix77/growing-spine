@@ -47,6 +47,8 @@ def _first_doc_line(path: str) -> str:
             s = line.strip()
             if s.lower().startswith("does:"):
                 return s[5:].strip()
+            if s.lower().startswith("# does:"):
+                return s[7:].strip()
         # Fall back to first meaningful non-boilerplate line
         for line in lines:
             s = line.strip().strip('"').strip("'").strip("#").strip()
