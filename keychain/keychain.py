@@ -1,5 +1,5 @@
 """keychain.py — one function: give it a prompt, get a response."""
-import asyncio, os, yaml
+import asyncio, os, time, yaml
 from . import quota_state as qs
 from . import provider as prov
 
@@ -41,6 +41,13 @@ class Keychain:
                 if result["error"] is None:
                     usage = 1 if cfg["quota"].get("type") == "daily_calls" else result["tokens_used"]
                     qs.record_usage(self.state, cfg["key"], usage)
+                    # If we just recovered from exhaustion, record the reset interval
+                    exhausted_at = self.state[cfg["key"]].get("exhausted_at")
+                    if exhausted_at:
+                        interval = time.time() - exhausted_at
+                        self.state[cfg["key"]]["discovered_reset_interval"] = interval
+                        del self.state[cfg["key"]]["exhausted_at"]
+                        qs.save_state(self.state)
                     return result["text"]
 
                 err = str(result["error"])
@@ -57,6 +64,7 @@ class Keychain:
                     current_used = self.state[cfg["key"]].get("used", 0)
                     self.state[cfg["key"]]["discovered_limit"] = current_used
                     self.state[cfg["key"]]["used"] = current_used + 1  # mark exhausted
+                    self.state[cfg["key"]]["exhausted_at"] = time.time()
                     qs.save_state(self.state)
                     break  # move to next provider
 

@@ -565,7 +565,27 @@ class QuotaTab(QWidget):
             usage_lbl.setStyleSheet("color: #E0E0E0; border: none;")
             card_layout.addWidget(usage_lbl)
 
-            reset_lbl = QLabel(f"Resets: {reset_str}")
+            # Reset interval display
+            discovered_interval = state.get(key, {}).get("discovered_reset_interval")
+            exhausted_at = state.get(key, {}).get("exhausted_at")
+            if discovered_interval is not None:
+                h, m = int(discovered_interval // 3600), int((discovered_interval % 3600) // 60)
+                interval_str = f"{h}h {m:02d}m" if h else f"{m}m"
+                if exhausted_at:
+                    waited = time.time() - exhausted_at
+                    wh, wm = int(waited // 3600), int((waited % 3600) // 60)
+                    waited_str = f"{wh}h {wm:02d}m" if wh else f"{wm}m"
+                    reset_text = f"Reset interval: {waited_str} waited / {interval_str} last known"
+                else:
+                    reset_text = f"Reset interval: last known {interval_str}  |  Next reset: {reset_str}"
+            elif exhausted_at:
+                waited = time.time() - exhausted_at
+                wh, wm = int(waited // 3600), int((waited % 3600) // 60)
+                waited_str = f"{wh}h {wm:02d}m" if wh else f"{wm}m"
+                reset_text = f"Reset interval: {waited_str} waited / ? (first window)"
+            else:
+                reset_text = f"Resets: {reset_str}"
+            reset_lbl = QLabel(reset_text)
             reset_lbl.setFont(QFont("monospace", FONT_SIZE - 1))
             reset_lbl.setStyleSheet("color: #9E9E9E; border: none;")
             card_layout.addWidget(reset_lbl)

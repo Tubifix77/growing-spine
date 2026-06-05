@@ -71,19 +71,11 @@ async def ensure_body(volume_mount: str, savegame_root: str,
 
 def sleep_duration_seconds(keychain) -> float:
     """
-    Calculate seconds to sleep until the earliest provider quota resets.
-    Returns at most 3600s (1 hour) to avoid sleeping past a reset.
+    Sleep 1 hour then probe with the real next prompt.
+    No configured reset time needed — first successful call after exhaustion
+    is the reset detection. discovered_reset_interval records the gap.
     """
-    min_reset = None
-    now = time.time()
-    for p in keychain.providers:
-        state = keychain.state.get(p["key"], {})
-        reset_at = state.get("reset_at", now + 3600)
-        if min_reset is None or reset_at < min_reset:
-            min_reset = reset_at
-    if min_reset is None or min_reset <= now:
-        return 60  # short nap, something's wrong
-    return min(min_reset - now, 86400)  # cap at 24h, not 1h
+    return 3600
 
 
 async def wake_entry(volume_mount: str, keychain):
