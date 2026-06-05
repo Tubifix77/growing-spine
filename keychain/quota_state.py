@@ -42,6 +42,7 @@ def load_state(providers: list) -> dict:
         if _now_ts() >= state[k]["reset_at"]:
             state[k]["used"] = 0
             state[k]["reset_at"] = _reset_ts(p["quota"].get("resets", "00:00 UTC"))
+            state[k].pop("discovered_limit", None)  # stale 429 cap doesn't carry across windows
     return state
 
 
