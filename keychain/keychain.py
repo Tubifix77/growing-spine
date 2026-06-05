@@ -53,7 +53,10 @@ class Keychain:
                     "billing" in err.lower()
                 )
                 if is_quota:
-                    self.state[cfg["key"]]["used"] = cfg["quota"].get("limit", 999999)
+                    # Record actual call count at exhaustion as discovered limit
+                    current_used = self.state[cfg["key"]].get("used", 0)
+                    self.state[cfg["key"]]["discovered_limit"] = current_used
+                    self.state[cfg["key"]]["used"] = current_used + 1  # mark exhausted
                     qs.save_state(self.state)
                     break  # move to next provider
 

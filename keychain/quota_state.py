@@ -51,12 +51,17 @@ def save_state(state: dict):
         json.dump(state, f, indent=2)
 
 
+def effective_limit(state: dict, key: str, cfg: dict) -> int:
+    """Use discovered_limit from last 429 if known, else fall back to config."""
+    s = state.get(key, {})
+    return s.get("discovered_limit", cfg["quota"].get("limit", 9999999))
+
+
 def is_available(state: dict, key: str, cfg: dict) -> bool:
     if not cfg.get("enabled", True):
         return False
     s = state.get(key, {})
-    limit = cfg["quota"].get("limit", 9999999)
-    return s.get("used", 0) < limit
+    return s.get("used", 0) < effective_limit(state, key, cfg)
 
 
 def record_usage(state: dict, key: str, tokens: int):

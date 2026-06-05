@@ -584,8 +584,11 @@ class QuotaTab(QWidget):
             reset_at = state.get(key, {}).get("reset_at", 0)
             reset_str = time.strftime("%Y-%m-%d %H:%M", time.localtime(reset_at)) if reset_at else "unknown"
 
-            remaining = (limit - used) if isinstance(limit, int) else "?"
-            pct = int(100 * used / limit) if isinstance(limit, int) and limit > 0 else 0
+            # Use discovered_limit from last 429 if available
+            discovered = state.get(key, {}).get("discovered_limit")
+            effective = discovered if discovered is not None else limit
+            remaining = (effective - used) if isinstance(effective, int) else "?"
+            pct = int(100 * used / effective) if isinstance(effective, int) and effective > 0 else 0
 
             if not enabled:
                 status_color = "#9E9E9E"
@@ -622,7 +625,8 @@ class QuotaTab(QWidget):
             model_lbl.setStyleSheet("color: #9E9E9E; border: none;")
             card_layout.addWidget(model_lbl)
 
-            usage_lbl = QLabel(f"Used: {used} / {limit}  ({pct}%)   Remaining: {remaining}")
+            discovered_note = f" (discovered)" if discovered is not None else " (configured)"
+            usage_lbl = QLabel(f"Used: {used} / {effective}{discovered_note}  ({pct}%)   Remaining: {remaining}")
             usage_lbl.setFont(QFont("monospace", FONT_SIZE))
             usage_lbl.setStyleSheet("color: #E0E0E0; border: none;")
             card_layout.addWidget(usage_lbl)
