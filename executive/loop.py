@@ -86,6 +86,29 @@ def _build_tool_catalogue() -> str:
         return ""
 
 
+
+def _build_active_project_block() -> str:
+    """Inject current-project and current-phase at the top of context."""
+    try:
+        project   = mem.retrieve(VOLUME_MOUNT, "current-project")
+        phase     = mem.retrieve(VOLUME_MOUNT, "current-phase")
+        completed = mem.retrieve(VOLUME_MOUNT, "completed-projects")
+        if not project and not phase:
+            return ""
+        lines = ["## Active project"]
+        if project:
+            lines.append(f"Project: {project['value']}")
+        if phase:
+            lines.append(f"Phase: {phase['value']}")
+            if phase["value"].strip().lower() == "done":
+                lines.append("-> This project is DONE. Start a new one or use what you built.")
+        if completed:
+            lines.append(f"\nCompleted projects: {completed['value']}")
+        return "\n".join(lines) + "\n\n"
+    except Exception:
+        return ""
+
+
 def _build_context(recent_journal: list, tue_message: str = None) -> str:
     protected = _load_protected_prompt()
     editable = _load_editable_prompt()
@@ -108,7 +131,8 @@ def _build_context(recent_journal: list, tue_message: str = None) -> str:
     chat_block = ""
     if tue_message:
         chat_block = f"\n\nMessage from Tue: {tue_message}\nReply to this in plain text before your bash blocks."
-    return protected + "\n\n" + editable + catalogue_block + workspace_block + memory_text + journal_text + chat_block
+    active_project = _build_active_project_block()
+    return active_project + protected + "\n\n" + editable + catalogue_block + workspace_block + memory_text + journal_text + chat_block
 
 
 async def run_cycle(keychain: Keychain, dockerfile_dir: str):
