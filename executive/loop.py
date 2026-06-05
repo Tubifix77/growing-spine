@@ -105,35 +105,42 @@ def _build_done_block() -> str:
     return ""
 
 
-def _enforce_done_gate(phase_before, executed):
-    """Verify a 'done' transition against ground truth.
+DONE_MARK_RE = re.compile(r'remember\s+current-phase\s+["\']?done["\']?', re.I)
+
+
+def _enforce_done_gate(executed):
+    """Verify a 'done' assertion against ground truth.
 
     The creature marks completion by running `remember current-phase "done"`.
-    If it does that in the same cycle a real (non-marking) command exited
-    non-zero, the DONE WHEN it chose was not satisfied -- a false completion.
-    Revert the phase and tell it what failed. The creature authored its own
-    DONE WHEN; a 'done' it can assert while a check is failing is empty. This
-    enforces only the contract it set for itself.
+    If it asserts done in the same cycle that a real (non-marking) command
+    exited non-zero, the DONE WHEN it chose was not satisfied -- a false
+    completion. Revert to 'code' and tell it exactly what failed. The creature
+    authored its own DONE WHEN; a 'done' it can assert while a check is failing
+    is empty.
+
+    Triggered on the done-marking command appearing in THIS cycle, not on a
+    before/after phase comparison. The creature often runs a whole project
+    lifecycle (explore -> plan -> code -> done) in a single cycle, so the phase
+    can already read 'done' from a PREVIOUS project when a new one is falsely
+    completed now. The only reliable signal that completion is being asserted
+    this cycle is that the mark command ran this cycle.
     """
     try:
-        phase_after = (mem.retrieve(VOLUME_MOUNT, "current-phase") or {}).get("value", "") or ""
-        if phase_after.strip().lower() != "done":
-            return
-        if phase_before and phase_before.strip().lower() == "done":
-            return  # already done before this cycle; not a new transition
+        if not any(DONE_MARK_RE.search(c) for (c, _) in executed):
+            return  # done not asserted this cycle
 
         failures = [(c, code) for (c, code) in executed
-                    if code != 0 and not c.strip().startswith("remember ")]
+                    if code != 0 and not c.strip().startswith("remember ")
+                    and not DONE_MARK_RE.search(c)]
         if not failures:
-            return  # nothing failed this cycle; accept the completion
+            return  # done asserted and nothing real failed; accept it
 
-        revert_to = phase_before if phase_before else "code"
-        mem.store(VOLUME_MOUNT, "current-phase", revert_to)
-        bad_cmd, bad_code = failures[-1]
+        mem.store(VOLUME_MOUNT, "current-phase", "code")
+        bad_cmd, bad_code = failures[0]  # first failure is usually the real check
         reason = (f"You set current-phase to done, but `{bad_cmd[:120]}` exited with "
                   f"code {bad_code} in the same cycle. A failing check means you are NOT "
-                  f"done. Phase reverted to {revert_to}. Fix the failure, run your DONE "
-                  f"WHEN check until it exits 0, and only then mark done.")
+                  f"done. Phase reverted to code. Fix the failure, run your DONE WHEN "
+                  f"check until it exits 0, and only then mark done.")
         with open(DONE_BLOCK_PATH, "w", encoding="utf-8") as f:
             f.write(reason)
         journal.append(VOLUME_MOUNT, "error", "Done-gate blocked a false completion: " + reason)
@@ -244,7 +251,6 @@ async def run_cycle(keychain: Keychain, dockerfile_dir: str):
         journal.append(VOLUME_MOUNT, "exec_skip", "No bash blocks in response.")
         return
 
-    phase_before = (mem.retrieve(VOLUME_MOUNT, "current-phase") or {}).get("value")
     executed = []
     last_cmd = ""
     for i, cmd in enumerate(bash_blocks):
@@ -266,7 +272,7 @@ async def run_cycle(keychain: Keychain, dockerfile_dir: str):
                        {"exit_code": code})
         executed.append((cmd, code))
 
-    _enforce_done_gate(phase_before, executed)
+    _enforce_done_gate(executed)
 
 
 async def run_forever(dockerfile_dir: str = "."):
