@@ -2,7 +2,7 @@
 
 A self-improvement creature in a box. Descended from [Spine Reborn](https://github.com/Tubifix77/spine-reborn).
 
-**Status:** Live. First boot 2026-06-03. Creature is running.
+**Status:** Live. First boot 2026-06-03. Part 4 session completed 2026-06-05. Creature running on dedicated Debian laptop.
 
 ## What this is
 
@@ -40,12 +40,14 @@ This is **not** an alignment experiment. The survival constraint exists as a *co
 - Discovered docker is not available inside the container
 - Built a theory of mind about Tue from the protected prompt lines alone
 
-**Provider status:**
-- Gemini 2.5 Flash — 250 RPD free tier, resets 09:00 Danish (00:00 Pacific)
-- Groq llama-3.3-70b-versatile — ~14400 tokens/day, resets 02:00 Danish
-- Cerebras gpt-oss-120b — 30000 tokens/day, resets 02:00 Danish
+**Provider status (self-calibrating — no hardcoded limits):**
+- Gemini 2.5 Flash — daily RPD, resets ~07:00 UTC. Discovered limit ~92 calls/day.
+- Groq llama-3.3-70b-versatile — rolling token window, resets ~00:00 UTC daily.
+- Cerebras gpt-oss-120b — rolling token window, ~71s refill interval discovered.
 
-**Implementation:** v0.4, fully operational. Executive loop, keychain, volume persistence, wake/sleep runtime, observer GUI.
+Quota system pushes until first 429 (discovered_limit), then probes every ~85s with the real next prompt. No hardcoded limits. Reset intervals learned from live measurement.
+
+**Implementation:** fully operational. Executive loop, self-calibrating keychain, volume persistence, adaptive wake/sleep, observer GUI (5 tabs), Docker container with 1GB memory cap.
 
 ## Architecture v0.3 — Locked Decisions
 
@@ -84,10 +86,11 @@ python3 observer.py
 ```
 
 **Observer tabs:**
-- **Journal** — live stream of all creature activity, colour-coded by event type. Chat input at bottom sends a message into the next cycle.
-- **Memory** — SQLite memory entries the creature has written to its persistent volume.
-- **Container** — file browser of `/workspace` inside the running container. Click any file to read it.
-- **Quota** — provider status cards showing usage, remaining budget, and reset times.
+- **Journal** — live stream of all creature activity. Double-click any row to expand.
+- **Memory** — tree-style view (Working Memory / Intermediate / Archive / Outputs), collapsible sections, click any entry for full content in detail panel.
+- **Container** — file browser of `/workspace` inside the running container.
+- **Quota** — provider cards showing used/discovered_limit, FRESH/RUNNING/OK/LOW/EXHAUSTED status, and measured reset interval (waited X / last known Y).
+- **Chat** — send a message to the creature; it replies in its next think cycle.
 
 
 ## Experimental real-world implications and changes

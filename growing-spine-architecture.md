@@ -1,8 +1,8 @@
-# Growing Spine — Architecture v0.3
+# Growing Spine — Architecture v0.4
 
 **A self-improvement creature in a box, descended from Spine Reborn.**
 
-Architecture locked. Implementation pending. v0.3 relocates the creature to a dedicated machine, replaces the cognitive substrate with a free-tier API keychain, and adopts the VibeOS sandbox pattern with a savegame layer.
+Architecture locked. Implementation live. v0.3 relocated the creature to a dedicated machine, replaced the cognitive substrate with a free-tier API keychain, and adopted the VibeOS sandbox pattern with a savegame layer. v0.4 adds the observer GUI, self-calibrating quota system, probe-based reset detection, and adaptive sleep.
 
 ---
 
@@ -70,11 +70,14 @@ Why the keychain and not APEX's full orchestrator: APEX decomposes a goal into a
 What the keychain does:
 
 - Holds provider configs and API keys in a config file that is the single source of truth. The current provider set is Gemini 2.5 Flash, Groq, and Cerebras free tiers; this list lives in config and will drift as free tiers change — the doc names it illustratively, not as a fixed dependency.
-- Tracks remaining quota per provider, persisted across restarts
-- Exposes one function: give it a prompt, get a response from the highest-priority provider that still has capacity
-- Fails over down the provider ladder when one is exhausted; never retries the same failed provider on the same call
-- Returns raw responses with provider metadata attached
-- Logs every call host-side
+- Tracks quota per provider with self-calibration — no hardcoded limits. Pushes until a 429 response reveals the actual ceiling (discovered_limit), then records it.
+- Probes with the real next prompt rather than a synthetic ping — if it gets a response, work continues; if 429, sleep and retry. First success after exhaustion records the reset interval (discovered_reset_interval).
+- Adaptive sleep: wakes after min(discovered_reset_intervals) * 1.2, floor 60s. Falls back to 1 hour if no interval is known yet.
+- Distinguishes per-minute rate limits from daily quota exhaustion — transient limits retry with backoff, daily exhaustion sleeps until reset.
+- Exposes one function: give it a prompt, get a response from the highest-priority available provider.
+- Fails over down the provider ladder when one is exhausted; never retries the same failed provider on the same call.
+- Returns raw responses with provider metadata attached.
+- Logs every call host-side.
 
 **No local fallback.** There is no Ollama, no local model. When every free tier is exhausted, the creature genuinely cannot think and sleeps until a provider's quota resets. This keeps the metabolic constraint sharp and total — the creature lives on the kindness of free tiers, and when they run dry, it stops.
 
@@ -192,7 +195,7 @@ Risk this introduces that Spine Reborn did not have: *operational* self-destruct
 
 ## Runtime Model
 
-**Opportunistic.** The creature does not run on a fixed schedule. It runs whenever both conditions hold: the laptop is on, and at least one keychain provider has remaining quota. When the laptop sleeps, the creature sleeps with it. When every provider's quota is exhausted, the creature sleeps until the earliest provider reset (Gemini resets at midnight Pacific; Groq and Cerebras on their own schedules — the keychain wakes the creature when any capacity returns).
+**Opportunistic.** The creature does not run on a fixed schedule. It runs whenever both conditions hold: the laptop is on, and at least one keychain provider has remaining quota. When the laptop sleeps, the creature sleeps with it. When every provider's quota is exhausted, the creature probes every few minutes using the real next prompt — no synthetic ping. Reset times are learned empirically (discovered_reset_interval) rather than configured. Cerebras has shown ~71s refill windows; Gemini is a true daily reset.
 
 There is no PC-coupling to manage — the laptop is dedicated, so there is no contention with Tue's daily computing to throttle around. The creature simply runs when it can think and sleeps when it cannot.
 
@@ -200,7 +203,7 @@ There is no PC-coupling to manage — the laptop is dedicated, so there is no co
 
 **Wake/sleep memory entries** give the creature continuity-with-gaps rather than confusing discontinuities. On wake: *"Resumed at T. Last paused at T-N because [all providers exhausted / laptop off]. Cognitive budget available."* On sleep: *"Pausing at T. Reason: [providers exhausted / laptop suspending]. Earliest budget return: …"* The executive makes the gaps narratively coherent so the creature does not read them as reality-violations.
 
-**Budget note (current, will drift):** routing across providers gives more daily cognition than any single tier. Gemini's free tier alone is on the order of a thousand-plus requests/day; Groq and Cerebras add separate quotas. A substantive task (skill creation, prompt edit, deep reflection) costs roughly 8-11 calls; light tasks far fewer. The multi-provider spread makes total exhaustion — and therefore sleep — less frequent than single-provider math would suggest. Exact figures track each provider's current free-tier terms.
+**Budget note (current, will drift):** routing across providers gives more daily cognition than any single tier. Gemini's free tier is ~92 calls/day (empirically discovered). Groq and Cerebras operate on rolling token windows with refill intervals of ~71-217s as measured live. A substantive task costs roughly 8-11 calls; light tasks fewer. The multi-provider spread and short Cerebras/Groq refill windows mean the creature can be active throughout the day in short bursts rather than one long window. Exact figures track each provider's current free-tier terms and are self-calibrated at runtime.
 
 ---
 
@@ -265,7 +268,7 @@ Host-side channels, in order of primacy:
 - **Network monitoring** — the host sees the container's non-cognition egress (research fetches, write-actions), so external behavior is visible even though it isn't routed through the keychain.
 - **The savegame/death/restore log** — what the creature broke, when it died, what was restored.
 
-No live chat in v0.3. The creature develops without conversational pressure. Direct observation via `docker exec` is available when Tue wants to look inside the running body, and Spine Reborn's visitor-chat pattern can be added later if a need appears — but the v0.3 experiment is *what the creature becomes when left to grow*.
+Live chat exists (v0.4 Chat tab in the observer). The creature reads unread messages from Tue at the start of each think cycle and replies in plain text before its bash blocks. The experiment remains primarily observational — the chat capability exists for nudges and questions, not continuous direction.
 
 ### Containment, and the risk it does not remove
 
@@ -295,7 +298,7 @@ All eight original design questions remain resolved. v0.3 revises three resoluti
 | TBD-1 | Rollback mechanism | **Revised.** Two host-side snapshot streams (body savegame via docker commit; mind snapshot via volume copy). Three mechanisms: automatic death-and-respawn, mind-corruption recovery, manual rollback. Retention: last 5-10 plus milestones. |
 | TBD-2 | Minimum prompt + survival | Survival as a skill (hybrid trigger, active justification). Hardcoded-protected lines in the-prompt re-injected each cycle. Trigger list revised for container deployment with real egress. |
 | TBD-3 | Stall-trigger strictness | Strict — no file change in self-state = stall. |
-| TBD-4 | Observation channels | Journal-as-primary, plus keychain log, network monitoring, and savegame log (host-side). No live chat in v0.3. |
+| TBD-4 | Observation channels | Journal-as-primary, plus keychain log, network monitoring, and savegame log (host-side). Live chat added in v0.4 (observer Chat tab). |
 | TBD-5 | Cognitive substrate | **Revised.** Custom free-tier API keychain (Gemini 2.5 Flash + Groq + Cerebras), failover, no local fallback, raw responses. *Not* APEX's DAG orchestrator. |
 | TBD-6 | Self-model-swap | Not permitted by the creature. Multi-provider keychain routing is constitutional, not a swap. |
 | TBD-7 | Runtime model | **Revised.** Opportunistic — runs when laptop is on and any provider has quota; sleeps otherwise. No PC-coupling (dedicated machine). |
@@ -307,6 +310,14 @@ All eight original design questions remain resolved. v0.3 revises three resoluti
 - **Sandbox pattern** — VibeOS-derived three-location split (host/container/volume); brain separate from playground; natural bash format for execution
 - **Savegame layer** — body-and-mind restore points, host-side, creature opaque to them
 - **Death-log** — cause-of-death fed back to the creature on respawn, forming the retrospective half of the survival loop
+
+**New in v0.4:**
+
+- **Observer GUI** — PyQt6 five-tab application (Journal, Memory, Container, Quota, Chat). Memory tab uses QTreeWidget with collapsible Working Memory / Intermediate / Archive / Outputs sections. Quota tab shows self-calibrated x/y display with FRESH/RUNNING/OK/LOW/EXHAUSTED states and measured reset intervals.
+- **Self-calibrating quota** — no hardcoded limits. discovered_limit and discovered_reset_interval learned from live 429 responses.
+- **Probe-based reset detection** — creature retries with real next prompt rather than synthetic ping. Measures actual reset intervals empirically.
+- **Adaptive sleep** — sleep duration derived from measured reset intervals, not configured schedules.
+- **Docker resource caps** — container hard-limited to 1GB RAM and 1.5 CPUs to protect host stability.
 
 ---
 
