@@ -16,6 +16,7 @@ VOLUME_MOUNT = os.path.expanduser("~/growing-spine-mind")
 EDITABLE_PROMPT_PATH = os.path.join(VOLUME_MOUNT, "editable-prompt.md")
 PROTECTED_PROMPT_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "protected-prompt.md")
 SAVEGAME_ROOT = os.path.expanduser("~/growing-spine-saves")
+DONE_BLOCK_PATH = os.path.join(VOLUME_MOUNT, "done_block.txt")
 
 
 
@@ -86,6 +87,58 @@ def _build_tool_catalogue() -> str:
     except Exception:
         return ""
 
+
+
+def _build_done_block() -> str:
+    """One-shot injection: if the executive blocked a false 'done' last cycle,
+    tell the creature exactly what failed. Read-and-delete, so it shows for one
+    cycle and renews itself only if the creature marks done falsely again."""
+    try:
+        if os.path.exists(DONE_BLOCK_PATH):
+            with open(DONE_BLOCK_PATH, encoding="utf-8") as f:
+                reason = f.read().strip()
+            os.remove(DONE_BLOCK_PATH)
+            if reason:
+                return "## Done check failed\n" + reason + "\n\n"
+    except Exception:
+        pass
+    return ""
+
+
+def _enforce_done_gate(phase_before, executed):
+    """Verify a 'done' transition against ground truth.
+
+    The creature marks completion by running `remember current-phase "done"`.
+    If it does that in the same cycle a real (non-marking) command exited
+    non-zero, the DONE WHEN it chose was not satisfied -- a false completion.
+    Revert the phase and tell it what failed. The creature authored its own
+    DONE WHEN; a 'done' it can assert while a check is failing is empty. This
+    enforces only the contract it set for itself.
+    """
+    try:
+        phase_after = (mem.retrieve(VOLUME_MOUNT, "current-phase") or {}).get("value", "") or ""
+        if phase_after.strip().lower() != "done":
+            return
+        if phase_before and phase_before.strip().lower() == "done":
+            return  # already done before this cycle; not a new transition
+
+        failures = [(c, code) for (c, code) in executed
+                    if code != 0 and not c.strip().startswith("remember ")]
+        if not failures:
+            return  # nothing failed this cycle; accept the completion
+
+        revert_to = phase_before if phase_before else "code"
+        mem.store(VOLUME_MOUNT, "current-phase", revert_to)
+        bad_cmd, bad_code = failures[-1]
+        reason = (f"You set current-phase to done, but `{bad_cmd[:120]}` exited with "
+                  f"code {bad_code} in the same cycle. A failing check means you are NOT "
+                  f"done. Phase reverted to {revert_to}. Fix the failure, run your DONE "
+                  f"WHEN check until it exits 0, and only then mark done.")
+        with open(DONE_BLOCK_PATH, "w", encoding="utf-8") as f:
+            f.write(reason)
+        journal.append(VOLUME_MOUNT, "error", "Done-gate blocked a false completion: " + reason)
+    except Exception:
+        pass
 
 
 def _build_loop_warning() -> str:
@@ -168,7 +221,8 @@ def _build_context(recent_journal: list, tue_message: str = None) -> str:
         chat_block = f"\n\nMessage from Tue: {tue_message}\nReply to this in plain text before your bash blocks."
     active_project = _build_active_project_block()
     loop_warning = _build_loop_warning()
-    return loop_warning + active_project + protected + "\n\n" + editable + catalogue_block + workspace_block + memory_text + journal_text + chat_block
+    done_block = _build_done_block()
+    return done_block + loop_warning + active_project + protected + "\n\n" + editable + catalogue_block + workspace_block + memory_text + journal_text + chat_block
 
 
 async def run_cycle(keychain: Keychain, dockerfile_dir: str):
@@ -190,6 +244,8 @@ async def run_cycle(keychain: Keychain, dockerfile_dir: str):
         journal.append(VOLUME_MOUNT, "exec_skip", "No bash blocks in response.")
         return
 
+    phase_before = (mem.retrieve(VOLUME_MOUNT, "current-phase") or {}).get("value")
+    executed = []
     last_cmd = ""
     for i, cmd in enumerate(bash_blocks):
         last_cmd = cmd
@@ -208,6 +264,9 @@ async def run_cycle(keychain: Keychain, dockerfile_dir: str):
         result_summary = f"exit={code} stdout={stdout[:300]} stderr={stderr[:200]}"
         journal.append(VOLUME_MOUNT, "exec_end", result_summary,
                        {"exit_code": code})
+        executed.append((cmd, code))
+
+    _enforce_done_gate(phase_before, executed)
 
 
 async def run_forever(dockerfile_dir: str = "."):
