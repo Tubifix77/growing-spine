@@ -20,7 +20,7 @@ LAYER2_MAX  = 50   # intermediate ceiling (entries 6-50)
 # genuine memory). The creature's own ad-hoc keys are NOT listed here.
 CONTROL_KEYS = {
     "current-project", "current-phase", "current-plan",
-    "current-project-done-when", "completed-projects",
+    "current-project-done-when", "completed-projects", "completed-log",
 }
 
 

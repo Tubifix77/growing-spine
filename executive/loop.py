@@ -72,7 +72,7 @@ def _load_workspace_map() -> str:
         r = subprocess.run(
             ["docker", "exec", CONTAINER_NAME,
              "cat", "/workspace/README.md"],
-            capture_output=True, text=True, timeout=5
+            capture_output=True, text=True, errors="replace", timeout=5
         )
         if r.returncode == 0 and r.stdout.strip():
             return r.stdout.strip()
@@ -108,6 +108,33 @@ def _build_done_block() -> str:
 DONE_MARK_RE = re.compile(r'remember\s+current-phase\s+["\']?done["\']?', re.I)
 
 
+def _project_title(value: str) -> str:
+    """Readable project title: text before the first ':' (or the whole line)."""
+    if not value:
+        return ""
+    head = value.split(":", 1)[0] if ":" in value else value
+    return head.strip()[:80]
+
+
+def _record_completion():
+    """On a genuine completion (done asserted, no failed checks), append the
+    project title to a durable, executive-owned log. The creature overwrites its
+    own completed-projects key and loses history; completed-log accumulates
+    reliably and is shown in the active-project block."""
+    try:
+        proj = mem.retrieve(VOLUME_MOUNT, "current-project")
+        title = _project_title(proj["value"]) if proj else ""
+        if not title:
+            return
+        log = (mem.retrieve(VOLUME_MOUNT, "completed-log") or {}).get("value", "")
+        entries = [e.strip() for e in log.split("\n") if e.strip()]
+        if title not in entries:
+            entries.append(title)
+            mem.store(VOLUME_MOUNT, "completed-log", "\n".join(entries))
+    except Exception:
+        pass
+
+
 def _enforce_done_gate(executed):
     """Verify a 'done' assertion against ground truth.
 
@@ -133,7 +160,8 @@ def _enforce_done_gate(executed):
                     if code != 0 and not c.strip().startswith("remember ")
                     and not DONE_MARK_RE.search(c)]
         if not failures:
-            return  # done asserted and nothing real failed; accept it
+            _record_completion()  # genuine completion: log it durably
+            return
 
         mem.store(VOLUME_MOUNT, "current-phase", "code")
         bad_cmd, bad_code = failures[0]  # first failure is usually the real check
@@ -208,7 +236,8 @@ def _build_active_project_block() -> str:
     try:
         project   = mem.retrieve(VOLUME_MOUNT, "current-project")
         phase     = mem.retrieve(VOLUME_MOUNT, "current-phase")
-        completed = mem.retrieve(VOLUME_MOUNT, "completed-projects")
+        completed = (mem.retrieve(VOLUME_MOUNT, "completed-log")
+                     or mem.retrieve(VOLUME_MOUNT, "completed-projects"))
         if not project and not phase:
             return ""
         lines = ["## Active project"]
