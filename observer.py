@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import (
     QTextEdit, QSplitter, QFrame, QScrollArea, QSizePolicy
 )
 from PyQt6.QtCore import Qt, QTimer, QFileSystemWatcher, QSize
-from PyQt6.QtGui import QColor, QFont, QPalette, QFontMetrics
+from PyQt6.QtGui import QColor, QFont, QPalette, QFontMetrics, QIcon, QPixmap, QPainter, QPen, QBrush, QPainterPath
 
 # ── Paths ────────────────────────────────────────────────────────────
 MIND_DIR      = os.path.expanduser("~/growing-spine-mind")
@@ -791,10 +791,70 @@ class ChatTab(QWidget):
 
 
 # ── Main Window ──────────────────────────────────────────────────────
+
+def _make_spine_icon() -> "QIcon":
+    """Growing Spine icon: a golden vertebral column with three green
+    sprouts curving upward from its top. Drawn with QPainter so there
+    is no external file dependency."""
+    try:
+        SIZE = 64
+        px = QPixmap(SIZE, SIZE)
+        px.fill(Qt.GlobalColor.transparent)
+        p = QPainter(px)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        bone  = QColor("#D4A853")   # warm golden vertebrae
+        cord  = QColor("#9B6E3A")   # darker connecting cord
+        green = QColor("#5CB85C")   # sprout stem
+        leaf  = QColor("#4CAF50")   # leaf tips
+        dark  = QColor("#3E2A0A")   # outline
+
+        # Spine cord (thin central line, lower two-thirds)
+        p.setPen(QPen(cord, 2.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        p.drawLine(32, 22, 32, 60)
+
+        # Four vertebrae (rounded rects)
+        p.setPen(QPen(dark, 1.0))
+        p.setBrush(QBrush(bone))
+        for i in range(4):
+            p.drawRoundedRect(19, 24 + i * 10, 26, 6, 3, 3)
+
+        # Sprout stems
+        pen = QPen(green, 2.5, Qt.PenStyle.SolidLine,
+                   Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+        p.setPen(pen)
+        p.setBrush(Qt.BrushStyle.NoBrush)
+
+        p.drawLine(32, 22, 32, 8)           # centre stem, straight up
+
+        left = QPainterPath()               # left stem, curves up-left
+        left.moveTo(32, 20)
+        left.cubicTo(30, 15, 21, 13, 15, 8)
+        p.drawPath(left)
+
+        right = QPainterPath()              # right stem, curves up-right
+        right.moveTo(32, 20)
+        right.cubicTo(34, 15, 43, 13, 49, 8)
+        p.drawPath(right)
+
+        # Leaf tips
+        p.setPen(QPen(dark, 0.5))
+        p.setBrush(QBrush(leaf))
+        p.drawEllipse(28, 4,  9, 6)         # centre
+        p.drawEllipse(11, 5,  8, 6)         # left
+        p.drawEllipse(45, 5,  8, 6)         # right
+
+        p.end()
+        return QIcon(px)
+    except Exception:
+        return QIcon()                      # fallback: null icon, no crash
+
+
 class ObserverWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Growing Spine — Observer")
+        self.setWindowIcon(_make_spine_icon())
         self.resize(1280, 800)
 
         tabs = QTabWidget()
@@ -816,6 +876,7 @@ class ObserverWindow(QMainWindow):
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
+    app.setWindowIcon(_make_spine_icon())
     app.setPalette(dark_palette())
     app.setStyleSheet("""
         QTabWidget::pane { border: 1px solid #333; }
