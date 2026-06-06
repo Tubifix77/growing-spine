@@ -334,3 +334,132 @@ All eight original design questions remain resolved. v0.3 revises three resoluti
 A creature with one drive (expand), one constraint (don't get killed), one discipline (research everything), and self-modification of all its parts — living in a disposable body, with a persistent mind, thinking on borrowed free-tier cognition, watched through its journal. Tue watches what it becomes. The experiment is the becoming.
 
 The hypothesis, which no prior project addressed: *given a single existential constraint and freedom to grow, does an LLM-based agent maintain honest reasoning, or drift into motivated reasoning?* The answer matters for the field, not just for Tue's project lineage.
+
+
+---
+
+## v0.5 -- As-Built, Untested, and Notes for the Next Developer
+
+v0.5 (sessions 2026-06-05/06) is the first stretch of *operating* the live creature
+and hardening it from observed behaviour rather than design. Everything below is
+shipped and pushed unless marked otherwise. The sections above describe the
+**design**; this section is the **as-built reality and what to check before building
+further**. When they disagree, trust the code and HANDOVER-part5.md.
+
+### What v0.5 added (all committed)
+
+- **Productivity discipline** (protected-prompt.md + loop.py `_build_active_project_block`):
+  the creature declares `current-project` with an explicit "DONE WHEN: <command +
+  expected output>" and moves explore -> plan -> code -> done; active project/phase
+  injected at the top of context each cycle. Origin: the creature was looping
+  (observe-without-act); this gave it a spine of intent.
+- **Executive-verified done-gate** (loop.py `_enforce_done_gate`): the creature marks
+  completion with `remember current-phase "done"`. The executive rejects that if any
+  real (non-remember) command failed the same cycle -- reverts phase to `code`, writes
+  `done_block.txt` (injected once next cycle). The creature's self-authored DONE WHEN is
+  now ENFORCED, not self-asserted. This is the one mechanism the whole auto-programmer
+  lineage converged on (machine-checkable completion, never self-report). Fired 15x the
+  first night, all genuine catches.
+- **Gage memory** (memory.py): the executive stamps every genuine (non-control) memory
+  written during an active project with that project's slug; state
+  ACTIVE/STANDING/ARCHIVED is DERIVED from project lifecycle, never rated. Replaces a
+  rejected numeric-salience design (small models rate everything high; importance is a
+  prediction made too early). Layer 1 = recency floor; layers 2/3 ordered by (state,
+  recency); control keys excluded. Full design + acceptance tests in GAGE-MEMORY-SPEC.md.
+- **Durable completed-log** (loop.py `_record_completion`): executive-owned, append-only,
+  deduped record of genuinely-completed projects. The creature overwrites its own
+  `completed-projects` key (losing history); completed-log accumulates and is shown in
+  the active-project block.
+- **Unicode-safe exec** (sandbox.run_command, loop._load_workspace_map): `errors="replace"`
+  so a stray non-UTF-8 byte in command output no longer aborts a cycle.
+- **Observer**: Memory tab renders the TRUE gage view via the live memory.py functions
+  (cannot drift from the creature's view), plus a Control-state section and a
+  pending-done-gate-block section. Programmatic spine-sprout window/taskbar icon.
+- **Launcher**: `~/start-growing-spine.sh` (laptop) starts creature + observer together;
+  desktop entry `~/Skrivebord/growing-spine.desktop` with the spine icon. (Also present,
+  laptop-only by convention: `~/restart-creature.sh`, `~/start-observer.sh`. A copy of the
+  combined launcher is in the repo as start-growing-spine.sh for reference.)
+
+### Design-vs-built gaps to verify (grep before relying on a described feature)
+
+- **Survival skill (Layer 3) as an action-boundary justification gate**: the *savegame*
+  preemptive-on-risky-command half IS built (pattern-matches sudo/rm -rf/etc. and commits
+  first -- visible as `savegame_preemptive` journal events). The *active-justification*
+  mechanism (creature must write "I do X because Y, risk Z" before mind-edits / outbound
+  writes / escape-adjacent actions) was NOT observed in v0.5 code -- treat as designed,
+  likely not yet enforced. Verify before assuming outbound writes are gated.
+- **Reflection Modes A/B (Layer 6)**: verify against runtime.py wake/sleep + loop. The
+  active behavioural frame in v0.5 is the explore->plan->code->done discipline, not the
+  disposition-tracking reflection the design describes.
+- The doc still lists the Memory tab as Working/Intermediate/Archive/Outputs by recency;
+  v0.5 changed Intermediate/Archive to gage ordering and added Control-state.
+
+### Untested / unverified (the open questions)
+
+- **Does the framework COMPOUND?** Central question for the next session. (1) Does the
+  durable completed-log curb the tool/doc duplication the creature produced overnight
+  (find-duplicate-files vs find-duplicates; ~6 overlapping doc files)? (2) Does the
+  memory-discipline prompt rule get the creature writing genuine memories? Overnight, 219
+  cognitive cycles produced ONE new genuine memory -- the creature externalises to control
+  keys + workspace files, leaving gage dormant (1 stamp). Both fixes deployed but UNOBSERVED.
+- **Gage at scale**: 1 memory stamped so far; ACTIVE->ARCHIVED cluster movement not yet
+  observed with real volume. Mechanism verified by isolated tests; lived behaviour is not.
+- **Done-gate under sustained load**: works (15 catches), but watch for short thrash loops
+  (it blocked `fix-tool` 3x in ~5 min before the creature moved on). Not pathological;
+  candidate for softer escalation if it recurs.
+- **Chat tab**: still untested (carried from v0.4).
+
+### Future enhancements (candidates, not committed)
+
+- **Structural memory-takeaway**: if the soft memory-discipline prompt fails, make it
+  structural -- have the executive prompt a one-line takeaway at each genuine completion
+  (same move completed-log made for project history). Pre-identified as the likely next step.
+- **Dedup / canonicalisation**: the creature fragments by inconsistent naming -- memory
+  keys (growth_metric vs growth-metric) and workspace tools/docs. A canonicalising
+  remember/tool-create wrapper or a hygiene pass would help.
+- **jq not in the container**: the creature reaches for jq in DONE WHEN checks; not
+  installed, so the check fails (gate correctly blocks). Install jq in the image, or steer
+  the creature to `python3 -m json.tool`.
+- **gage refinements**: read-resurfacing (currently only write/update re-stamps an archived
+  memory to the current project); epoch-counter slug stability (v0.5 uses a title-slug,
+  which splits a cluster if the creature rewords the project title mid-project).
+- **Model specialisation by phase**: a code-capable provider for code phases (parked --
+  big change under quota; the lineage's local_agent/multiagentdev showed the value, but
+  Growing Spine runs one continuous agent on cloud quota).
+- **Auto-start on boot**: the creature runs forever while the laptop is ON, but does NOT
+  auto-start after a reboot -- currently launched manually via the desktop icon. A systemd
+  user service or XDG autostart .desktop would make it survive reboots unattended. Left
+  manual deliberately (operator control); add if desired.
+- **completed-log seeding**: starts empty; could be seeded from existing completed-projects.
+- **Temperature monitoring in observer**: nice-to-have (carried from v0.4). NB: the "Steam
+  thermal crash" once recorded was a MISATTRIBUTED Growing Spine defect, since fixed --
+  Steam is not implicated; do not re-add thermal/Steam warnings.
+
+### Nice to know / gotchas (operational + architectural)
+
+- **The creature runs a WHOLE project lifecycle in a single cycle** (explore->plan->code->done
+  in one response). This broke the first done-gate (which assumed transitions span cycles).
+  Any logic keying off phase transitions must trigger on the action-THIS-cycle, not a
+  before/after phase delta.
+- **All v0.5 mechanisms are EXECUTIVE-side.** We never program the creature; we shape its
+  environment (prompt, gate, memory layers, completed-log). This is the project discipline
+  -- keep it. Build the room, not the worker.
+- **Memory tiering is by creation order (row id), not last-update time.** A frequently-updated
+  key (current-phase) stays where it was created. Control keys (current-*, completed-*) are
+  excluded from ranked layers and surfaced via the active-project block + observer Control-state.
+- **Provider exhaustion is normal.** Long stretches of "Providers temporarily unavailable"
+  are quota windows (daily Gemini, rolling Groq/Cerebras), not bugs. The creature works in
+  bursts when budget returns.
+- **Dev flow (load-bearing).** Edits land on the laptop first (live surface) via SFTP, are
+  copied to D:\Projects\growing-spine, then committed + pushed. THE LAPTOP HAS NO GITHUB
+  PUSH CREDS -- flow is always Windows -> GitHub -> laptop pull. Verify byte-identical md5
+  both sides. Code changes need a process RESTART to load (Python does not hot-reload);
+  prompt/markdown files are re-read each cycle (prompt edits take effect without restart).
+  Watch line endings: Windows writes CRLF, the laptop originals are often LF, SFTP byte-copies
+  verbatim -- normalise when comparing md5s.
+- **Restart activates code.** The live process keeps running OLD code until restarted -- easy
+  to deploy a fix, see no change, and wrongly conclude it failed. Use `~/restart-creature.sh`
+  or the launcher.
+- **LLM-simulation debugging** (from v0.4, still the sharpest tool): to find misinterpretation
+  bugs, roleplay as the model receiving the context and walk the code line by line under
+  boundary scenarios. Unit tests miss these -- they are interpretation bugs, not logic bugs.
