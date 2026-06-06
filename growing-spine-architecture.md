@@ -378,7 +378,7 @@ further**. When they disagree, trust the code and HANDOVER-part5.md.
 - **Launcher**: `~/start-growing-spine.sh` (laptop) starts creature + observer together;
   desktop entry `~/Skrivebord/growing-spine.desktop` with the spine icon. (Also present,
   laptop-only by convention: `~/restart-creature.sh`, `~/start-observer.sh`. A copy of the
-  combined launcher is in the repo as start-growing-spine.sh for reference.)
+  combined launcher, its desktop entry, the icon, the icon generator, and an install README are in the repo under deploy/.)
 
 ### Design-vs-built gaps to verify (grep before relying on a described feature)
 

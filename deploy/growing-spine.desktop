@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Growing Spine
+Comment=Start the Growing Spine creature and its observer
+Exec=/home/boas/start-growing-spine.sh
+Icon=/home/boas/.local/share/icons/growing-spine.png
+Terminal=false
+Categories=Utility;
+StartupNotify=false
