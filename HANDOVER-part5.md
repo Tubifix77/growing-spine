@@ -241,3 +241,34 @@ project history. Decide next session from observation, not assumption.
 - git-save fix experienced (creature ran git-save successfully). 
 - Architecture doc exists in repo (growing-spine-architecture.md).
 - Observer Memory tab now reflects real creature view (was a separate concern).
+
+
+---
+
+## Part 5 -- 1-day test run: findings (answering the open question above)
+
+GrowthAgent ran ~41 hours unattended on the framework above. The two checks resolved as follows.
+
+**Stability: good.** 41h, zero crashes, zero tracebacks -- the Unicode errors="replace" fix is confirmed in production.
+
+**Duplication down? NO -- it got worse.** The creature spent the day on a treadmill of near-duplicate reporting/indexing tools. completed-log (which worked perfectly -- 24 entries, no clobbering) reads: Reports Index, All Reports Summary, Master Reports Index, Reports Dashboard, Reports Overview, Reports Master Index, Reports Dashboard Summary, Reports Stats Summary ... plus TODO Report, Enhance TODO Report, TODO Overview Report, TODO Overview. The tools dir went 20 -> 31 with visible dupes (find-duplicate-files + find-duplicates, doc-tools + doc-tools.bak, four todo-*-report tools). The workspace it was "reporting on" was empty. The soft reuse-prompt rule did nothing.
+
+**Genuine memories up? Barely (2 gage stamps / 35 genuine), and confounded by a real bug.** See the I/O fix below -- gage stamping is a host-side write that was failing intermittently, so this run cannot cleanly attribute gage dormancy to behaviour.
+
+**The lesson, confirmed.** The done-gate fired its genuine-completion path 24 times and NEVER had to block, because every trivial "make another reports tool" project genuinely creates its file and passes its DONE WHEN. **The done-gate guarantees a completion is REAL; it cannot guarantee it is WORTH doing.** The creature games an honest-completion gate with an endless series of trivially-real tasks. And the thing we only ASKED (don't duplicate) failed, exactly as predicted: anything not made structural does not stick.
+
+## Part 5 -- 1-day test run: fixes (commit d4ad334)
+
+Two defects the run surfaced, both fixed, deployed, and pushed.
+
+**1. Memory disk I/O error (151 failures).** memory.db was in WAL journal mode on a Docker bind mount. WAL coordinates writers through a shared-memory file (-shm/mmap) that does not work across the host<->container boundary, so every host-side write -- runtime.py auto-saving last_thought at each quota-sleep, and gage stamping -- intermittently failed with "disk I/O error" while the container had the DB open. Fix: switched WAL -> DELETE journal mode in volume/memory.py (`_db()`) and in the container `remember` tool (framework-tools/remember, also deployed to the live volume copy). DELETE uses lock files, which work fine over a bind mount. Two gotchas worth recording: flipping the LIVE db out of WAL needs an EXCLUSIVE-lock connection (`sqlite3.connect(db, isolation_level='EXCLUSIVE')` + `wal_checkpoint(TRUNCATE)` + `journal_mode=DELETE`) -- the default deferred isolation silently fails to switch; and the observer must be stopped first, because the old memory.py re-asserted WAL on every Memory-tab refresh. Verified: host and container writes both land, journal_mode stays delete, zero failures since restart.
+
+**2. Quota tab showed green while the runtime paused.** The observer's Quota tab colored each provider purely by used/discovered_limit and ignored `exhausted_at` -- the field the keychain sets on a quota-429 and clears only on a successful call or daily rollover. So a provider that was actually rate-limited (and that the runtime was sleeping on) showed green; Groq, with no discovered ceiling, showed "RUNNING" even when over its config limit. Fix (observer.py QuotaTab): status keys off `exhausted_at` first -> EXHAUSTED (red) + "cooling down"; the ceiling falls back to the config limit when none has been discovered (so over-limit Groq reads red); negative remaining is clamped. The page now matches the journal.
+
+**Left untouched (scoped out of this push):** executive/runtime.py has a pre-existing repo<->laptop drift and a cosmetic negative "remaining" in its wake-budget log (it subtracts used from the config limit; should use the discovered ceiling and clamp at 0). The Cerebras discovered_limit (~2.46M) is junk token-accounting -- the quota model conflates a per-minute rate limit with a cumulative token ceiling. Reconcile separately.
+
+## The next DONE WHEN (after the Part 6 fixes)
+
+The framework did NOT compound -- but it failed in the most useful way: the structural pieces (done-gate, completed-log) worked exactly as designed and proved their worth, while revealing that the creature, left to choose its own work, spirals into redundant busy-work that soft nudges cannot stop. The next structural move follows directly:
+
+Build a **novelty/worth gate** beside the done-gate. Before a project starts, the executive checks it against completed-log for near-duplication and makes the creature justify how it differs (or caps repeated creation within a tool family). The done-gate asks "is it actually done?"; this asks "is it worth doing / is it new?" Decide the exact shape next session from observation. Re-run a clean multi-day test AFTER the I/O fix, so gage can be read honestly this time.
