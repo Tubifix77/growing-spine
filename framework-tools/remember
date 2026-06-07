@@ -7,7 +7,7 @@ p.add_argument("key"); p.add_argument("value"); p.add_argument("--tags", default
 a = p.parse_args()
 now = time.time()
 conn = sqlite3.connect(DB, timeout=5)
-conn.execute("PRAGMA journal_mode=WAL")
+conn.execute("PRAGMA journal_mode=DELETE")  # bind-mount safe (WAL shared-memory breaks across host/container)
 conn.execute("CREATE TABLE IF NOT EXISTS memories (id INTEGER PRIMARY KEY AUTOINCREMENT, key TEXT NOT NULL, value TEXT NOT NULL, tags TEXT DEFAULT '', created REAL NOT NULL, updated REAL NOT NULL)")
 ex = conn.execute("SELECT id FROM memories WHERE key=?", (a.key,)).fetchone()
 if ex:

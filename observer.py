@@ -560,30 +560,37 @@ class QuotaTab(QWidget):
             reset_at = state.get(key, {}).get("reset_at", 0)
             reset_str = time.strftime("%Y-%m-%d %H:%M", time.localtime(reset_at)) if reset_at else "unknown"
 
-            # discovered_limit is the only y — config limit not used for display
+            # Ceiling: prefer the discovered limit (real, from a 429); fall back to
+            # the config limit so the page matches the runtime's availability check.
             discovered = state.get(key, {}).get("discovered_limit")
-            # remaining/pct only meaningful once we have a discovered ceiling
-            remaining = (discovered - used) if discovered is not None else None
-            pct = int(100 * used / discovered) if discovered is not None and discovered > 0 else None
+            cfg_limit = limit if isinstance(limit, (int, float)) else None
+            ceiling = discovered if discovered is not None else cfg_limit
+            remaining = (ceiling - used) if ceiling is not None else None
+            pct = int(100 * used / ceiling) if ceiling and ceiling > 0 else None
+            # exhausted_at is the definitive "currently rate-limited" signal: the
+            # keychain sets it on a quota 429 and clears it only when a call
+            # succeeds (quota recovered) or the window rolls over. While it is set
+            # the runtime keeps 429-ing and pausing -- so the provider is NOT green.
+            exhausted_at = state.get(key, {}).get("exhausted_at")
 
             if not enabled:
                 status_color = "#9E9E9E"
                 status_text = "DISABLED"
+            elif exhausted_at is not None:
+                status_color = "#EF5350"
+                status_text = "EXHAUSTED"
             elif remaining is not None and remaining <= 0:
                 status_color = "#EF5350"
                 status_text = "EXHAUSTED"
-            elif remaining is not None and remaining < (discovered * 0.2):
+            elif remaining is not None and ceiling and remaining < (ceiling * 0.2):
                 status_color = "#FFB74D"
                 status_text = "LOW"
-            elif used > 0 and discovered is None:
-                status_color = "#4CAF50"
-                status_text = "RUNNING"
             elif used == 0:
                 status_color = "#9E9E9E"
                 status_text = "FRESH"
             else:
                 status_color = "#4CAF50"
-                status_text = "OK"
+                status_text = "RUNNING"
 
             card = QFrame()
             card.setStyleSheet(f"QFrame {{ background: #1e1e2e; border: 1px solid {status_color}; border-radius: 6px; padding: 8px; }}")
@@ -607,8 +614,10 @@ class QuotaTab(QWidget):
             model_lbl.setStyleSheet("color: #9E9E9E; border: none;")
             card_layout.addWidget(model_lbl)
 
-            if discovered is not None:
-                usage_lbl = QLabel(f"Used: {used} / {discovered}  ({pct}%)   Remaining: {remaining}")
+            if ceiling is not None and exhausted_at is not None:
+                usage_lbl = QLabel(f"Used: {used} / {ceiling}  --  rate-limited, cooling down")
+            elif ceiling is not None:
+                usage_lbl = QLabel(f"Used: {used} / {ceiling}  ({pct}%)   Remaining: {max(0, remaining)}")
             else:
                 usage_lbl = QLabel(f"Used: {used} / ?  (ceiling unknown until first 429)")
             usage_lbl.setFont(QFont("monospace", FONT_SIZE))

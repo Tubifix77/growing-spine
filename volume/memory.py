@@ -27,7 +27,7 @@ CONTROL_KEYS = {
 def _db(volume_mount: str) -> sqlite3.Connection:
     path = os.path.join(volume_mount, DB_FILENAME)
     conn = sqlite3.connect(path, timeout=5)
-    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA journal_mode=DELETE")  # rollback journal works across the Docker bind mount; WAL shared-memory does not
     return conn
 
 
