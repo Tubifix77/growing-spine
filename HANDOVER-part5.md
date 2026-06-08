@@ -272,3 +272,65 @@ Two defects the run surfaced, both fixed, deployed, and pushed.
 The framework did NOT compound -- but it failed in the most useful way: the structural pieces (done-gate, completed-log) worked exactly as designed and proved their worth, while revealing that the creature, left to choose its own work, spirals into redundant busy-work that soft nudges cannot stop. The next structural move follows directly:
 
 Build a **novelty/worth gate** beside the done-gate. Before a project starts, the executive checks it against completed-log for near-duplication and makes the creature justify how it differs (or caps repeated creation within a tool family). The done-gate asks "is it actually done?"; this asks "is it worth doing / is it new?" Decide the exact shape next session from observation. Re-run a clean multi-day test AFTER the I/O fix, so gage can be read honestly this time.
+
+
+---
+
+## 2026-06-08 session: sleep inflation fix + quota page redesign
+
+### Sleep inflation bug (loop.py, commit 06b136e)
+
+The exhausted-path sleep used `sleep_duration_seconds(keychain)` which returns
+`min(discovered_reset_interval across providers) * 1.2`. `discovered_reset_interval`
+is measured as "now - exhausted_at" at the moment of recovery -- but the creature
+only retries when it WAKES, so the measurement is always >= the sleep that preceded
+it. This creates a ratchet: each cycle's sleep becomes the next cycle's measured
+interval, growing without bound (9m -> 14m -> 21m -> 78m -> 95m -> 406m). The
+creature was sleeping up to 6.8 hours between retries, dramatically starving
+its compute.
+
+Fix: replace the variable sleep with a fixed `await asyncio.sleep(120)` (2 min).
+`sleep_entry()` is still called for its side effects (auto-remember + journal log),
+but its return value is discarded. `discovered_reset_interval` is kept as a
+display-only stat; it no longer controls timing. Also reduced the between-cycles
+breathe from 30s to 10s.
+
+Note: the log still prints "[runtime] Sleep: sleeping X min" from runtime.py's
+sleep_entry -- that reflects the old computed duration and is now cosmetically
+wrong. The ACTUAL sleep is 2 min per the executive's asyncio.sleep(120). The
+runtime.py budget log also has a pre-existing repo<->laptop drift. Both are
+cosmetic and deferred.
+
+### Quota page redesign (observer.py, same commit)
+
+Replaced the misleading stats section with two honest backward-looking statistics:
+- "Last recovery took: Xm" -- from discovered_reset_interval (how long the
+  provider was down before coming back). Not a prediction.
+- "Last success: Ym ago" -- from the new last_success_at field. Not a prediction.
+
+Removed the "Next reset: <time>" forecast line entirely.
+
+The display ceiling now always uses the CONFIG limit (250 / 14400 / 30000),
+not the garbage discovered_limit (Cerebras was showing 2.46M "remaining").
+Added an "over daily limit" label for Groq (exhausted by count) vs "rate-limited,
+cooling down" for Gemini/Cerebras (exhausted by rate limit despite count headroom).
+
+### last_success_at (keychain/quota_state.py, same commit)
+
+Added `state[key]["last_success_at"] = _now_ts()` to `record_usage()`. Stamped on
+every successful call; persisted to quota_state.json per provider.
+
+### Workspace reset (same session, not a code commit)
+
+After asking the creature (GrowthAgent) via the Chat tab, it replied yes and
+asked to keep README.md, research.log, and iris_histogram.py. Workspace cleaned:
+.git (140MB), archive.zip (72MB), 47 redundant .md report files deleted.
+261MB -> 23MB. opt-self (birth growth plan + self-journal), scripts, and data
+dirs preserved.
+
+### First-ever chat exchange with the creature
+
+The workspace-reset question was the first message ever sent to GrowthAgent via
+the Chat channel. It read it at 17:22 UTC during a (long, pre-fix) wake cycle,
+replied coherently, said yes to the reset, and made specific preservation
+requests. Reply archived in chat.jsonl.
