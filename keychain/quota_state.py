@@ -70,4 +70,5 @@ def is_available(state: dict, key: str, cfg: dict) -> bool:
 def record_usage(state: dict, key: str, tokens: int):
     if key in state:
         state[key]["used"] = state[key].get("used", 0) + tokens
+        state[key]["last_success_at"] = _now_ts()  # for Quota tab 'last success' stat
         save_state(state)

@@ -341,15 +341,17 @@ async def run_forever(dockerfile_dir: str = "."):
             # hourly probe to actually reach the API instead of short-circuiting
             # on any_available() while exhausted_at is set.
             await run_cycle(keychain, dockerfile_dir)
-            await asyncio.sleep(30)  # breathe between cycles
+            await asyncio.sleep(10)  # breathe between cycles (anti-ban; was 30s)
 
         except RuntimeError as e:
             msg = str(e)
             if "exhausted" in msg.lower() or "sleeping" in msg.lower():
-                # quota exhausted mid-cycle - sleep gracefully
-                secs = await sleep_entry(VOLUME_MOUNT, keychain)
-                print(f"[executive] Quota exhausted - sleeping {secs/60:.1f} min.")
-                await asyncio.sleep(secs)
+                # quota exhausted - auto-remember + journal log, then fixed
+                # 2-min retry. Replaces the old inflating interval-based sleep
+                # (min(discovered_reset_interval)*1.2) which ratcheted to 95min+.
+                await sleep_entry(VOLUME_MOUNT, keychain)
+                print("[executive] Quota exhausted - retrying in 2 min.")
+                await asyncio.sleep(120)
                 keychain = Keychain()
                 await wake_entry(VOLUME_MOUNT, keychain)
             elif "temporarily unavailable" in msg.lower():

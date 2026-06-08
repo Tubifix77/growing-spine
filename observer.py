@@ -560,11 +560,12 @@ class QuotaTab(QWidget):
             reset_at = state.get(key, {}).get("reset_at", 0)
             reset_str = time.strftime("%Y-%m-%d %H:%M", time.localtime(reset_at)) if reset_at else "unknown"
 
-            # Ceiling: prefer the discovered limit (real, from a 429); fall back to
-            # the config limit so the page matches the runtime's availability check.
-            discovered = state.get(key, {}).get("discovered_limit")
+            # Always use the config limit for the count display.
+            # discovered_limit is a 429-heuristic that produces misleading
+            # 'some left' numbers (e.g. Cerebras 2.46M); it is kept in state
+            # for the 'last recovery' stat but never used as the display ceiling.
             cfg_limit = limit if isinstance(limit, (int, float)) else None
-            ceiling = discovered if discovered is not None else cfg_limit
+            ceiling = cfg_limit
             remaining = (ceiling - used) if ceiling is not None else None
             pct = int(100 * used / ceiling) if ceiling and ceiling > 0 else None
             # exhausted_at is the definitive "currently rate-limited" signal: the
@@ -616,38 +617,39 @@ class QuotaTab(QWidget):
 
             if ceiling is not None and exhausted_at is not None:
                 usage_lbl = QLabel(f"Used: {used} / {ceiling}  --  rate-limited, cooling down")
+            elif ceiling is not None and remaining is not None and remaining <= 0:
+                usage_lbl = QLabel(f"Used: {used} / {ceiling}  --  over daily limit")
             elif ceiling is not None:
                 usage_lbl = QLabel(f"Used: {used} / {ceiling}  ({pct}%)   Remaining: {max(0, remaining)}")
             else:
-                usage_lbl = QLabel(f"Used: {used} / ?  (ceiling unknown until first 429)")
+                usage_lbl = QLabel(f"Used: {used} / ?  (config limit not set)")
             usage_lbl.setFont(QFont("monospace", FONT_SIZE))
             usage_lbl.setStyleSheet("color: #E0E0E0; border: none;")
             card_layout.addWidget(usage_lbl)
 
-            # Reset interval display
+            # Two backward-looking statistics -- not predictions of when GS retries
             discovered_interval = state.get(key, {}).get("discovered_reset_interval")
-            exhausted_at = state.get(key, {}).get("exhausted_at")
             if discovered_interval is not None:
-                h, m = int(discovered_interval // 3600), int((discovered_interval % 3600) // 60)
-                interval_str = f"{h}h {m:02d}m" if h else f"{m}m"
-                if exhausted_at:
-                    waited = time.time() - exhausted_at
-                    wh, wm = int(waited // 3600), int((waited % 3600) // 60)
-                    waited_str = f"{wh}h {wm:02d}m" if wh else f"{wm}m"
-                    reset_text = f"Reset interval: {waited_str} waited / {interval_str} last known"
-                else:
-                    reset_text = f"Reset interval: last known {interval_str}  |  Next reset: {reset_str}"
-            elif exhausted_at:
-                waited = time.time() - exhausted_at
-                wh, wm = int(waited // 3600), int((waited % 3600) // 60)
-                waited_str = f"{wh}h {wm:02d}m" if wh else f"{wm}m"
-                reset_text = f"Reset interval: {waited_str} waited / ? (first window)"
+                di_h = int(discovered_interval // 3600)
+                di_m = int((discovered_interval % 3600) // 60)
+                stat1_text = (f"Last recovery took:  {di_h}h {di_m:02d}m"
+                              if di_h else f"Last recovery took:  {di_m}m")
             else:
-                reset_text = f"Resets: {reset_str}"
-            reset_lbl = QLabel(reset_text)
-            reset_lbl.setFont(QFont("monospace", FONT_SIZE - 1))
-            reset_lbl.setStyleSheet("color: #9E9E9E; border: none;")
-            card_layout.addWidget(reset_lbl)
+                stat1_text = "Last recovery took:  not yet measured"
+            last_success_at = state.get(key, {}).get("last_success_at")
+            if last_success_at is not None:
+                since = time.time() - last_success_at
+                s_h = int(since // 3600)
+                s_m = int((since % 3600) // 60)
+                stat2_text = (f"Last success:  {s_h}h {s_m:02d}m ago"
+                              if s_h else f"Last success:  {s_m}m ago")
+            else:
+                stat2_text = "Last success:  unknown (no data yet)"
+            for stat_text in (stat1_text, stat2_text):
+                lbl = QLabel(stat_text)
+                lbl.setFont(QFont("monospace", FONT_SIZE - 1))
+                lbl.setStyleSheet("color: #9E9E9E; border: none;")
+                card_layout.addWidget(lbl)
 
             self.cards_layout.addWidget(card)
 
