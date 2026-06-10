@@ -208,8 +208,12 @@ def _enforce_done_gate(executed):
 
         bad_cmd, bad_code = failures[0]  # first failure is usually the real check
 
-        # Spin trap: count consecutive blocks on the same command key
-        cmd_key = bad_cmd[:60]
+        # Spin trap: key on the SUBJECT (second token or basename of second
+        # token) rather than raw command text -- an LLM varies phrasing but
+        # the thing it keeps operating on stays the same.
+        _tokens = bad_cmd.strip().split()
+        _subject = _tokens[1] if len(_tokens) > 1 else _tokens[0] if _tokens else bad_cmd[:40]
+        cmd_key = os.path.basename(_subject)  # strips /mind/tools/own/ prefixes
         if cmd_key == _done_gate_streak["cmd"]:
             _done_gate_streak["count"] += 1
         else:
