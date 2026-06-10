@@ -108,6 +108,14 @@ def _build_done_block() -> str:
 DONE_MARK_RE = re.compile(r'remember\s+current-phase\s+["\']?done["\']?', re.I)
 
 
+
+# Spin trap: track consecutive done-gate blocks on the same failing command.
+# When the same DONE-WHEN check fails SPIN_THRESHOLD times in a row the approach
+# is structurally broken; the executive clears the project and forces a fresh start.
+_done_gate_streak: dict = {"cmd": "", "count": 0}
+SPIN_THRESHOLD = 5
+
+
 def _project_title(value: str) -> str:
     """Readable project title: text before the first ':' (or the whole line)."""
     if not value:
@@ -131,6 +139,41 @@ def _record_completion():
         if title not in entries:
             entries.append(title)
             mem.store(VOLUME_MOUNT, "completed-log", "\n".join(entries))
+    except Exception:
+        pass
+
+
+
+def _abandon_project(bad_cmd: str, count: int):
+    """Spin trap fired: force-clear the current project and demand
+    a genuinely different goal. The creature has been stuck on the
+    same broken approach for SPIN_THRESHOLD consecutive cycles."""
+    try:
+        for key in ("current-project", "current-phase", "current-plan",
+                    "current-project-done-when"):
+            try:
+                mem.store(VOLUME_MOUNT, key, "")
+            except Exception:
+                pass
+    except Exception:
+        pass
+    reason = (
+        "## Spin trap: project abandoned by the executive\n\n"
+        f"You have attempted the same failing check `{bad_cmd[:80]}` "
+        f"{count} times in a row without making real progress. "
+        "This approach is structurally broken -- retrying will not fix it.\n\n"
+        "Your current project has been cleared by the executive.\n\n"
+        "You MUST start a completely different project. Do NOT attempt to fix "
+        "the same tool or a variation of it. Do NOT make another report or index. "
+        "Choose a genuinely new goal, set current-project and current-plan, "
+        "and write a DONE WHEN that does not depend on the broken tool."
+    )
+    try:
+        with open(DONE_BLOCK_PATH, "w", encoding="utf-8") as f:
+            f.write(reason)
+        journal.append(VOLUME_MOUNT, "error",
+                       f"Spin trap: abandoned project after {count}x "
+                       f"`{bad_cmd[:80]}`")
     except Exception:
         pass
 
@@ -163,8 +206,23 @@ def _enforce_done_gate(executed):
             _record_completion()  # genuine completion: log it durably
             return
 
-        mem.store(VOLUME_MOUNT, "current-phase", "code")
         bad_cmd, bad_code = failures[0]  # first failure is usually the real check
+
+        # Spin trap: count consecutive blocks on the same command key
+        cmd_key = bad_cmd[:60]
+        if cmd_key == _done_gate_streak["cmd"]:
+            _done_gate_streak["count"] += 1
+        else:
+            _done_gate_streak["cmd"] = cmd_key
+            _done_gate_streak["count"] = 1
+
+        if _done_gate_streak["count"] >= SPIN_THRESHOLD:
+            _done_gate_streak["count"] = 0  # reset so re-entry is possible later
+            _abandon_project(bad_cmd, SPIN_THRESHOLD)
+            return
+
+        # Normal block: revert phase and tell the creature exactly what failed
+        mem.store(VOLUME_MOUNT, "current-phase", "code")
         reason = (f"You set current-phase to done, but `{bad_cmd[:120]}` exited with "
                   f"code {bad_code} in the same cycle. A failing check means you are NOT "
                   f"done. Phase reverted to code. Fix the failure, run your DONE WHEN "
