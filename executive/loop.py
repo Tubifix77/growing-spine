@@ -208,12 +208,18 @@ def _enforce_done_gate(executed):
 
         bad_cmd, bad_code = failures[0]  # first failure is usually the real check
 
-        # Spin trap: key on the SUBJECT (second token or basename of second
-        # token) rather than raw command text -- an LLM varies phrasing but
-        # the thing it keeps operating on stays the same.
-        _tokens = bad_cmd.strip().split()
-        _subject = _tokens[1] if len(_tokens) > 1 else _tokens[0] if _tokens else bad_cmd[:40]
-        cmd_key = os.path.basename(_subject)  # strips /mind/tools/own/ prefixes
+        # Spin trap: key on the CURRENT PROJECT, not the command text.
+        # Subject-token keying broke because the creature interspersed
+        # 'fix-tool --help' (subject='--help') between real attempts,
+        # resetting the streak every time. The project name is stable
+        # across all phrasing variations and help lookups.
+        try:
+            _proj = mem.recall(VOLUME_MOUNT, "current-project") or ""
+            cmd_key = _proj[:80].strip()
+        except Exception:
+            _tokens = bad_cmd.strip().split()
+            _subject = _tokens[1] if len(_tokens) > 1 else _tokens[0] if _tokens else bad_cmd[:40]
+            cmd_key = os.path.basename(_subject)  # fallback
         if cmd_key == _done_gate_streak["cmd"]:
             _done_gate_streak["count"] += 1
         else:
