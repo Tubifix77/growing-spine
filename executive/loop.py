@@ -214,12 +214,10 @@ def _enforce_done_gate(executed):
         # resetting the streak every time. The project name is stable
         # across all phrasing variations and help lookups.
         try:
-            _proj = mem.recall(VOLUME_MOUNT, "current-project") or ""
-            cmd_key = _proj[:80].strip()
+            _rec = mem.retrieve(VOLUME_MOUNT, "current-project")
+            cmd_key = (_rec["value"][:80].strip() if _rec else "") or bad_cmd[:60]
         except Exception:
-            _tokens = bad_cmd.strip().split()
-            _subject = _tokens[1] if len(_tokens) > 1 else _tokens[0] if _tokens else bad_cmd[:40]
-            cmd_key = os.path.basename(_subject)  # fallback
+            cmd_key = bad_cmd[:60]  # fallback
         if cmd_key == _done_gate_streak["cmd"]:
             _done_gate_streak["count"] += 1
         else:
