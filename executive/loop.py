@@ -216,8 +216,10 @@ def _enforce_done_gate(executed):
         try:
             _rec = mem.retrieve(VOLUME_MOUNT, "current-project")
             cmd_key = (_rec["value"][:80].strip() if _rec else "") or bad_cmd[:60]
-        except Exception:
+        except Exception as _e:
             cmd_key = bad_cmd[:60]  # fallback
+            print(f"[done-gate] project-key fallback ({type(_e).__name__}: {_e}) "
+                  "-- keying on command text")
         if cmd_key == _done_gate_streak["cmd"]:
             _done_gate_streak["count"] += 1
         else:
@@ -304,6 +306,14 @@ def _build_active_project_block() -> str:
         phase     = mem.retrieve(VOLUME_MOUNT, "current-phase")
         completed = (mem.retrieve(VOLUME_MOUNT, "completed-log")
                      or mem.retrieve(VOLUME_MOUNT, "completed-projects"))
+        # Rows can exist with value "" (e.g. after a spin-trap abandon);
+        # treat empty values as absent so we don't render blank lines.
+        if project and not project["value"].strip():
+            project = None
+        if phase and not phase["value"].strip():
+            phase = None
+        if completed and not completed["value"].strip():
+            completed = None
         if not project and not phase:
             return ""
         lines = ["## Active project"]
