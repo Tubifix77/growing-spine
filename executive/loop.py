@@ -1,7 +1,7 @@
 """
 loop.py Ã¢ÂÂ the executive loop, step 4: wake/sleep runtime wired in.
 """
-import asyncio, os, time, re
+import asyncio, os, time, re, json
 from collections import Counter
 from . import sandbox, journal, parser
 from .runtime import (managed_exec, ensure_body, wake_entry,
@@ -17,6 +17,10 @@ EDITABLE_PROMPT_PATH = os.path.join(VOLUME_MOUNT, "editable-prompt.md")
 PROTECTED_PROMPT_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "protected-prompt.md")
 SAVEGAME_ROOT = os.path.expanduser("~/growing-spine-saves")
 DONE_BLOCK_PATH = os.path.join(VOLUME_MOUNT, "done_block.txt")
+WORKSPACE_DIR = os.path.expanduser("~/growing-spine-workspace")
+RETRO_STATE_PATH = os.path.join(VOLUME_MOUNT, "retrospective_state.json")
+RETRO_INTERVAL = 20      # real creature cycles between retrospectives
+DIRECTIVE_WINDOW = 20    # cycles a STUCK directive stays in every prompt
 
 
 
@@ -144,17 +148,24 @@ def _record_completion():
 
 
 
+def _clear_project_state():
+    """Force-clear the creature's project control keys. Used by the spin trap
+    and the retrospective. store("") is a real UPDATE; the context builders
+    treat empty values as absent (F2)."""
+    for key in ("current-project", "current-phase", "current-plan",
+                "current-project-done-when"):
+        try:
+            mem.store(VOLUME_MOUNT, key, "")
+        except Exception:
+            pass
+
+
 def _abandon_project(bad_cmd: str, count: int):
     """Spin trap fired: force-clear the current project and demand
     a genuinely different goal. The creature has been stuck on the
     same broken approach for SPIN_THRESHOLD consecutive cycles."""
     try:
-        for key in ("current-project", "current-phase", "current-plan",
-                    "current-project-done-when"):
-            try:
-                mem.store(VOLUME_MOUNT, key, "")
-            except Exception:
-                pass
+        _clear_project_state()
     except Exception:
         pass
     reason = (
@@ -265,6 +276,240 @@ def _stamp_gage(cycle_start: float):
         pass
 
 
+# ---------------------------------------------------------------------------
+# Retrospective: every RETRO_INTERVAL real cycles, a fresh stateless judge
+# reviews a deterministic digest of the window and either stays silent
+# (PROGRESSING) or clears the project and issues a persistent directive
+# (STUCK). Trajectory-level counterpart to the per-decision spin trap:
+# deep spin is caught by the trap, family-churn is caught here.
+# ---------------------------------------------------------------------------
+
+def _load_retro_state() -> dict:
+    try:
+        with open(RETRO_STATE_PATH, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _save_retro_state(state: dict):
+    try:
+        with open(RETRO_STATE_PATH, "w", encoding="utf-8") as f:
+            json.dump(state, f, indent=2)
+    except Exception as e:
+        print(f"[retro] failed to save state: {e}")
+
+
+def _completed_titles() -> list:
+    try:
+        rec = mem.retrieve(VOLUME_MOUNT, "completed-log")
+        if not rec or not rec["value"].strip():
+            return []
+        return [l.strip() for l in rec["value"].split("\n") if l.strip()]
+    except Exception:
+        return []
+
+
+def _collect_metrics() -> dict:
+    """Deterministic snapshot of everything the digest needs. Host-side only."""
+    m = {"ts": time.time()}
+    m["completed"] = _completed_titles()
+    m["completions"] = len(m["completed"])
+    try:
+        with mem._db(VOLUME_MOUNT) as conn:
+            ctrl = tuple(mem.CONTROL_KEYS)
+            ph = ",".join("?" * len(ctrl))
+            m["memories"] = conn.execute(
+                f"SELECT count(*) FROM memories WHERE key NOT IN ({ph})", ctrl
+            ).fetchone()[0]
+            m["gage"] = conn.execute(
+                f"SELECT count(*) FROM memories WHERE project IS NOT NULL "
+                f"AND project!='' AND key NOT IN ({ph})", ctrl
+            ).fetchone()[0]
+    except Exception:
+        m["memories"] = -1
+        m["gage"] = -1
+    try:
+        m["tools"] = len(os.listdir(os.path.join(VOLUME_MOUNT, "tools", "own")))
+    except Exception:
+        m["tools"] = -1
+    try:
+        import subprocess
+        r = subprocess.run(["du", "-sm", WORKSPACE_DIR],
+                           capture_output=True, text=True, timeout=15)
+        m["workspace_mb"] = int(r.stdout.split()[0]) if r.returncode == 0 else -1
+    except Exception:
+        m["workspace_mb"] = -1
+    try:
+        with open(os.path.join(VOLUME_MOUNT, "journal.jsonl"),
+                  encoding="utf-8", errors="replace") as f:
+            m["journal_lines"] = sum(1 for _ in f)
+    except Exception:
+        m["journal_lines"] = 0
+    return m
+
+
+_PROJECT_SET_RE = re.compile(r'remember\s+current-project\s+"?([^"\n]{1,120})')
+
+
+def _window_journal_stats(since_line: int) -> dict:
+    """Project switches, done-gate blocks and spin fires since a journal line."""
+    sets, blocks, fires = [], 0, 0
+    try:
+        with open(os.path.join(VOLUME_MOUNT, "journal.jsonl"),
+                  encoding="utf-8", errors="replace") as f:
+            for i, line in enumerate(f):
+                if i < since_line:
+                    continue
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    e = json.loads(line)
+                except Exception:
+                    continue
+                kind = e.get("kind", "")
+                content = str(e.get("content", ""))
+                if kind == "exec_start":
+                    mm = _PROJECT_SET_RE.search(content)
+                    if mm:
+                        title = mm.group(1).split(":", 1)[0].strip()
+                        if title and (not sets or sets[-1] != title):
+                            sets.append(title)
+                elif kind == "error":
+                    if "Done-gate blocked" in content:
+                        blocks += 1
+                    elif "Spin trap" in content:
+                        fires += 1
+    except Exception:
+        pass
+    distinct = list(dict.fromkeys(sets))
+    return {"project_sets": len(sets), "distinct_projects": distinct,
+            "blocks": blocks, "spin_fires": fires}
+
+
+def _build_digest(snap: dict, now: dict, win: dict, cycles: int) -> str:
+    new_completed = now["completed"][snap.get("completions", 0):]
+    prev_tail = now["completed"][max(0, snap.get("completions", 0) - 12):
+                                 snap.get("completions", 0)]
+    lines = [
+        f"- real cycles in window: {cycles}",
+        f"- projects completed in window: {len(new_completed)}"
+        + (f" ({'; '.join(new_completed)})" if new_completed else ""),
+        f"- total completions ever: {now['completions']}",
+        f"- project switches in window: {win['project_sets']}",
+        f"- distinct projects touched: {len(win['distinct_projects'])}"
+        + (f" -- {'; '.join(win['distinct_projects'][:15])}"
+           if win['distinct_projects'] else ""),
+        f"- false 'done' attempts blocked by the executive: {win['blocks']}",
+        f"- spin-trap forced abandonments: {win['spin_fires']}",
+        f"- tools: {snap.get('tools', '?')} -> {now['tools']}",
+        f"- durable memories: {snap.get('memories', '?')} -> {now['memories']}",
+        f"- workspace size MB: {snap.get('workspace_mb', '?')} -> {now['workspace_mb']}",
+        "- completed before this window: " + ("; ".join(prev_tail) or "none"),
+    ]
+    return "\n".join(lines)
+
+
+_RETRO_PROMPT = """You are a periodic external reviewer for an autonomous agent that chooses its own projects in a sandbox. You see only summary statistics for its most recent work window. Judge the TRAJECTORY, not individual choices.
+
+What healthy growth looks like: projects get completed; new work builds on or uses earlier work; capabilities accumulate; durable memory grows.
+What being stuck looks like: many project switches with few or no completions; near-duplicate projects under different names (dashboards, reports, indexes, summaries, health checks); repeatedly trying to fix the same broken tools; tool count climbing while completions stay flat.
+
+WINDOW DIGEST:
+{digest}
+
+Respond in EXACTLY one of these two forms and nothing else:
+PROGRESSING
+or
+STUCK
+<directive of at most 3 sentences, written as a direct order to the agent: name the repeated pattern it must stop, and say what genuinely different kind of work to do instead>"""
+
+
+def _build_retro_directive_block() -> str:
+    """A STUCK directive is injected into EVERY prompt until its window runs
+    out -- persistent, unlike the one-shot done-block, because one-shot
+    directives get read once and drift (observed after the first trap fire)."""
+    try:
+        state = _load_retro_state()
+        directive = state.get("directive", "")
+        left = int(state.get("directive_cycles_left", 0))
+        if directive and left > 0:
+            return ("## Reviewer directive (in effect for the next "
+                    f"{left} cycles)\n" + directive + "\n\n")
+    except Exception:
+        pass
+    return ""
+
+
+async def _maybe_retrospective(keychain):
+    """Called after every successful creature cycle. Counts real cycles,
+    ticks down any active directive, and every RETRO_INTERVAL cycles runs
+    a fresh stateless judge over the window digest."""
+    state = _load_retro_state()
+    if not state:
+        state = {"cycle_count": 0, "directive": "", "directive_cycles_left": 0,
+                 "snapshot": _collect_metrics()}
+        _save_retro_state(state)
+        print("[retro] initialised baseline snapshot.")
+        return
+
+    state["cycle_count"] = int(state.get("cycle_count", 0)) + 1
+    if int(state.get("directive_cycles_left", 0)) > 0:
+        state["directive_cycles_left"] = int(state["directive_cycles_left"]) - 1
+        if state["directive_cycles_left"] == 0:
+            state["directive"] = ""
+            journal.append(VOLUME_MOUNT, "retro", "Directive window ended.")
+
+    if state["cycle_count"] < RETRO_INTERVAL:
+        _save_retro_state(state)
+        return
+
+    snap = state.get("snapshot") or {}
+    now_m = _collect_metrics()
+    win = _window_journal_stats(int(snap.get("journal_lines", 0)))
+    digest = _build_digest(snap, now_m, win, state["cycle_count"])
+    try:
+        response = await keychain.complete(_RETRO_PROMPT.format(digest=digest))
+    except RuntimeError as e:
+        _save_retro_state(state)  # stays due; retry after next creature cycle
+        print(f"[retro] judge deferred (quota): {e}")
+        return
+    except Exception as e:
+        state["cycle_count"] = 0
+        state["snapshot"] = now_m
+        _save_retro_state(state)
+        print(f"[retro] judge failed ({type(e).__name__}: {e}) -- window skipped")
+        journal.append(VOLUME_MOUNT, "retro", f"Judge call failed: {e}")
+        return
+
+    verdict = (response or "").strip()
+    if verdict.upper().startswith("PROGRESSING"):
+        journal.append(VOLUME_MOUNT, "retro", "Verdict: PROGRESSING\n" + digest)
+        print("[retro] verdict: PROGRESSING")
+    elif verdict.upper().startswith("STUCK"):
+        directive = verdict[5:].strip().lstrip(":-. \n")
+        if not directive:
+            directive = ("Stop repeating the same family of projects. Complete "
+                         "one genuinely new capability before anything else.")
+        _clear_project_state()
+        state["directive"] = directive
+        state["directive_cycles_left"] = DIRECTIVE_WINDOW
+        journal.append(VOLUME_MOUNT, "error",
+                       "Retrospective verdict: STUCK -- project cleared. "
+                       "Directive: " + directive)
+        print(f"[retro] verdict: STUCK -- directive set for {DIRECTIVE_WINDOW} cycles")
+    else:
+        journal.append(VOLUME_MOUNT, "retro",
+                       "Verdict unparseable -- treated as PROGRESSING: "
+                       + verdict[:200])
+        print(f"[retro] unparseable verdict, treated as PROGRESSING: {verdict[:80]!r}")
+
+    state["cycle_count"] = 0
+    state["snapshot"] = now_m
+    _save_retro_state(state)
+
+
 def _build_loop_warning() -> str:
     """Detect cross-cycle repetition of one command and nudge — softly.
 
@@ -355,7 +600,8 @@ def _build_context(recent_journal: list, tue_message: str = None) -> str:
     active_project = _build_active_project_block()
     loop_warning = _build_loop_warning()
     done_block = _build_done_block()
-    return done_block + loop_warning + active_project + protected + "\n\n" + editable + catalogue_block + workspace_block + memory_text + journal_text + chat_block
+    retro_directive = _build_retro_directive_block()
+    return done_block + retro_directive + loop_warning + active_project + protected + "\n\n" + editable + catalogue_block + workspace_block + memory_text + journal_text + chat_block
 
 
 async def run_cycle(keychain: Keychain, dockerfile_dir: str):
@@ -417,6 +663,10 @@ async def run_forever(dockerfile_dir: str = "."):
             # hourly probe to actually reach the API instead of short-circuiting
             # on any_available() while exhausted_at is set.
             await run_cycle(keychain, dockerfile_dir)
+            try:
+                await _maybe_retrospective(keychain)
+            except Exception as _re:
+                print(f"[retro] unexpected failure: {type(_re).__name__}: {_re}")
             await asyncio.sleep(10)  # breathe between cycles (anti-ban; was 30s)
 
         except RuntimeError as e:

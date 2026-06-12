@@ -182,3 +182,45 @@ Block the junk (Gate A), keep and surface what works (Gate B), force nothing
 else, and watch for a single capability built in one cycle being reused in a
 later one. If that one turn happens, grow the loop. If it doesn't, we've learned
 the wheel won't turn here -- cheaply.
+
+
+---
+
+## REVISION 2026-06-12 -- v1 is now the Retrospective (trajectory judge)
+
+Field data from the spin trap's first wild fire (06-12 07:50) changed the v1
+plan. The trap killed deep spin (30+ blocks on one project) and the failure
+immediately shape-shifted into shallow churn: 53 project-sets, 18 blocks across
+15 projects, zero completions in ~11h -- all from the same dashboard/report/
+health family. Churn is invisible at the decision level (each project looks
+plausibly fresh) and obvious at the trajectory level. Per-decision Gate A would
+also cost ~53 judge calls/day at observed churn rates; a trajectory review
+costs 1 call per 20 real cycles (~5%, Tue's proposed budget).
+
+v1 therefore = the Retrospective (Tue's 1-in-20 proposal, hardened by the
+session's design laws). Shipped in executive/loop.py:
+
+- Every RETRO_INTERVAL (20) REAL cycles (successful think cycles, not quota
+  sleeps), the executive builds a deterministic digest of the window:
+  completions delta + titles, project switches, distinct projects touched,
+  done-gate blocks, spin fires, tool/memory/workspace deltas.
+- A FRESH, STATELESS judge call (same keychain) sees only the digest -- no
+  creature context, no accumulated rationalisation -- and answers in a
+  constrained format: PROGRESSING, or STUCK + a <=3-sentence directive.
+- PROGRESSING -> silent. The creature never knows it was reviewed (journal
+  kind "retro" records the verdict + digest for the managers only).
+- STUCK -> enforced, not advised: the executive clears the project state
+  (shared _clear_project_state with the spin trap) and injects the directive
+  into EVERY prompt for DIRECTIVE_WINDOW (20) cycles. Persistent because the
+  trap's one-shot directive was observed to be read, obeyed for hours, then
+  forgotten.
+- State survives restarts (retrospective_state.json on the volume; the spin
+  trap's in-memory streak does not -- deliberate asymmetry, the retro clock
+  matters across deploys). Quota failure on the judge call defers the review
+  until after the next successful creature cycle. Malformed verdicts fail
+  safe to PROGRESSING but are logged.
+
+Gate A (per-project novelty judge) moves to the pocket: build only if the
+retrospective fails to break family-churn. Gate B (keep-and-resurface) remains
+queued behind the retrospective, unchanged. The success metric is unchanged:
+a capability built in one cycle spontaneously reused in a later one.
