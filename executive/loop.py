@@ -442,7 +442,7 @@ def _build_retro_directive_block() -> str:
     return ""
 
 
-async def _maybe_retrospective(keychain):
+async def _maybe_retrospective(keychain, advance=True):
     """Called after every successful creature cycle. Counts real cycles,
     ticks down any active directive, and every RETRO_INTERVAL cycles runs
     a fresh stateless judge over the window digest."""
@@ -454,13 +454,25 @@ async def _maybe_retrospective(keychain):
         print("[retro] initialised baseline snapshot.")
         return
 
-    state["cycle_count"] = int(state.get("cycle_count", 0)) + 1
+    # Directive expiry ticks on EVERY cycle (incl. exec_skip / dead-air) so a
+    # stale STUCK directive still expires during a quiet spell.
     if int(state.get("directive_cycles_left", 0)) > 0:
         state["directive_cycles_left"] = int(state["directive_cycles_left"]) - 1
         if state["directive_cycles_left"] == 0:
             state["directive"] = ""
             journal.append(VOLUME_MOUNT, "retro", "Directive window ended.")
 
+    # The retro counter advances ONLY on substantive cycles -- advance=True
+    # means the creature actually executed bash this cycle. exec_skip / dead-air
+    # / container-death cycles are HELD, so the judge re-evaluates only after
+    # real work and can no longer thrash a stuck creature with back-to-back
+    # STUCK directives (Part-5 runaway: 20 fires in one day, each directive
+    # overwritten before it could land).
+    if not advance:
+        _save_retro_state(state)
+        return
+
+    state["cycle_count"] = int(state.get("cycle_count", 0)) + 1
     if state["cycle_count"] < RETRO_INTERVAL:
         _save_retro_state(state)
         return
@@ -621,7 +633,7 @@ async def run_cycle(keychain: Keychain, dockerfile_dir: str):
     bash_blocks = parser.parse_bash_blocks(response)
     if not bash_blocks:
         journal.append(VOLUME_MOUNT, "exec_skip", "No bash blocks in response.")
-        return
+        return False  # non-substantive: no bash executed this cycle
 
     cycle_start = time.time()
     executed = []
@@ -635,7 +647,7 @@ async def run_cycle(keychain: Keychain, dockerfile_dir: str):
         if not alive:
             journal.append(VOLUME_MOUNT, "error",
                            "Container could not be respawned. Skipping exec.")
-            return
+            return False  # non-substantive: container died before any exec
 
         journal.append(VOLUME_MOUNT, "exec_start", f"Block {i+1}: {cmd[:200]}")
         stdout, stderr, code = await managed_exec(
@@ -647,6 +659,7 @@ async def run_cycle(keychain: Keychain, dockerfile_dir: str):
 
     _enforce_done_gate(executed)
     _stamp_gage(cycle_start)
+    return True  # substantive: at least one bash block executed
 
 
 async def run_forever(dockerfile_dir: str = "."):
@@ -662,9 +675,9 @@ async def run_forever(dockerfile_dir: str = "."):
             # provider and raise RuntimeError if all reject. This allows the
             # hourly probe to actually reach the API instead of short-circuiting
             # on any_available() while exhausted_at is set.
-            await run_cycle(keychain, dockerfile_dir)
+            did_exec = await run_cycle(keychain, dockerfile_dir)
             try:
-                await _maybe_retrospective(keychain)
+                await _maybe_retrospective(keychain, advance=bool(did_exec))
             except Exception as _re:
                 print(f"[retro] unexpected failure: {type(_re).__name__}: {_re}")
             await asyncio.sleep(10)  # breathe between cycles (anti-ban; was 30s)
