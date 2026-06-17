@@ -72,6 +72,16 @@ def store(volume_mount: str, key: str, value: str, tags: list = None):
             )
 
 
+def forget(volume_mount: str, key: str) -> bool:
+    """Delete a memory entry by key. Returns True if a row was removed.
+    Unlike store("") -- which leaves an empty-valued row still occupying a
+    working-memory slot -- this removes the entry from the recency pool
+    entirely."""
+    with _db(volume_mount) as conn:
+        cur = conn.execute("DELETE FROM memories WHERE key=?", (key,))
+        return cur.rowcount > 0
+
+
 def _all_by_recency(volume_mount: str) -> list:
     """Return all memories newest-first as dicts."""
     with _db(volume_mount) as conn:

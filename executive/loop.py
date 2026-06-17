@@ -160,6 +160,42 @@ def _clear_project_state():
             pass
 
 
+# Self-direction / identity memories. These (NOT the project control keys) are
+# what re-anchor the creature to a dead project family: written early, never
+# decaying, surfaced every cycle as working memory. The retro cleared the
+# PROJECT on STUCK but the self-concept survived and rebuilt the same basin
+# (59h / 39 STUCK / 0 PROGRESSING, unmoved even by a full workspace+tool wipe).
+# Knowledge/capability memories (tool facts, learned-pattern, the `purpose`
+# north-star) are deliberately absent -- we reset DIRECTION, not KNOWLEDGE.
+_SELF_CONCEPT_KEYS = (
+    "current_focus", "today_focus", "objective", "next_steps", "next_action",
+    "plan", "instruction", "documentation.policy",
+    "last-completed", "last-project", "last_completed_project", "last_thought",
+)
+
+
+def _reset_self_concept(directive: str):
+    """On STUCK: forget the self-direction memories and seed a fresh
+    high-recency focus carrying the reviewer's redirection, so working memory
+    LEADS with 'break out', not the retired project. store() on a freshly
+    deleted key INSERTs with a new max id -> it lands at the top of layer1."""
+    forgotten = []
+    for key in _SELF_CONCEPT_KEYS:
+        try:
+            if mem.forget(VOLUME_MOUNT, key):
+                forgotten.append(key)
+        except Exception:
+            pass
+    try:
+        mem.store(VOLUME_MOUNT, "current_focus", "[reset] " + directive)
+    except Exception:
+        pass
+    if forgotten:
+        journal.append(VOLUME_MOUNT, "retro",
+                       "Self-concept reset on STUCK -- forgot: "
+                       + ", ".join(forgotten))
+
+
 def _abandon_project(bad_cmd: str, count: int):
     """Spin trap fired: force-clear the current project and demand
     a genuinely different goal. The creature has been stuck on the
@@ -505,6 +541,7 @@ async def _maybe_retrospective(keychain, advance=True):
             directive = ("Stop repeating the same family of projects. Complete "
                          "one genuinely new capability before anything else.")
         _clear_project_state()
+        _reset_self_concept(directive)
         state["directive"] = directive
         state["directive_cycles_left"] = DIRECTIVE_WINDOW
         journal.append(VOLUME_MOUNT, "error",
