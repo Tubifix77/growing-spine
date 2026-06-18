@@ -29,8 +29,15 @@ def materialize_framework(volume_mount: str):
         except OSError:
             pass
     for name in os.listdir(src):
+        s = os.path.join(src, name)
         d = os.path.join(dst, name)
-        shutil.copy2(os.path.join(src, name), d)
+        try:
+            with open(s) as _f:
+                text = _f.read()
+            with open(d, "w", newline="\n") as _f:
+                _f.write(text)
+        except (OSError, UnicodeDecodeError):
+            shutil.copy2(s, d)
         os.chmod(d, 0o755)
 
 
