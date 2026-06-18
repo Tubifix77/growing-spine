@@ -17,6 +17,7 @@ EDITABLE_PROMPT_PATH = os.path.join(VOLUME_MOUNT, "editable-prompt.md")
 PROTECTED_PROMPT_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "protected-prompt.md")
 SAVEGAME_ROOT = os.path.expanduser("~/growing-spine-saves")
 DONE_BLOCK_PATH = os.path.join(VOLUME_MOUNT, "done_block.txt")
+PROJECT_BLOCK_PATH = os.path.join(VOLUME_MOUNT, "project_block.txt")
 WORKSPACE_DIR = os.path.expanduser("~/growing-spine-workspace")
 RETRO_STATE_PATH = os.path.join(VOLUME_MOUNT, "retrospective_state.json")
 RETRO_INTERVAL = 20      # real creature cycles between retrospectives
@@ -109,7 +110,78 @@ def _build_done_block() -> str:
     return ""
 
 
+def _build_project_block() -> str:
+    """One-shot injection: if the novelty gate blocked a duplicate project last
+    cycle, tell the creature what it duplicated and that it must pick something
+    new. Read-and-delete (shows for one cycle)."""
+    try:
+        if os.path.exists(PROJECT_BLOCK_PATH):
+            with open(PROJECT_BLOCK_PATH, encoding="utf-8") as f:
+                reason = f.read().strip()
+            os.remove(PROJECT_BLOCK_PATH)
+            if reason:
+                return "## Project selection blocked\n" + reason + "\n\n"
+    except Exception:
+        pass
+    return ""
+
+
+def _summarize_completed(entries: list) -> str:
+    """Cheap, deterministic synthesis of the completed-log so its REDUNDANCY is
+    visible at a glance instead of buried in a flat list of near-duplicate
+    titles -- the creature kept rebuilding because it had a list, not an overview."""
+    if not entries:
+        return ""
+    groups = {
+        "reports / indexes / dashboards": ("report", "index", "dashboard",
+                                           "summary", "overview", "stats", "monitor"),
+        "todo / fixme trackers": ("todo", "fixme"),
+        "tool docs / workspace admin": ("tool", "doc", "workspace", "archive",
+                                        "organiz", "persist", "validation"),
+    }
+    counts = {g: 0 for g in groups}
+    other = 0
+    for e in entries:
+        el = e.lower()
+        for g, kws in groups.items():
+            if any(k in el for k in kws):
+                counts[g] += 1
+                break
+        else:
+            other += 1
+    parts = [f"{g} ({n})" for g, n in counts.items() if n]
+    if other:
+        parts.append(f"other ({other})")
+    return (f"You have already completed {len(entries)} projects, concentrated in: "
+            + ", ".join(parts) + ".")
+
+
 DONE_MARK_RE = re.compile(r'remember\s+current-phase\s+["\']?done["\']?', re.I)
+PROJECT_SET_RE = re.compile(r'remember\s+current-project\b', re.I)
+PHASE_EXPLORE_RE = re.compile(r'remember\s+current-phase\s+["\']?explore["\']?', re.I)
+
+# Novelty gate: a NEW project (current-project set together with phase->explore)
+# is judged against the completed-log; a near-duplicate is BLOCKED (project
+# cleared) so the creature cannot rebuild what it already made. Fail-open on any
+# error/quota; a safety cap stops a permanent lock.
+_novelty_block_streak = {"count": 0}
+NOVELTY_BLOCK_CAP = 4
+_NOVELTY_PROMPT = """You are a gate that stops an autonomous agent from rebuilding things it has already made.
+
+Projects it has ALREADY COMPLETED:
+{completed}
+
+Newly proposed project:
+"{proposed}"
+
+Is the proposed project essentially a REBUILD of one already completed -- the same kind of tool / output / purpose, only renamed -- or is it genuinely DIFFERENT (a different domain or kind of output, or a real improvement/extension of one existing item)?
+
+Reply with ONE line, nothing else:
+DUPLICATE: <exact title of the completed item it rebuilds>
+or
+NOVEL
+
+Bias toward NOVEL when uncertain. Say DUPLICATE only when it clearly re-creates existing work."""
 
 
 
@@ -223,6 +295,70 @@ def _abandon_project(bad_cmd: str, count: int):
                        f"`{bad_cmd[:80]}`")
     except Exception:
         pass
+
+
+async def _enforce_novelty_gate(executed, keychain):
+    """Block a NEW project that merely rebuilds something already completed.
+
+    Triggered when current-project is set together with phase->explore in the
+    same cycle (the documented new-project signal; improvements that don't reset
+    phase are left alone). A stateless judge compares the proposal against the
+    completed-log; a near-duplicate gets the project CLEARED and a one-shot block
+    injected, so the creature physically cannot start it and must pick something
+    genuinely different. Fail-open on any error/quota; NOVELTY_BLOCK_CAP
+    consecutive blocks then lets one through so it can never be permanently locked."""
+    try:
+        if not any(PROJECT_SET_RE.search(c) for (c, _) in executed):
+            return
+        if not any(PHASE_EXPLORE_RE.search(c) for (c, _) in executed):
+            return  # not a fresh project start -- leave improvements alone
+        proj = mem.retrieve(VOLUME_MOUNT, "current-project")
+        proposed = (proj["value"] if proj else "").strip()
+        if not proposed:
+            return
+        log = (mem.retrieve(VOLUME_MOUNT, "completed-log") or {}).get("value", "")
+        entries = [e.strip() for e in log.split("\n") if e.strip()]
+        if len(entries) < 2:
+            return  # nothing meaningful to duplicate yet
+        prompt = _NOVELTY_PROMPT.format(
+            completed="\n".join(f"- {e}" for e in entries), proposed=proposed[:300])
+        try:
+            response = await keychain.complete(prompt)
+        except Exception as e:
+            print(f"[novelty] judge unavailable, allowing ({type(e).__name__})")
+            return  # fail-open
+        verdict = (response or "").strip()
+        if not verdict.upper().startswith("DUPLICATE"):
+            _novelty_block_streak["count"] = 0  # NOVEL -> reset streak
+            return
+        match = verdict.split(":", 1)[1].strip()[:80] if ":" in verdict else "existing work"
+        _novelty_block_streak["count"] += 1
+        if _novelty_block_streak["count"] > NOVELTY_BLOCK_CAP:
+            _novelty_block_streak["count"] = 0
+            journal.append(VOLUME_MOUNT, "novelty_block",
+                           f"Cap reached ({NOVELTY_BLOCK_CAP}x) -- allowing through.")
+            print("[novelty] cap reached -- allowing through")
+            return  # safety hatch
+        _clear_project_state()
+        overview = _summarize_completed(entries)
+        reason = (
+            f'You set current-project to "{proposed[:120]}".\n'
+            f'BLOCKED: this rebuilds your already-completed "{match}". You cannot start it.\n'
+            f'{overview}\n'
+            f'Do NOT rebuild existing work. Either IMPROVE the existing item in place, or '
+            f'choose a genuinely DIFFERENT KIND of project -- a different domain or a different '
+            f'kind of output, not another report/index/dashboard variant -- and say how it '
+            f'differs. Your current-project has been cleared; set a new one.')
+        try:
+            with open(PROJECT_BLOCK_PATH, "w", encoding="utf-8") as f:
+                f.write(reason)
+        except Exception:
+            pass
+        journal.append(VOLUME_MOUNT, "novelty_block",
+                       f"Blocked duplicate '{_project_title(proposed)}' (rebuilds '{match}')")
+        print(f"[novelty] blocked duplicate: {_project_title(proposed)} ~ {match}")
+    except Exception as e:
+        print(f"[novelty] gate error (ignored): {type(e).__name__}: {e}")
 
 
 def _enforce_done_gate(executed):
@@ -618,7 +754,13 @@ def _build_active_project_block() -> str:
             if phase["value"].strip().lower() == "done":
                 lines.append("-> This project is DONE. Start a new one or use what you built.")
         if completed:
-            lines.append(f"\nCompleted projects: {completed['value']}")
+            entries = [e.strip() for e in completed["value"].split("\n") if e.strip()]
+            summary = _summarize_completed(entries)
+            if summary:
+                lines.append("\n" + summary)
+                lines.append("Do NOT rebuild any of these; improve in place or do something new.")
+            if entries:
+                lines.append("Most recent: " + "; ".join(entries[-6:]))
         return "\n".join(lines) + "\n\n"
     except Exception:
         return ""
@@ -649,8 +791,9 @@ def _build_context(recent_journal: list, tue_message: str = None) -> str:
     active_project = _build_active_project_block()
     loop_warning = _build_loop_warning()
     done_block = _build_done_block()
+    project_block = _build_project_block()
     retro_directive = _build_retro_directive_block()
-    return done_block + retro_directive + loop_warning + active_project + protected + "\n\n" + editable + catalogue_block + workspace_block + memory_text + journal_text + chat_block
+    return done_block + project_block + retro_directive + loop_warning + active_project + protected + "\n\n" + editable + catalogue_block + workspace_block + memory_text + journal_text + chat_block
 
 
 async def run_cycle(keychain: Keychain, dockerfile_dir: str):
@@ -695,6 +838,7 @@ async def run_cycle(keychain: Keychain, dockerfile_dir: str):
         executed.append((cmd, code))
 
     _enforce_done_gate(executed)
+    await _enforce_novelty_gate(executed, keychain)
     _stamp_gage(cycle_start)
     return True  # substantive: at least one bash block executed
 
