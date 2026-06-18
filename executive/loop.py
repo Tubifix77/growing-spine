@@ -702,6 +702,14 @@ async def run_cycle(keychain: Keychain, dockerfile_dir: str):
 async def run_forever(dockerfile_dir: str = "."):
     keychain = Keychain()
     os.makedirs(SAVEGAME_ROOT, exist_ok=True)
+    # Reap any docker-image litter left by a previous (possibly crashed) run
+    # before doing anything else, so a backlog can't accumulate across restarts.
+    try:
+        _rep = savegame.prune_save_images(SAVEGAME_ROOT)
+        if _rep["orphans_removed"]:
+            print(f"[startup] reaped {len(_rep['orphans_removed'])} orphan save-image(s)")
+    except Exception as _e:
+        print(f"[startup] image cleanup skipped: {_e}")
 
     sandbox.start(dockerfile_dir)
     await wake_entry(VOLUME_MOUNT, keychain)

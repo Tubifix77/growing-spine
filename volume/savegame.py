@@ -55,7 +55,65 @@ def save(volume_mount: str, savegame_root: str, container_name: str,
         json.dump(meta, f, indent=2)
     print(f"[savegame] saved: {tag} (body={body_image is not None}, mind={mind_path is not None})")
     _prune(savegame_root)
+    rep = prune_save_images(savegame_root)
+    if rep["orphans_removed"]:
+        print(f"[savegame] reaped {len(rep['orphans_removed'])} orphan image(s): {rep['orphans_removed']}")
     return meta
+
+SAVE_IMAGE_KEEP = 3  # untracked/orphan growing-spine-save images to retain as a margin
+
+
+def _container_image_refs() -> set:
+    """Image names/IDs in use by any container (running or stopped) -- never reap these."""
+    r = subprocess.run(["docker", "ps", "-a", "--format", "{{.Image}}"],
+                       capture_output=True, text=True)
+    return {ln.strip() for ln in r.stdout.splitlines() if ln.strip()} if r.returncode == 0 else set()
+
+
+def prune_save_images(savegame_root: str = None, keep: int = SAVE_IMAGE_KEEP) -> dict:
+    """Reap docker litter the meta-based _prune() can miss.
+
+    _prune() only deletes images it still has a meta-*.json for, so if the meta
+    files are lost (e.g. a mind reset/restore) the docker images become ORPHANS
+    and accumulate forever (this filled the disk on 2026-06-17). This grounds
+    cleanup in docker's ACTUAL state instead: delete `growing-spine-save:*`
+    images that are (a) NOT referenced by any current meta file and (b) NOT used
+    by a container, keeping the newest `keep` orphans as a safety margin. Then
+    prune dangling images and build cache. Best-effort: never raises, logs only.
+    Runs docker WITHOUT sudo -- same as commit_body, which the creature's own
+    process already does successfully."""
+    summary = {"orphans_removed": [], "errors": []}
+    try:
+        tracked = set()
+        if savegame_root and os.path.exists(savegame_root):
+            for sv in list_saves(savegame_root):
+                if sv.get("body_image"):
+                    tracked.add(sv["body_image"])
+        in_use = _container_image_refs()
+        r = subprocess.run(
+            ["docker", "images", "growing-spine-save",
+             "--format", "{{.Repository}}:{{.Tag}}|{{.ID}}"],
+            capture_output=True, text=True)
+        rows = []  # docker lists newest first
+        for ln in r.stdout.splitlines():
+            p = ln.split("|")
+            if len(p) >= 2 and p[0] and not p[0].endswith(":<none>"):
+                rows.append({"ref": p[0], "id": p[1]})
+        candidates = [im for im in rows
+                      if im["ref"] not in tracked
+                      and im["id"] not in in_use and im["ref"] not in in_use]
+        for im in candidates[keep:]:  # keep newest `keep`, reap the rest
+            rm = subprocess.run(["docker", "rmi", im["ref"]], capture_output=True, text=True)
+            if rm.returncode == 0:
+                summary["orphans_removed"].append(im["ref"])
+            else:
+                summary["errors"].append(f"rmi {im['ref']}: {rm.stderr.strip()[:80]}")
+        subprocess.run(["docker", "image", "prune", "-f"], capture_output=True)
+        subprocess.run(["docker", "builder", "prune", "-f"], capture_output=True)
+    except Exception as e:
+        summary["errors"].append(f"{type(e).__name__}: {e}")
+    return summary
+
 
 def list_saves(savegame_root: str) -> list:
     """Return list of save metadata dicts, newest first."""
