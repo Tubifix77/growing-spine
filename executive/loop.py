@@ -165,23 +165,25 @@ PHASE_EXPLORE_RE = re.compile(r'remember\s+current-phase\s+["\']?explore["\']?',
 # cleared) so the creature cannot rebuild what it already made. Fail-open on any
 # error/quota; a safety cap stops a permanent lock.
 _novelty_block_streak = {"count": 0}
+_last_gated = {"title": ""}  # normalized title last judged-and-allowed; skips refinements of the same project
 NOVELTY_BLOCK_CAP = 4
-_NOVELTY_PROMPT = """You are a gate that stops an autonomous agent from rebuilding things it has already made.
+_NOVELTY_PROMPT = """You are a gate that stops an autonomous agent from circling the same kind of work instead of building something new.
 
-Projects it has ALREADY COMPLETED:
+It has ALREADY COMPLETED these projects:
 {completed}
+
+Summary of that work: {overview}
 
 Newly proposed project:
 "{proposed}"
 
-Is the proposed project essentially a REBUILD of one already completed -- the same kind of tool / output / purpose, only renamed -- or is it genuinely DIFFERENT (a different domain or kind of output, or a real improvement/extension of one existing item)?
+Answer DUPLICATE if the proposal re-creates something already completed, OR is just another variant in a category the agent has already built repeatedly (e.g. yet another report / index / dashboard / summary / analytics / monitoring / insight / search tool when several already exist).
+Answer NOVEL only if it is a genuinely DIFFERENT KIND of thing -- a different domain or kind of output (a game, a parser, a solver, a simulation, an interactive program, and so on), or a concrete improvement/extension of ONE specific existing item.
 
 Reply with ONE line, nothing else:
-DUPLICATE: <exact title of the completed item it rebuilds>
+DUPLICATE: <the completed item or category it repeats>
 or
-NOVEL
-
-Bias toward NOVEL when uncertain. Say DUPLICATE only when it clearly re-creates existing work."""
+NOVEL"""
 
 
 
@@ -310,26 +312,37 @@ async def _enforce_novelty_gate(executed, keychain):
     try:
         if not any(PROJECT_SET_RE.search(c) for (c, _) in executed):
             return
-        if not any(PHASE_EXPLORE_RE.search(c) for (c, _) in executed):
-            return  # not a fresh project start -- leave improvements alone
         proj = mem.retrieve(VOLUME_MOUNT, "current-project")
         proposed = (proj["value"] if proj else "").strip()
         if not proposed:
             return
+        # Fire on a genuinely NEW project, identified by the title before the
+        # ':' (normalized). Re-stating the SAME project (e.g. tweaking its
+        # DONE-WHEN) is a refinement, not a new project -- skip it. The old
+        # trigger also required phase->explore in the same cycle, which the
+        # creature almost never does (it re-sets current-project constantly
+        # without it), so the gate never fired.
+        new_title = re.sub(r"[-_\s]+", " ", _project_title(proposed).lower()).strip()
+        if new_title and new_title == _last_gated["title"]:
+            return  # same project being refined -- not a new one
         log = (mem.retrieve(VOLUME_MOUNT, "completed-log") or {}).get("value", "")
         entries = [e.strip() for e in log.split("\n") if e.strip()]
         if len(entries) < 2:
+            _last_gated["title"] = new_title
             return  # nothing meaningful to duplicate yet
+        overview = _summarize_completed(entries)
         prompt = _NOVELTY_PROMPT.format(
-            completed="\n".join(f"- {e}" for e in entries), proposed=proposed[:300])
+            completed="\n".join(f"- {e}" for e in entries),
+            overview=overview, proposed=proposed[:300])
         try:
             response = await keychain.complete(prompt)
         except Exception as e:
             print(f"[novelty] judge unavailable, allowing ({type(e).__name__})")
-            return  # fail-open
+            return  # fail-open (never lock the creature when the judge is down)
         verdict = (response or "").strip()
         if not verdict.upper().startswith("DUPLICATE"):
-            _novelty_block_streak["count"] = 0  # NOVEL -> reset streak
+            _novelty_block_streak["count"] = 0   # NOVEL -> reset streak
+            _last_gated["title"] = new_title     # now working on this; skip its refinements
             return
         match = verdict.split(":", 1)[1].strip()[:80] if ":" in verdict else "existing work"
         _novelty_block_streak["count"] += 1
