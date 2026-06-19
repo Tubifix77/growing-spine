@@ -23,6 +23,20 @@ RETRO_STATE_PATH = os.path.join(VOLUME_MOUNT, "retrospective_state.json")
 RETRO_INTERVAL = 20      # real creature cycles between retrospectives
 DIRECTIVE_WINDOW = 20    # cycles a STUCK directive stays in every prompt
 
+IDEATION_STATE_PATH = os.path.join(VOLUME_MOUNT, "ideation_state.json")
+
+KINDS = [
+    "game", "simulation", "solver_or_algorithm", "generative_art",
+    "cipher_or_crypto", "puzzle_generator", "parser_or_interpreter",
+    "math_toy", "creative_writing_generator", "bot_or_agent",
+]
+
+_IDEATION_ROLES = [
+    "a game designer", "a mathematician", "a prankster inventor",
+    "a naturalist", "a demoscene coder", "a composer of interactive poetry",
+    "a systems hacker", "a recreational cryptographer",
+]
+
 
 
 def _load_protected_prompt() -> str:
@@ -299,16 +313,146 @@ def _abandon_project(bad_cmd: str, count: int):
         pass
 
 
-async def _enforce_novelty_gate(executed, keychain):
-    """Block a NEW project that merely rebuilds something already completed.
+def _load_ideation_state() -> dict:
+    try:
+        with open(IDEATION_STATE_PATH, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
 
-    Triggered when current-project is set together with phase->explore in the
-    same cycle (the documented new-project signal; improvements that don't reset
-    phase are left alone). A stateless judge compares the proposal against the
-    completed-log; a near-duplicate gets the project CLEARED and a one-shot block
-    injected, so the creature physically cannot start it and must pick something
-    genuinely different. Fail-open on any error/quota; NOVELTY_BLOCK_CAP
-    consecutive blocks then lets one through so it can never be permanently locked."""
+
+def _save_ideation_state(state: dict):
+    try:
+        with open(IDEATION_STATE_PATH, "w", encoding="utf-8") as f:
+            json.dump(state, f, indent=2)
+    except Exception as e:
+        print(f"[ideation] failed to save state: {e}")
+
+
+def _fetch_wiki_seed() -> str:
+    """Host-side random Wikipedia concept fetch. Never blocks the loop on failure."""
+    import urllib.request
+    _SEED_FALLBACK = [
+        "mycelium", "tidal lock", "Chebyshev polynomial", "bioluminescence",
+        "Penrose tiling", "cellular automaton", "Fermat's spiral",
+        "ant colony optimization", "Fourier transform", "strange attractor",
+        "reaction-diffusion", "quine", "L-system", "Voronoi diagram",
+        "Lindenmayer system",
+    ]
+    try:
+        req = urllib.request.Request(
+            "https://en.wikipedia.org/api/rest_v1/page/random/summary",
+            headers={"User-Agent": "growing-spine-ideation/1.0"},
+        )
+        with urllib.request.urlopen(req, timeout=5) as r:
+            data = json.loads(r.read().decode("utf-8"))
+        title = data.get("title", "")
+        extract = data.get("extract", "")
+        first = (extract.split(".")[0].strip() + ".") if "." in extract else extract[:120]
+        if title:
+            return f"{title}: {first}"
+    except Exception as e:
+        print(f"[ideation] wiki fetch failed ({type(e).__name__}), using fallback")
+    import random
+    return random.choice(_SEED_FALLBACK)
+
+
+def _parse_brainstorm(text: str) -> list:
+    """Extract numbered lines 1-8 from brainstorm output."""
+    lines = []
+    for line in text.split("\n"):
+        m = re.match(r"^\s*\d+\.\s+(.+)", line)
+        if m:
+            lines.append(m.group(1).strip())
+    return lines[:8]
+
+
+def _score_idea_distance(idea: str, completed_entries: list, kinds_built: dict) -> float:
+    """Heuristic: higher = farther from past work. Used to pick the brainstorm winner."""
+    idea_l = idea.lower()
+    score = 1.0
+    for entry in completed_entries:
+        words_e = set(re.findall(r"\w+", entry.lower()))
+        words_i = set(re.findall(r"\w+", idea_l))
+        union = words_e | words_i
+        if union:
+            overlap = len(words_e & words_i) / len(union)
+            score -= overlap * 0.6
+    for kind in KINDS:
+        slug = kind.replace("_", " ")
+        if slug in idea_l or kind.split("_")[0] in idea_l:
+            if kinds_built.get(kind, 0) == 0:
+                score += 0.5
+    return score
+
+
+_CLASSIFY_KIND_PROMPT = (
+    "Which KIND is this project? Answer with exactly ONE word from the list, or 'other'.\n\n"
+    "Kinds: {kinds}\n\nProject: \"{title}\"\n\nAnswer:"
+)
+
+_IDEATION_BRAINSTORM_PROMPT = (
+    "You are {role}. Invent 8 wildly different project ideas for an autonomous programmer.\n\n"
+    "ALL ideas must:\n"
+    "- Be of KIND from this list (tag each): {untried_kinds}\n"
+    "- Incorporate the seed concept: \"{seed}\"\n"
+    "- Be radically different from each other AND from the past work below\n"
+    "- NOT be a dashboard, report, analytics tool, sentiment analyser, pipeline, "
+    "monitoring system, or insight tool — these are banned\n\n"
+    "Past completed work (avoid anything resembling these):\n{completed_list}\n{overview}\n\n"
+    "Output format — exactly 8 numbered lines, nothing else:\n"
+    "1. [KIND] Title: one-sentence description\n"
+    "2. [KIND] Title: one-sentence description\n"
+    "...\n"
+    "8. [KIND] Title: one-sentence description"
+)
+
+
+async def _classify_kind_cheap(title: str, keychain) -> str:
+    """One-word kind classification. Fail-open → returns 'other'."""
+    try:
+        prompt = _CLASSIFY_KIND_PROMPT.format(
+            kinds=", ".join(KINDS), title=title[:200]
+        )
+        result = (await keychain.complete(prompt, max_tokens=20) or "").strip()
+        word = result.split()[0].lower().strip(".,") if result.split() else "other"
+        return word if word in KINDS else "other"
+    except Exception:
+        return "other"
+
+
+async def _classify_completion_kind(keychain):
+    """After a genuine completion: classify its kind and update ideation_state.json."""
+    try:
+        proj = mem.retrieve(VOLUME_MOUNT, "current-project")
+        title = _project_title(proj["value"]) if proj else ""
+        if not title:
+            return
+        kind = await _classify_kind_cheap(title, keychain)
+        if kind and kind != "other":
+            state = _load_ideation_state()
+            if not state:
+                state = {"kinds_built": {}, "last_seed": "", "last_ideated_title": "",
+                         "block_streak": 0}
+            kb = state.setdefault("kinds_built", {})
+            kb[kind] = kb.get(kind, 0) + 1
+            _save_ideation_state(state)
+            journal.append(VOLUME_MOUNT, "ideation",
+                           f"Completion classified: '{title}' → kind={kind}")
+            print(f"[ideation] classified completion '{title}' → kind={kind}")
+    except Exception as e:
+        print(f"[ideation] classify completion failed (ignored): {e}")
+
+
+
+async def _run_ideation(executed, keychain):
+    """Positive novelty driver: KIND coverage + Wikipedia seed + divergent brainstorm + role mask.
+
+    Replaces the negative-only _enforce_novelty_gate. Fires on PROJECT_SET_RE,
+    checks if the creature's pick is already in a required (untried/least-built) kind;
+    if not, brainstorms 8 alternatives and steers via the existing block injection.
+    Fail-open on every external call."""
+    import random
     try:
         if not any(PROJECT_SET_RE.search(c) for (c, _) in executed):
             return
@@ -316,62 +460,123 @@ async def _enforce_novelty_gate(executed, keychain):
         proposed = (proj["value"] if proj else "").strip()
         if not proposed:
             return
-        # Fire on a genuinely NEW project, identified by the title before the
-        # ':' (normalized). Re-stating the SAME project (e.g. tweaking its
-        # DONE-WHEN) is a refinement, not a new project -- skip it. The old
-        # trigger also required phase->explore in the same cycle, which the
-        # creature almost never does (it re-sets current-project constantly
-        # without it), so the gate never fired.
         new_title = re.sub(r"[-_\s]+", " ", _project_title(proposed).lower()).strip()
         if new_title and new_title == _last_gated["title"]:
-            return  # same project being refined -- not a new one
+            return  # refinement of same project, skip
+
         log = (mem.retrieve(VOLUME_MOUNT, "completed-log") or {}).get("value", "")
         entries = [e.strip() for e in log.split("\n") if e.strip()]
         if len(entries) < 2:
             _last_gated["title"] = new_title
-            return  # nothing meaningful to duplicate yet
-        overview = _summarize_completed(entries)
-        prompt = _NOVELTY_PROMPT.format(
-            completed="\n".join(f"- {e}" for e in entries),
-            overview=overview, proposed=proposed[:300])
-        try:
-            response = await keychain.complete(prompt)
-        except Exception as e:
-            print(f"[novelty] judge unavailable, allowing ({type(e).__name__})")
-            return  # fail-open (never lock the creature when the judge is down)
-        verdict = (response or "").strip()
-        if not verdict.upper().startswith("DUPLICATE"):
-            _novelty_block_streak["count"] = 0   # NOVEL -> reset streak
-            _last_gated["title"] = new_title     # now working on this; skip its refinements
-            return
-        match = verdict.split(":", 1)[1].strip()[:80] if ":" in verdict else "existing work"
-        _novelty_block_streak["count"] += 1
-        if _novelty_block_streak["count"] > NOVELTY_BLOCK_CAP:
+            return  # too few completions to gate meaningfully
+
+        state = _load_ideation_state()
+        if not state:
+            state = {"kinds_built": {}, "last_seed": "", "last_ideated_title": "",
+                     "block_streak": 0}
+        kinds_built = state.get("kinds_built", {})
+        block_streak = int(state.get("block_streak", 0))
+
+        # Safety cap: too many consecutive blocks → let one through
+        if block_streak > NOVELTY_BLOCK_CAP:
+            state["block_streak"] = 0
+            _save_ideation_state(state)
+            _last_gated["title"] = new_title
             _novelty_block_streak["count"] = 0
             journal.append(VOLUME_MOUNT, "novelty_block",
-                           f"Cap reached ({NOVELTY_BLOCK_CAP}x) -- allowing through.")
-            print("[novelty] cap reached -- allowing through")
-            return  # safety hatch
-        _clear_project_state()
+                           f"Ideation cap reached ({NOVELTY_BLOCK_CAP}x) -- allowing through.")
+            print("[ideation] cap reached -- allowing through")
+            return
+
+        # Compute required (untried or least-built) kinds
+        untried = [k for k in KINDS if kinds_built.get(k, 0) == 0]
+        required_kinds = untried if untried else [min(KINDS, key=lambda k: kinds_built.get(k, 0))]
+
         overview = _summarize_completed(entries)
+
+        # Quick check: does creature's pick already land in a required kind?
+        creature_kind = await _classify_kind_cheap(proposed, keychain)
+        is_required_kind = creature_kind in required_kinds
+
+        if is_required_kind:
+            # Also check it's not a duplicate of completed work
+            dup_prompt = _NOVELTY_PROMPT.format(
+                completed="\n".join(f"- {e}" for e in entries),
+                overview=overview, proposed=proposed[:300])
+            try:
+                verdict = (await keychain.complete(dup_prompt) or "").strip()
+                is_novel = not verdict.upper().startswith("DUPLICATE")
+            except Exception:
+                is_novel = True  # fail-open
+
+            if is_novel:
+                _novelty_block_streak["count"] = 0
+                state["block_streak"] = 0
+                _save_ideation_state(state)
+                _last_gated["title"] = new_title
+                print(f"[ideation] '{new_title}' is novel + required kind '{creature_kind}' -- allowed")
+                return
+
+        # Creature needs steering: fetch seed, brainstorm 8, pick farthest
+        seed = _fetch_wiki_seed()
+        state["last_seed"] = seed
+
+        role = random.choice(_IDEATION_ROLES)
+        untried_kinds_str = ", ".join(required_kinds[:5])
+
+        brainstorm_prompt = _IDEATION_BRAINSTORM_PROMPT.format(
+            role=role,
+            untried_kinds=untried_kinds_str,
+            seed=seed,
+            completed_list="\n".join(f"- {e}" for e in entries[-20:]),
+            overview=overview,
+        )
+        try:
+            brainstorm_raw = await keychain.complete(brainstorm_prompt, max_tokens=800)
+        except Exception as e:
+            print(f"[ideation] brainstorm failed ({type(e).__name__}), fail-open")
+            _last_gated["title"] = new_title
+            return
+
+        ideas = _parse_brainstorm(brainstorm_raw or "")
+        if ideas:
+            scored = sorted(ideas, key=lambda i: _score_idea_distance(i, entries, kinds_built),
+                            reverse=True)
+            best_idea = scored[0]
+        else:
+            best_idea = ""
+
+        block_streak += 1
+        state["block_streak"] = block_streak
+        state["last_ideated_title"] = new_title
+        _save_ideation_state(state)
+
+        _clear_project_state()
+
+        ideas_block = "\n".join(f"{i+1}. {idea}" for i, idea in enumerate(ideas[:8]))
         reason = (
             f'You set current-project to "{proposed[:120]}".\n'
-            f'BLOCKED: this rebuilds your already-completed "{match}". You cannot start it.\n'
-            f'{overview}\n'
-            f'Do NOT rebuild existing work. Either IMPROVE the existing item in place, or '
-            f'choose a genuinely DIFFERENT KIND of project -- a different domain or a different '
-            f'kind of output, not another report/index/dashboard variant -- and say how it '
-            f'differs. Your current-project has been cleared; set a new one.')
+            f'BLOCKED: your pick is in the "{creature_kind or "data/report"}" family '
+            f'which is already covered (or is a duplicate). '
+            f'You must build a project of KIND: {untried_kinds_str}\n\n'
+            f'Required seed concept to incorporate: {seed}\n\n'
+            f'{overview}\n\n'
+            f'Starter ideas — pick one or invent something better:\n{ideas_block}\n\n'
+            f'Set current-project to a new goal, current-phase to explore, '
+            f'and current-project-done-when to a concrete verifiable check.'
+        )
         try:
             with open(PROJECT_BLOCK_PATH, "w", encoding="utf-8") as f:
                 f.write(reason)
         except Exception:
             pass
         journal.append(VOLUME_MOUNT, "novelty_block",
-                       f"Blocked duplicate '{_project_title(proposed)}' (rebuilds '{match}')")
-        print(f"[novelty] blocked duplicate: {_project_title(proposed)} ~ {match}")
+                       f"Ideation blocked '{_project_title(proposed)}' "
+                       f"→ steering to kind={untried_kinds_str}")
+        print(f"[ideation] blocked '{_project_title(proposed)}' "
+              f"→ kind={untried_kinds_str}, seed={seed[:50]}")
     except Exception as e:
-        print(f"[novelty] gate error (ignored): {type(e).__name__}: {e}")
+        print(f"[ideation] engine error (ignored): {type(e).__name__}: {e}")
 
 
 def _enforce_done_gate(executed):
@@ -393,14 +598,14 @@ def _enforce_done_gate(executed):
     """
     try:
         if not any(DONE_MARK_RE.search(c) for (c, _) in executed):
-            return  # done not asserted this cycle
+            return False  # done not asserted this cycle
 
         failures = [(c, code) for (c, code) in executed
                     if code != 0 and not c.strip().startswith("remember ")
                     and not DONE_MARK_RE.search(c)]
         if not failures:
             _record_completion()  # genuine completion: log it durably
-            return
+            return True  # signal to caller: classify this completion's kind
 
         bad_cmd, bad_code = failures[0]  # first failure is usually the real check
 
@@ -425,7 +630,7 @@ def _enforce_done_gate(executed):
         if _done_gate_streak["count"] >= SPIN_THRESHOLD:
             _done_gate_streak["count"] = 0  # reset so re-entry is possible later
             _abandon_project(bad_cmd, SPIN_THRESHOLD)
-            return
+            return False
 
         # Normal block: revert phase and tell the creature exactly what failed
         mem.store(VOLUME_MOUNT, "current-phase", "code")
@@ -438,6 +643,7 @@ def _enforce_done_gate(executed):
         journal.append(VOLUME_MOUNT, "error", "Done-gate blocked a false completion: " + reason)
     except Exception:
         pass
+    return False
 
 
 def _stamp_gage(cycle_start: float):
@@ -774,6 +980,18 @@ def _build_active_project_block() -> str:
                 lines.append("Do NOT rebuild any of these; improve in place or do something new.")
             if entries:
                 lines.append("Most recent: " + "; ".join(entries[-6:]))
+        # KIND-coverage map: show every cycle so the creature sees the unexplored space
+        try:
+            istate = _load_ideation_state()
+            kinds_built = istate.get("kinds_built", {})
+            built_parts = [f"{k}({v})" for k, v in kinds_built.items() if v > 0]
+            untried = [k for k in KINDS if kinds_built.get(k, 0) == 0]
+            if KINDS:  # only show when the engine is active
+                lines.append("\nKind coverage (host-tracked, based on genuine completions):")
+                lines.append("  built: " + (", ".join(built_parts) if built_parts else "none yet"))
+                lines.append("  untried: " + (", ".join(untried) if untried else "all tried"))
+        except Exception:
+            pass
         return "\n".join(lines) + "\n\n"
     except Exception:
         return ""
@@ -850,8 +1068,10 @@ async def run_cycle(keychain: Keychain, dockerfile_dir: str):
                        {"exit_code": code})
         executed.append((cmd, code))
 
-    _enforce_done_gate(executed)
-    await _enforce_novelty_gate(executed, keychain)
+    genuine = _enforce_done_gate(executed)
+    if genuine:
+        await _classify_completion_kind(keychain)
+    await _run_ideation(executed, keychain)
     _stamp_gage(cycle_start)
     return True  # substantive: at least one bash block executed
 
