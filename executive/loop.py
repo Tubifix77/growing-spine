@@ -1258,14 +1258,21 @@ def _build_context(recent_journal: list, tue_message: str = None) -> str:
 
 async def run_cycle(keychain: Keychain, dockerfile_dir: str):
     recent_j = journal.recent(VOLUME_MOUNT, n=20)
-    tue_message = chatmod.pop_unread(VOLUME_MOUNT)
+    # B12: PEEK the message (do not mark read yet). If this cycle dies on
+    # quota before the think call returns, the message stays unread and is
+    # retried next cycle instead of being silently lost.
+    _peek = chatmod.peek_unread(VOLUME_MOUNT)
+    tue_ts, tue_message = (_peek if _peek else (None, None))
     context = _build_context(recent_j, tue_message)
 
     journal.append(VOLUME_MOUNT, "think_start", "Sending to keychain...")
     response = await keychain.complete(context)
     journal.append(VOLUME_MOUNT, "think_end", response)
 
+    # The think call succeeded, so the message has now genuinely been seen.
+    # Mark it read and record any plain-text reply.
     if tue_message:
+        chatmod.mark_read(VOLUME_MOUNT, tue_ts)
         reply = chatmod.extract_text_reply(response)
         if reply:
             chatmod.record_reply(VOLUME_MOUNT, reply)

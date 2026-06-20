@@ -1411,3 +1411,26 @@ Data / deploy:
 - [ ] 4-step restart -> exactly one instance; new `[oracle]` lines seen in log.
 
 **End of patch v2.**
+
+
+---
+
+## ADDENDUM B12 (applied post-deploy) -- chat message lost on a failed cycle
+
+**Bug discovered live:** `chatmod.pop_unread()` marked a Tue message `read` on disk
+at the TOP of `run_cycle`, before `keychain.complete()`. Under quota throttle the
+think call raises and the cycle dies -- but the message is already marked read, so
+it is consumed by a cycle that never showed it to the model, and lost forever.
+This ate two real messages during the v2 deploy.
+
+**Fix (applied):**
+- `executive/chat.py`: added `peek_unread()` (read-only, returns `(ts, content)`,
+  marks nothing) and `mark_read(ts)` (flips one message by timestamp). `pop_unread`
+  kept only for backward-compat, deprecated, no longer used by the loop.
+- `executive/loop.py` `run_cycle`: PEEK the message before the think call; only
+  `mark_read(ts)` + `record_reply` AFTER `keychain.complete()` returns. A cycle
+  that dies on quota leaves the message unread, retried next cycle.
+- `tests/test_loop_v2.py`: 5 regression checks proving a message survives a peek
+  (i.e. survives a failed cycle) and is read only after a successful think.
+
+Shipped in the commit following the main v2 patch.

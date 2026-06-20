@@ -163,6 +163,22 @@ async def main():
     kb3 = loop._build_knowledge_block()
     check("toolkit block shows compounding line", "compounding" in kb3.lower())
 
+    # B12: a Tue message must survive a cycle that dies before the think call.
+    # peek_unread must NOT mark read; mark_read flips it only after success.
+    import json as _json
+    chatmod = __import__("executive.chat", fromlist=["chat"])
+    chatmod.enqueue(TMP, "hello creature")
+    _peek = chatmod.peek_unread(TMP)
+    check("B12 peek returns the message", bool(_peek) and _peek[1] == "hello creature")
+    _peek2 = chatmod.peek_unread(TMP)
+    check("B12 message still unread after peek (survives failed cycle)",
+          bool(_peek2) and _peek2[1] == "hello creature")
+    _ts = _peek[0] if _peek else None
+    check("B12 mark_read flips the message", chatmod.mark_read(TMP, _ts) is True)
+    check("B12 message read after mark_read", chatmod.peek_unread(TMP) is None)
+    check("B12 re-marking an already-read message returns False",
+          chatmod.mark_read(TMP, _ts) is False)
+
     print()
     if fails:
         print("FAILURES: " + ", ".join(fails))
