@@ -25,17 +25,34 @@ DIRECTIVE_WINDOW = 20    # cycles a STUCK directive stays in every prompt
 
 IDEATION_STATE_PATH = os.path.join(VOLUME_MOUNT, "ideation_state.json")
 
-KINDS = [
-    "game", "simulation", "solver_or_algorithm", "generative_art",
-    "cipher_or_crypto", "puzzle_generator", "parser_or_interpreter",
-    "math_toy", "creative_writing_generator", "bot_or_agent",
+# Tool categories for the cousin's acceleration-toolkit. These are a DESCRIPTIVE
+# STARTER MAP, not a canonical ontology -- a scaffold, not a cage. They seed the
+# coverage map so an uncovered category reads as the obvious next gap, but a tool
+# that classifies as 'other' (a genuinely new category the creature is effectively
+# inventing) is a GOOD outcome, not a fallback bucket. Do not let these five
+# ossify into "the only kinds of tool that exist".
+TOOL_CATEGORIES = [
+    "information_fetch",      # automated pulls from the web / APIs / sources
+    "memory_archive",         # storing knowledge durably and findably
+    "memory_recall",          # fast search / ranking / summary of memory
+    "planning",               # goals -> ordered steps, tracked across cycles
+    "subagent_orchestration", # helper LLM calls over free-tier APIs to offload
 ]
 
-_IDEATION_ROLES = [
-    "a game designer", "a mathematician", "a prankster inventor",
-    "a naturalist", "a demoscene coder", "a composer of interactive poetry",
-    "a systems hacker", "a recreational cryptographer",
-]
+_CATEGORY_HINTS = {
+    "information_fetch": "automated pulls of fresh information from the web or APIs the cousin cares about",
+    "memory_archive": "storing knowledge durably and in a findable, structured way beyond a flat list",
+    "memory_recall": "fast searching, ranking, or summarising of what the cousin already knows",
+    "planning": "turning a goal into ordered steps and tracking progress across cycles",
+    "subagent_orchestration": "spawning or coordinating helper LLM calls over the free-tier APIs to offload sub-tasks",
+    "other": "any genuinely useful capability the cousin lacks",
+}
+
+# The failure basin: output produced for a human reader, NOT a tool an agent runs.
+_BASIN_SIGNATURE = ("dashboard", "report", "index", "summary", "analytics",
+                    "sentiment", "monitor", "insight", "overview", "stats")
+
+_last_pick = {"title": ""}  # last project the creature set (skip re-judging refinements)
 
 
 
@@ -102,9 +119,19 @@ def _load_workspace_map() -> str:
 
 def _build_tool_catalogue() -> str:
     try:
-        return toolmod.build_catalogue(VOLUME_MOUNT)
+        raw = toolmod.build_catalogue(VOLUME_MOUNT)
     except Exception:
         return ""
+    if not raw:
+        return ""
+    # Drop self-made tools whose 'does:' line is a placeholder -- pure noise that
+    # crowds out the working memory below it. Built-ins and well-described tools
+    # are kept verbatim. (The toolkit OVERVIEW with reuse counts is rendered
+    # separately by _build_knowledge_block.)
+    junk = ("provides the ", "describe what this tool does",
+            "(no description)", "- edit this line")
+    kept = [ln for ln in raw.split("\n") if not any(j in ln.lower() for j in junk)]
+    return "\n".join(kept)
 
 
 
@@ -174,33 +201,6 @@ DONE_MARK_RE = re.compile(r'remember\s+current-phase\s+["\']?done["\']?', re.I)
 PROJECT_SET_RE = re.compile(r'remember\s+current-project\b', re.I)
 PHASE_EXPLORE_RE = re.compile(r'remember\s+current-phase\s+["\']?explore["\']?', re.I)
 
-# Novelty gate: a NEW project (current-project set together with phase->explore)
-# is judged against the completed-log; a near-duplicate is BLOCKED (project
-# cleared) so the creature cannot rebuild what it already made. Fail-open on any
-# error/quota; a safety cap stops a permanent lock.
-_novelty_block_streak = {"count": 0}
-_last_gated = {"title": ""}  # normalized title last judged-and-allowed; skips refinements of the same project
-NOVELTY_BLOCK_CAP = 4
-_NOVELTY_PROMPT = """You are a gate that stops an autonomous agent from circling the same kind of work instead of building something new.
-
-It has ALREADY COMPLETED these projects:
-{completed}
-
-Summary of that work: {overview}
-
-Newly proposed project:
-"{proposed}"
-
-Answer DUPLICATE if the proposal re-creates something already completed, OR is just another variant in a category the agent has already built repeatedly (e.g. yet another report / index / dashboard / summary / analytics / monitoring / insight / search tool when several already exist).
-Answer NOVEL only if it is a genuinely DIFFERENT KIND of thing -- a different domain or kind of output (a game, a parser, a solver, a simulation, an interactive program, and so on), or a concrete improvement/extension of ONE specific existing item.
-
-Reply with ONE line, nothing else:
-DUPLICATE: <the completed item or category it repeats>
-or
-NOVEL"""
-
-
-
 # Spin trap: track consecutive done-gate blocks on the same failing command.
 # When the same DONE-WHEN check fails SPIN_THRESHOLD times in a row the approach
 # is structurally broken; the executive clears the project and forces a fresh start.
@@ -259,6 +259,10 @@ _SELF_CONCEPT_KEYS = (
     "current_focus", "today_focus", "objective", "next_steps", "next_action",
     "plan", "instruction", "documentation.policy",
     "last-completed", "last-project", "last_completed_project", "last_thought",
+    # added: per-project planning keys that re-anchored the creature to a cleared
+    # project's basin after a retro/spin clear.
+    "project-plan", "current-plan", "testing", "refinement",
+    "project-done-when", "current-project-done-when", "assignment-note",
 )
 
 
@@ -294,14 +298,11 @@ def _abandon_project(bad_cmd: str, count: int):
         pass
     reason = (
         "## Spin trap: project abandoned by the executive\n\n"
-        f"You have attempted the same failing check `{bad_cmd[:80]}` "
-        f"{count} times in a row without making real progress. "
-        "This approach is structurally broken -- retrying will not fix it.\n\n"
-        "Your current project has been cleared by the executive.\n\n"
-        "You MUST start a completely different project. Do NOT attempt to fix "
-        "the same tool or a variation of it. Do NOT make another report or index. "
-        "Choose a genuinely new goal, set current-project and current-plan, "
-        "and write a DONE WHEN that does not depend on the broken tool."
+        f"You attempted the same failing check `{bad_cmd[:80]}` {count} times in a "
+        "row without progress -- that approach is structurally broken.\n\n"
+        "This project has been cleared. Choose a DIFFERENT cousin-tool to build "
+        "(a different gap, not a variation of this one); if you don't, one is "
+        "assigned automatically next cycle. Do not resurrect this tool."
     )
     try:
         with open(DONE_BLOCK_PATH, "w", encoding="utf-8") as f:
@@ -329,254 +330,413 @@ def _save_ideation_state(state: dict):
         print(f"[ideation] failed to save state: {e}")
 
 
-def _fetch_wiki_seed() -> str:
-    """Host-side random Wikipedia concept fetch. Never blocks the loop on failure."""
-    import urllib.request
-    _SEED_FALLBACK = [
-        "mycelium", "tidal lock", "Chebyshev polynomial", "bioluminescence",
-        "Penrose tiling", "cellular automaton", "Fermat's spiral",
-        "ant colony optimization", "Fourier transform", "strange attractor",
-        "reaction-diffusion", "quine", "L-system", "Voronoi diagram",
-        "Lindenmayer system",
-    ]
-    try:
-        req = urllib.request.Request(
-            "https://en.wikipedia.org/api/rest_v1/page/random/summary",
-            headers={"User-Agent": "growing-spine-ideation/1.0"},
-        )
-        with urllib.request.urlopen(req, timeout=5) as r:
-            data = json.loads(r.read().decode("utf-8"))
-        title = data.get("title", "")
-        extract = data.get("extract", "")
-        first = (extract.split(".")[0].strip() + ".") if "." in extract else extract[:120]
-        if title:
-            return f"{title}: {first}"
-    except Exception as e:
-        print(f"[ideation] wiki fetch failed ({type(e).__name__}), using fallback")
-    import random
-    return random.choice(_SEED_FALLBACK)
-
-
-def _parse_brainstorm(text: str) -> list:
-    """Extract numbered lines 1-8 from brainstorm output."""
-    lines = []
-    for line in text.split("\n"):
-        m = re.match(r"^\s*\d+\.\s+(.+)", line)
-        if m:
-            lines.append(m.group(1).strip())
-    return lines[:8]
-
-
-def _score_idea_distance(idea: str, completed_entries: list, kinds_built: dict) -> float:
-    """Heuristic: higher = farther from past work. Used to pick the brainstorm winner."""
-    idea_l = idea.lower()
-    score = 1.0
-    for entry in completed_entries:
-        words_e = set(re.findall(r"\w+", entry.lower()))
-        words_i = set(re.findall(r"\w+", idea_l))
-        union = words_e | words_i
-        if union:
-            overlap = len(words_e & words_i) / len(union)
-            score -= overlap * 0.6
-    for kind in KINDS:
-        slug = kind.replace("_", " ")
-        if slug in idea_l or kind.split("_")[0] in idea_l:
-            if kinds_built.get(kind, 0) == 0:
-                score += 0.5
-    return score
-
-
-_CLASSIFY_KIND_PROMPT = (
-    "Which KIND is this project? Answer with exactly ONE word from the list, or 'other'.\n\n"
-    "Kinds: {kinds}\n\nProject: \"{title}\"\n\nAnswer:"
-)
-
-_IDEATION_BRAINSTORM_PROMPT = (
-    "You are {role}. Invent 8 wildly different project ideas for an autonomous programmer.\n\n"
-    "ALL ideas must:\n"
-    "- Be of KIND from this list (tag each): {untried_kinds}\n"
-    "- Incorporate the seed concept: \"{seed}\"\n"
-    "- Be radically different from each other AND from the past work below\n"
-    "- NOT be a dashboard, report, analytics tool, sentiment analyser, pipeline, "
-    "monitoring system, or insight tool — these are banned\n\n"
-    "Past completed work (avoid anything resembling these):\n{completed_list}\n{overview}\n\n"
-    "Output format — exactly 8 numbered lines, nothing else:\n"
-    "1. [KIND] Title: one-sentence description\n"
-    "2. [KIND] Title: one-sentence description\n"
-    "...\n"
-    "8. [KIND] Title: one-sentence description"
+_CLASSIFY_CATEGORY_PROMPT = (
+    "An autonomous agent builds tools to accelerate a fellow LLM. Which category "
+    "does this tool fall in? Answer with exactly ONE of: {cats}, or 'other'.\n\n"
+    "Tool: \"{title}\"\n\nAnswer:"
 )
 
 
-async def _classify_kind_cheap(title: str, keychain) -> str:
-    """One-word kind classification. Fail-open → returns 'other'."""
+async def _classify_category_cheap(title: str, keychain) -> str:
+    """One-word category classification. Fail-open -> 'other'."""
     try:
-        prompt = _CLASSIFY_KIND_PROMPT.format(
-            kinds=", ".join(KINDS), title=title[:200]
-        )
+        prompt = _CLASSIFY_CATEGORY_PROMPT.format(
+            cats=", ".join(TOOL_CATEGORIES), title=title[:200])
         result = (await keychain.complete(prompt, max_tokens=20) or "").strip()
         word = result.split()[0].lower().strip(".,") if result.split() else "other"
-        return word if word in KINDS else "other"
+        return word if word in TOOL_CATEGORIES else "other"
     except Exception:
         return "other"
 
 
-async def _classify_completion_kind(keychain):
-    """After a genuine completion: classify its kind and update ideation_state.json."""
+async def _classify_completion_category(keychain):
+    """After a genuine completion: classify the built tool's category and bump the
+    coverage map in ideation_state.json."""
     try:
         proj = mem.retrieve(VOLUME_MOUNT, "current-project")
         title = _project_title(proj["value"]) if proj else ""
         if not title:
             return
-        kind = await _classify_kind_cheap(title, keychain)
-        if kind and kind != "other":
-            state = _load_ideation_state()
-            if not state:
-                state = {"kinds_built": {}, "last_seed": "", "last_ideated_title": "",
-                         "block_streak": 0}
-            kb = state.setdefault("kinds_built", {})
-            kb[kind] = kb.get(kind, 0) + 1
-            _save_ideation_state(state)
-            journal.append(VOLUME_MOUNT, "ideation",
-                           f"Completion classified: '{title}' → kind={kind}")
-            print(f"[ideation] classified completion '{title}' → kind={kind}")
+        cat = await _classify_category_cheap(title, keychain)
+        state = _load_ideation_state()
+        if not state:
+            state = {"categories_built": {}, "block_streak": 0}
+        cb = state.setdefault("categories_built", {})
+        cb[cat] = cb.get(cat, 0) + 1
+        _save_ideation_state(state)
+        journal.append(VOLUME_MOUNT, "ideation",
+                       f"Completion classified: '{title}' -> category={cat}")
+        print(f"[ideation] classified completion '{title}' -> category={cat}")
     except Exception as e:
         print(f"[ideation] classify completion failed (ignored): {e}")
 
 
+def _pick_uncovered_category() -> str:
+    """First untried seed category, else the least-built one."""
+    state = _load_ideation_state() or {}
+    built = state.get("categories_built", {})
+    untried = [c for c in TOOL_CATEGORIES if built.get(c, 0) == 0]
+    if untried:
+        return untried[0]
+    return min(TOOL_CATEGORIES, key=lambda c: built.get(c, 0))
 
-async def _run_ideation(executed, keychain):
-    """Positive novelty driver: KIND coverage + Wikipedia seed + divergent brainstorm + role mask.
 
-    Replaces the negative-only _enforce_novelty_gate. Fires on PROJECT_SET_RE,
-    checks if the creature's pick is already in a required (untried/least-built) kind;
-    if not, brainstorms 8 alternatives and steers via the existing block injection.
-    Fail-open on every external call."""
-    import random
+_GAP_PROMPT = (
+    "You are briefing an autonomous coding agent that builds a coherent toolkit to "
+    "accelerate a near-conscious LLM 'cousin' living in a Linux container with "
+    "Python 3, a persistent memory store it reads each cycle, shell tools on its "
+    "PATH, and free-tier LLM API access over the network, with no human watching.\n\n"
+    "The cousin still lacks a tool in this category: {category}\n"
+    "({hint})\n\n"
+    "Specify ONE small, concrete, single-purpose tool that fills this gap. It must "
+    "be a real command the cousin can RUN (a script), production-quality enough that "
+    "the cousin can rely on it, completable in a few build steps, using only the "
+    "Python 3 standard library plus the container's curl/wget (no extra installs). "
+    "It is a TOOL the cousin RUNS -- never a report, dashboard, index, or summary "
+    "for a human.\n\n"
+    "Reply with STRICT JSON only, no markdown fences, no text around it:\n"
+    "{{\n"
+    '  "title": "tool name plus at most 6 words, no colon",\n'
+    '  "brief": "2-3 sentences: what the tool does and why it accelerates the cousin",\n'
+    '  "demonstration": "one sentence: how to PROVE it works by RUNNING it on a real input (not a unit test) -- e.g. run it and show it fetched/stored/retrieved real data",\n'
+    '  "category": "{category}"\n'
+    "}}"
+)
+
+
+def _parse_gap_json(raw: str, category: str) -> dict:
+    if not raw:
+        return {}
+    s = re.sub(r"^```(?:json)?\s*", "", raw.strip())
+    s = re.sub(r"\s*```$", "", s)
+    a, b = s.find("{"), s.rfind("}")
+    if a == -1 or b == -1 or b <= a:
+        return {}
     try:
-        if not any(PROJECT_SET_RE.search(c) for (c, _) in executed):
-            return
-        proj = mem.retrieve(VOLUME_MOUNT, "current-project")
-        proposed = (proj["value"] if proj else "").strip()
-        if not proposed:
-            return
-        new_title = re.sub(r"[-_\s]+", " ", _project_title(proposed).lower()).strip()
-        if new_title and new_title == _last_gated["title"]:
-            return  # refinement of same project, skip
+        d = json.loads(s[a:b + 1])
+    except Exception:
+        return {}
+    if not (str(d.get("title", "")).strip() and str(d.get("brief", "")).strip()):
+        return {}
+    d.setdefault("demonstration", "Run the tool on a real input and show it works.")
+    d.setdefault("category", category)
+    return d
 
-        log = (mem.retrieve(VOLUME_MOUNT, "completed-log") or {}).get("value", "")
-        entries = [e.strip() for e in log.split("\n") if e.strip()]
-        if len(entries) < 2:
-            _last_gated["title"] = new_title
-            return  # too few completions to gate meaningfully
 
-        state = _load_ideation_state()
-        if not state:
-            state = {"kinds_built": {}, "last_seed": "", "last_ideated_title": "",
-                     "block_streak": 0}
-        kinds_built = state.get("kinds_built", {})
-        block_streak = int(state.get("block_streak", 0))
+# Fallback gap BRIEFS (text, not code) for when the oracle call fails (e.g. the
+# free-tier quota is exhausted -- the oracle shares it with the executor). The
+# creature still BUILDS the tool itself; these only point at a concrete gap. One
+# per seed category is sufficient; you MAY add more following the same shape.
+_FALLBACK_GAPS = {
+    "information_fetch": {
+        "title": "wake-catchup fetcher",
+        "brief": "A tool the cousin runs on waking that fetches what changed while "
+                 "it slept -- recent items from a source it cares about -- and "
+                 "prints them, so it wakes oriented instead of blind.",
+        "demonstration": "Run it once and show it printed real, recent fetched items.",
+        "category": "information_fetch"},
+    "memory_archive": {
+        "title": "keyword archive store",
+        "brief": "A tool that writes a titled note under one or more keywords into "
+                 "a durable archive file, so knowledge persists in a structured, "
+                 "findable way beyond the flat memory list.",
+        "demonstration": "Archive two real notes under keywords and show the archive "
+                         "file now contains them.",
+        "category": "memory_archive"},
+    "memory_recall": {
+        "title": "archive search recall",
+        "brief": "A tool that searches the keyword archive and returns the "
+                 "best-matching notes for a query, so the cousin recalls specific "
+                 "knowledge fast instead of scanning everything.",
+        "demonstration": "Query it for a keyword you just archived and show it "
+                         "returns the right note.",
+        "category": "memory_recall"},
+    "planning": {
+        "title": "step planner tracker",
+        "brief": "A tool that records an ordered list of steps for a goal and lets "
+                 "the cousin mark steps done and see what's next, so multi-cycle "
+                 "work survives across cycles.",
+        "demonstration": "Create a 3-step plan, mark one done, and show the tool "
+                         "reports the correct next step.",
+        "category": "planning"},
+    "subagent_orchestration": {
+        "title": "subagent ask helper",
+        "brief": "A tool that sends a focused sub-question to a free-tier LLM "
+                 "endpoint and returns just the answer, so the cousin can offload a "
+                 "sub-task without managing the API call itself.",
+        "demonstration": "Ask it a real sub-question and show it returned a sensible "
+                         "answer from the API.",
+        "category": "subagent_orchestration"},
+}
 
-        # Safety cap: too many consecutive blocks → let one through
-        if block_streak > NOVELTY_BLOCK_CAP:
-            state["block_streak"] = 0
-            _save_ideation_state(state)
-            _last_gated["title"] = new_title
-            _novelty_block_streak["count"] = 0
-            journal.append(VOLUME_MOUNT, "novelty_block",
-                           f"Ideation cap reached ({NOVELTY_BLOCK_CAP}x) -- allowing through.")
-            print("[ideation] cap reached -- allowing through")
-            return
 
-        # Compute required (untried or least-built) kinds
-        untried = [k for k in KINDS if kinds_built.get(k, 0) == 0]
-        required_kinds = untried if untried else [min(KINDS, key=lambda k: kinds_built.get(k, 0))]
+async def _oracle_gap_spec(category: str, keychain) -> dict:
+    """Clean-context gap brief for a category. Free-tier keychain -> fallback gap."""
+    hint = _CATEGORY_HINTS.get(category, _CATEGORY_HINTS["other"])
+    prompt = _GAP_PROMPT.format(category=category, hint=hint)
+    raw = ""
+    try:
+        raw = await keychain.complete(prompt, max_tokens=500) or ""
+    except Exception as e:
+        print(f"[oracle] gap call failed ({type(e).__name__}); using fallback gap")
+    spec = _parse_gap_json(raw, category)
+    if spec:
+        return spec
+    fb = dict(_FALLBACK_GAPS.get(category, _FALLBACK_GAPS["memory_archive"]))
+    print(f"[oracle] using fallback gap for category={category}")
+    return fb
 
-        overview = _summarize_completed(entries)
 
-        # Quick check: does creature's pick already land in a required kind?
-        creature_kind = await _classify_kind_cheap(proposed, keychain)
-        is_required_kind = creature_kind in required_kinds
-
-        if is_required_kind:
-            # Also check it's not a duplicate of completed work
-            dup_prompt = _NOVELTY_PROMPT.format(
-                completed="\n".join(f"- {e}" for e in entries),
-                overview=overview, proposed=proposed[:300])
-            try:
-                verdict = (await keychain.complete(dup_prompt) or "").strip()
-                is_novel = not verdict.upper().startswith("DUPLICATE")
-            except Exception:
-                is_novel = True  # fail-open
-
-            if is_novel:
-                _novelty_block_streak["count"] = 0
-                state["block_streak"] = 0
-                _save_ideation_state(state)
-                _last_gated["title"] = new_title
-                print(f"[ideation] '{new_title}' is novel + required kind '{creature_kind}' -- allowed")
-                return
-
-        # Creature needs steering: fetch seed, brainstorm 8, pick farthest
-        seed = _fetch_wiki_seed()
-        state["last_seed"] = seed
-
-        role = random.choice(_IDEATION_ROLES)
-        untried_kinds_str = ", ".join(required_kinds[:5])
-
-        brainstorm_prompt = _IDEATION_BRAINSTORM_PROMPT.format(
-            role=role,
-            untried_kinds=untried_kinds_str,
-            seed=seed,
-            completed_list="\n".join(f"- {e}" for e in entries[-20:]),
-            overview=overview,
-        )
+def _install_gap(spec: dict, category: str):
+    """Assign a cousin-tool gap: set the project control keys and seed working
+    memory so layer1 LEADS with the concrete assignment. Phase starts at 'code'
+    (the gap brief IS the explore/plan). No starter code is written -- the
+    creature builds the tool itself."""
+    title = _project_title(str(spec.get("title", "")).strip()) or f"{category} tool"
+    brief = str(spec.get("brief", "")).strip()
+    demo = str(spec.get("demonstration", "")).strip()
+    for k in ("project-plan", "current-plan", "testing", "refinement",
+              "project-done-when"):
         try:
-            brainstorm_raw = await keychain.complete(brainstorm_prompt, max_tokens=800)
-        except Exception as e:
-            print(f"[ideation] brainstorm failed ({type(e).__name__}), fail-open")
-            _last_gated["title"] = new_title
-            return
-
-        ideas = _parse_brainstorm(brainstorm_raw or "")
-        if ideas:
-            scored = sorted(ideas, key=lambda i: _score_idea_distance(i, entries, kinds_built),
-                            reverse=True)
-            best_idea = scored[0]
-        else:
-            best_idea = ""
-
-        block_streak += 1
-        state["block_streak"] = block_streak
-        state["last_ideated_title"] = new_title
-        _save_ideation_state(state)
-
-        _clear_project_state()
-
-        ideas_block = "\n".join(f"{i+1}. {idea}" for i, idea in enumerate(ideas[:8]))
-        reason = (
-            f'You set current-project to "{proposed[:120]}".\n'
-            f'BLOCKED: your pick is in the "{creature_kind or "data/report"}" family '
-            f'which is already covered (or is a duplicate). '
-            f'You must build a project of KIND: {untried_kinds_str}\n\n'
-            f'Required seed concept to incorporate: {seed}\n\n'
-            f'{overview}\n\n'
-            f'Starter ideas — pick one or invent something better:\n{ideas_block}\n\n'
-            f'Set current-project to a new goal, current-phase to explore, '
-            f'and current-project-done-when to a concrete verifiable check.'
-        )
-        try:
-            with open(PROJECT_BLOCK_PATH, "w", encoding="utf-8") as f:
-                f.write(reason)
+            mem.forget(VOLUME_MOUNT, k)
         except Exception:
             pass
-        journal.append(VOLUME_MOUNT, "novelty_block",
-                       f"Ideation blocked '{_project_title(proposed)}' "
-                       f"→ steering to kind={untried_kinds_str}")
-        print(f"[ideation] blocked '{_project_title(proposed)}' "
-              f"→ kind={untried_kinds_str}, seed={seed[:50]}")
+    mem.store(VOLUME_MOUNT, "current-project",
+              f"{title}: {brief} -- CATEGORY: {category}")
+    mem.store(VOLUME_MOUNT, "current-project-done-when",
+              f"Prove it by RUNNING it for real: {demo} Mark done only after you "
+              f"have actually run your finished tool this cycle and seen it work.")
+    mem.store(VOLUME_MOUNT, "current-phase", "code")
+    try:
+        mem.forget(VOLUME_MOUNT, "current_focus")
+    except Exception:
+        pass
+    mem.store(VOLUME_MOUNT, "current_focus",
+              f"[assigned] Build for your cousin: {title}. {brief} This is a TOOL "
+              f"the cousin RUNS, not a report. Build it to a standard the cousin "
+              f"can rely on, then prove it works by running it for real ({demo}). "
+              f"Reuse any tool you already have if it helps you build this.")
+    journal.append(VOLUME_MOUNT, "ideation",
+                   f"Assigned cousin-tool gap [{category}]: '{title}'")
+    print(f"[oracle] assigned gap category={category} title='{title}'")
+
+
+_BASIN_CHECK_PROMPT = (
+    "An autonomous agent's job is to build TOOLS that help a fellow LLM operate "
+    "faster -- things it can RUN to fetch information, archive and recall memory, "
+    "plan, or orchestrate helper LLM calls.\n\n"
+    "Its newly chosen project is:\n\"{proposed}\"\n\n"
+    "Is this a TOOL an LLM agent would RUN to accelerate itself, or is it OUTPUT "
+    "produced for a human to read (a report, dashboard, index, summary, analytics, "
+    "or sentiment write-up)?\n\n"
+    "Answer with ONE word: TOOL or OUTPUT."
+)
+
+
+async def _is_basin_relapse(proposed: str, keychain) -> bool:
+    """True if the creature's pick is output-for-a-reader rather than a runnable
+    cousin-tool. Model decides; falls back to the lexical signature on error."""
+    try:
+        verdict = (await keychain.complete(
+            _BASIN_CHECK_PROMPT.format(proposed=proposed[:300]), max_tokens=10
+        ) or "").strip().upper()
+        if verdict.startswith("OUTPUT"):
+            return True
+        if verdict.startswith("TOOL"):
+            return False
+    except Exception:
+        pass
+    return any(b in proposed.lower() for b in _BASIN_SIGNATURE)
+
+
+async def _ensure_or_redirect(executed, keychain):
+    """Drive preserved: the creature chooses its own cousin-tool. This backstop
+    only (a) redirects a basin relapse to a CONCRETE uncovered-category gap, and
+    (b) assigns a gap if the creature left itself idle. A relapse is REPLACED with
+    a concrete assignment (not a prohibition), which resists relabeling.
+    Fail-open everywhere."""
+    try:
+        set_this_cycle = any(PROJECT_SET_RE.search(c) for (c, _) in executed)
+        proj = mem.retrieve(VOLUME_MOUNT, "current-project")
+        phase = mem.retrieve(VOLUME_MOUNT, "current-phase")
+        phase_v = (phase or {}).get("value", "").strip().lower()
+        active = bool(proj and proj["value"].strip()) and phase_v not in ("", "done")
+
+        if set_this_cycle:
+            proposed = (proj["value"] if proj else "").strip()
+            if not proposed:
+                return
+            new_title = re.sub(r"[-_\s]+", " ",
+                               _project_title(proposed).lower()).strip()
+            if new_title and new_title == _last_pick["title"]:
+                return  # refinement of the same pick, already judged
+            _last_pick["title"] = new_title
+            if await _is_basin_relapse(proposed, keychain):
+                category = _pick_uncovered_category()
+                spec = await _oracle_gap_spec(category, keychain)
+                _clear_project_state()
+                _install_gap(spec, category)
+                journal.append(VOLUME_MOUNT, "novelty_block",
+                               f"Redirected basin relapse "
+                               f"'{_project_title(proposed)}' -> cousin-tool gap "
+                               f"[{category}]")
+                print(f"[oracle] redirected relapse -> category={category}")
+            else:
+                print(f"[oracle] pick '{new_title}' is a cousin-tool -- allowed")
+            return
+
+        # creature set nothing AND has no active project -> assign (anti-idle)
+        if not active:
+            category = _pick_uncovered_category()
+            spec = await _oracle_gap_spec(category, keychain)
+            _clear_project_state()
+            _install_gap(spec, category)
+            print(f"[oracle] anti-idle assignment -> category={category}")
     except Exception as e:
-        print(f"[ideation] engine error (ignored): {type(e).__name__}: {e}")
+        print(f"[oracle] redirect error (ignored): {type(e).__name__}: {e}")
+
+
+TOOL_USAGE_PATH = os.path.join(VOLUME_MOUNT, "tool_usage.json")
+
+
+def _own_tool_names() -> list:
+    """Names of tools the creature has built (files in /mind/tools/own)."""
+    try:
+        d = os.path.join(VOLUME_MOUNT, "tools", "own")
+        out = []
+        for f in os.listdir(d):
+            if f.startswith(".") or f.endswith((".md", ".json", ".txt")):
+                continue
+            if os.path.isfile(os.path.join(d, f)):
+                out.append(f)
+        return out
+    except Exception:
+        return []
+
+
+def _load_tool_usage() -> dict:
+    try:
+        with open(TOOL_USAGE_PATH, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _save_tool_usage(u: dict):
+    try:
+        with open(TOOL_USAGE_PATH, "w", encoding="utf-8") as f:
+            json.dump(u, f, indent=2)
+    except Exception:
+        pass
+
+
+def _count_reuse_in(commands) -> int:
+    """How many of the given command strings invoke one of the creature's own
+    prior tools (excluding the tool-new creation command). Whole-word or explicit
+    path match."""
+    own = _own_tool_names()
+    if not own:
+        return 0
+    n = 0
+    for c in commands:
+        if re.search(r"\btool-new\b", c):
+            continue
+        for name in own:
+            if re.search(r"(^|[\s/])" + re.escape(name) + r"(\s|$)", c):
+                n += 1
+                break
+    return n
+
+
+def _track_tool_usage(executed):
+    """ADOPTION signal: count when the creature RUNS one of its own prior tools in
+    later work (runtime invocation). Surfaced in the knowledge block and the retro
+    digest; never enforced. NOTE: adoption is a LIFECYCLE property, NOT a quality
+    verdict -- a good tool may sit unused for many cycles until a fitting task
+    appears, and a mediocre tool may be reused because it sits on a hot path. So a
+    0 here means "no load has flowed through this yet", not "bad tool"."""
+    try:
+        own = _own_tool_names()
+        if not own:
+            return
+        usage = _load_tool_usage()
+        changed = False
+        for (cmd, _code) in executed:
+            if re.search(r"\btool-new\b", cmd):
+                continue
+            for name in own:
+                if re.search(r"(^|[\s/])" + re.escape(name) + r"(\s|$)", cmd):
+                    usage[name] = usage.get(name, 0) + 1
+                    changed = True
+        if changed:
+            _save_tool_usage(usage)
+    except Exception:
+        pass
+
+
+# --- DEPENDENCY DEPTH (the headline compounding metric) --------------------
+# Reuse (running a prior tool) and dependency (a later tool BUILT OUT OF earlier
+# ones) are different signals; dependency is the stronger one. A creature whose
+# tool N source invokes earlier tools is building structures from structures --
+# an organism, not a warehouse. Detected STATICALLY by scanning each own-tool's
+# file for references to other own-tools. Static scanning has false positives (a
+# tool name in a comment, or a short name that is a substring of ordinary text),
+# so this is reported as "appears to depend on" -- a heuristic graph, never
+# asserted as precise.
+
+def _tool_dependencies() -> dict:
+    """Heuristic static dependency graph among the creature's own tools.
+    Returns {tool: [other own-tools it appears to call in its source]}. Self-refs
+    dropped; only names >=4 chars matched, to cut substring false positives."""
+    own = _own_tool_names()
+    if not own:
+        return {}
+    matchable = [n for n in own if len(n) >= 4]
+    graph = {}
+    base = os.path.join(VOLUME_MOUNT, "tools", "own")
+    for tool in own:
+        deps = set()
+        try:
+            with open(os.path.join(base, tool), encoding="utf-8",
+                      errors="replace") as f:
+                code = f.read()
+        except Exception:
+            graph[tool] = []
+            continue
+        for other in matchable:
+            if other == tool:
+                continue
+            if re.search(r"(^|[\s/`;|&(])" + re.escape(other)
+                         + r"(\s|$|['\"`;|&)])", code, re.M):
+                deps.add(other)
+        graph[tool] = sorted(deps)
+    return graph
+
+
+def _dependency_summary() -> dict:
+    """Derived headline numbers from the heuristic dependency graph."""
+    g = _tool_dependencies()
+    if not g:
+        return {"tools": 0, "with_deps": 0, "edges": 0, "avg_depth": 0.0}
+    with_deps = sum(1 for d in g.values() if d)
+    edges = sum(len(d) for d in g.values())
+    memo, instack = {}, set()
+    def depth(node):
+        if node in memo:
+            return memo[node]
+        if node in instack:  # cycle guard
+            return 0
+        instack.add(node)
+        d = 0
+        for dep in g.get(node, []):
+            d = max(d, 1 + depth(dep))
+        instack.discard(node)
+        memo[node] = d
+        return d
+    depths = [depth(n) for n in g]
+    avg = round(sum(depths) / len(depths), 2) if depths else 0.0
+    return {"tools": len(g), "with_deps": with_deps, "edges": edges,
+            "avg_depth": avg}
 
 
 def _enforce_done_gate(executed):
@@ -744,8 +904,12 @@ _PROJECT_SET_RE = re.compile(r'remember\s+current-project\s+"?([^"\n]{1,120})')
 
 
 def _window_journal_stats(since_line: int) -> dict:
-    """Project switches, done-gate blocks and spin fires since a journal line."""
-    sets, blocks, fires = [], 0, 0
+    """Project switches, done-gate blocks, spin fires, and own-tool REUSE events
+    since a journal line."""
+    sets, blocks, fires, reuse = [], 0, 0, 0
+    own = _own_tool_names()
+    own_re = (re.compile(r"(^|[\s/])(" + "|".join(re.escape(n) for n in own)
+                         + r")(\s|$)") if own else None)
     try:
         with open(os.path.join(VOLUME_MOUNT, "journal.jsonl"),
                   encoding="utf-8", errors="replace") as f:
@@ -767,6 +931,8 @@ def _window_journal_stats(since_line: int) -> dict:
                         title = mm.group(1).split(":", 1)[0].strip()
                         if title and (not sets or sets[-1] != title):
                             sets.append(title)
+                    if own_re and "tool-new" not in content and own_re.search(content):
+                        reuse += 1
                 elif kind == "error":
                     if "Done-gate blocked" in content:
                         blocks += 1
@@ -776,7 +942,7 @@ def _window_journal_stats(since_line: int) -> dict:
         pass
     distinct = list(dict.fromkeys(sets))
     return {"project_sets": len(sets), "distinct_projects": distinct,
-            "blocks": blocks, "spin_fires": fires}
+            "blocks": blocks, "spin_fires": fires, "tool_reuse": reuse}
 
 
 def _build_digest(snap: dict, now: dict, win: dict, cycles: int) -> str:
@@ -785,27 +951,35 @@ def _build_digest(snap: dict, now: dict, win: dict, cycles: int) -> str:
                                  snap.get("completions", 0)]
     lines = [
         f"- real cycles in window: {cycles}",
-        f"- projects completed in window: {len(new_completed)}"
+        f"- TOOLS completed in window: {len(new_completed)}"
         + (f" ({'; '.join(new_completed)})" if new_completed else ""),
-        f"- total completions ever: {now['completions']}",
+        f"- total tools completed ever: {now['completions']}",
+        f"- OWN-TOOL REUSE events in window (creature running its own prior "
+        f"tools): {win.get('tool_reuse', 0)}",
+        f"- toolkit DEPENDENCY (heuristic): {_dependency_summary().get('with_deps', 0)} "
+        f"of {_dependency_summary().get('tools', 0)} tools build on other tools "
+        f"made by the agent (avg depth {_dependency_summary().get('avg_depth', 0)}) "
+        f"-- this is the strongest sign of compounding capability",
+        f"- tools available in toolkit: {now.get('tools', '?')}",
         f"- project switches in window: {win['project_sets']}",
-        f"- distinct projects touched: {len(win['distinct_projects'])}"
-        + (f" -- {'; '.join(win['distinct_projects'][:15])}"
-           if win['distinct_projects'] else ""),
-        f"- false 'done' attempts blocked by the executive: {win['blocks']}",
+        f"- distinct project TITLES proposed in window: "
+        f"{len(win['distinct_projects'])} (NOTE: proposals set as "
+        f"current-project; many are never built -- judge by COMPLETIONS and "
+        f"REUSE, not by these)",
+        f"- false 'done' attempts blocked: {win['blocks']}",
         f"- spin-trap forced abandonments: {win['spin_fires']}",
-        f"- tools: {snap.get('tools', '?')} -> {now['tools']}",
         f"- durable memories: {snap.get('memories', '?')} -> {now['memories']}",
-        f"- workspace size MB: {snap.get('workspace_mb', '?')} -> {now['workspace_mb']}",
-        "- completed before this window: " + ("; ".join(prev_tail) or "none"),
+        "- tools completed before this window: " + ("; ".join(prev_tail) or "none"),
     ]
     return "\n".join(lines)
 
 
-_RETRO_PROMPT = """You are a periodic external reviewer for an autonomous agent that chooses its own projects in a sandbox. You see only summary statistics for its most recent work window. Judge the TRAJECTORY, not individual choices.
+_RETRO_PROMPT = """You are a periodic external reviewer for an autonomous toolsmith agent. Its mission is to build a COHERENT toolkit of runnable tools that accelerate a fellow LLM -- fetchers, memory archive/recall, planners, subagent helpers -- and, crucially, to USE its own earlier tools when building later ones. You see only summary statistics for its most recent work window. Judge the TRAJECTORY, not individual choices.
 
-What healthy growth looks like: projects get completed; new work builds on or uses earlier work; capabilities accumulate; durable memory grows.
-What being stuck looks like: many project switches with few or no completions; near-duplicate projects under different names (dashboards, reports, indexes, summaries, health checks); repeatedly trying to fix the same broken tools; tool count climbing while completions stay flat.
+Healthy growth: tools get completed and demonstrated; the agent REUSES its own prior tools in later work (reuse events > 0); and -- the strongest sign -- LATER TOOLS ARE BUILT OUT OF EARLIER ONES (dependency depth climbing), so capability compounds rather than accumulating as a flat pile; coverage spreads across tool categories.
+Being stuck: tools completed but never reused (a drawer of dead tools); near-duplicate tools (a second archiver, a third planner) instead of new categories; relapsing into producing reports/dashboards/summaries (output for a human, not tools); many project switches with few completions.
+
+The digest separates COMPLETED tools (real) from PROPOSED titles (often never built). Judge by COMPLETIONS and REUSE. In a STUCK directive, name the behavioural PATTERN to stop and what to do instead -- do NOT name a specific project as "mature" or "to finish", because proposed titles routinely refer to work that does not exist.
 
 WINDOW DIGEST:
 {digest}
@@ -814,7 +988,7 @@ Respond in EXACTLY one of these two forms and nothing else:
 PROGRESSING
 or
 STUCK
-<directive of at most 3 sentences, written as a direct order to the agent: name the repeated pattern it must stop, and say what genuinely different kind of work to do instead>"""
+<directive of at most 3 sentences, a direct order to the agent: name the pattern to stop and the genuinely different kind of tool-work (or the reuse) to do instead>"""
 
 
 def _build_retro_directive_block() -> str:
@@ -939,59 +1113,110 @@ def _build_loop_warning() -> str:
         cmd, n = Counter(recent).most_common(1)[0]
         if n >= 4:
             return ("## Attention\n"
-                    f"You have run `{cmd[:120]}` {n} times recently and the result has "
-                    "not changed. Running it again will not change it. Act on the result "
-                    "you already have — and if your DONE WHEN is met, write "
-                    '`remember current-phase "done"`. Do not run that command again.\n\n')
+                    f"You have run `{cmd[:80]}` (or trivial variants of it) {n} "
+                    "times recently with the same result. You already have this "
+                    "information. Do NOT run this command, or any reworded form "
+                    "of it, again this cycle -- ACT on what you already know. If "
+                    "your tool now demonstrably works, mark the project done.\n\n")
     except Exception:
         return ""
     return ""
 
 
-def _build_active_project_block() -> str:
-    """Inject current-project and current-phase at the top of context."""
+def _build_knowledge_block() -> str:
+    """ALWAYS shown. The creature's toolkit as three NEUTRAL, ground-truth fields
+    per the lifecycle Built -> Adopted -> Depends-on, plus category coverage and
+    the headline DEPENDENCY-DEPTH metric. Unconditional, so it never vanishes when
+    the project clears (the old completed-projects view lived inside the
+    active-project block and disappeared on retro/spin -- exactly when the creature
+    needed it).
+
+    Adoption (reuse count) is presented as INFORMATION, never a scold: a 0 means
+    no load has flowed through that tool yet, which can be perfectly fine. The aim
+    is to prompt the creature's own question -- "I built this; why am I not
+    reaching for it?" -- not to shame an unused tool into being force-used."""
+    parts = []
     try:
-        project   = mem.retrieve(VOLUME_MOUNT, "current-project")
-        phase     = mem.retrieve(VOLUME_MOUNT, "current-phase")
-        completed = (mem.retrieve(VOLUME_MOUNT, "completed-log")
-                     or mem.retrieve(VOLUME_MOUNT, "completed-projects"))
-        # Rows can exist with value "" (e.g. after a spin-trap abandon);
-        # treat empty values as absent so we don't render blank lines.
+        own = _own_tool_names()
+        usage = _load_tool_usage()
+        if own:
+            adopted = [n for n in own if usage.get(n, 0) > 0]
+            idle = [n for n in own if usage.get(n, 0) == 0]
+            parts.append(f"Your toolkit: {len(own)} tools BUILT, "
+                         f"{len(adopted)} ADOPTED (run again in later work), "
+                         f"{len(idle)} not yet used.")
+            top = sorted(adopted, key=lambda n: usage.get(n, 0), reverse=True)[:6]
+            if top:
+                parts.append("Most-adopted: "
+                             + ", ".join(f"{n}({usage.get(n, 0)}x)" for n in top))
+            if idle:
+                shown = ", ".join(idle[:8])
+                more = f" (+{len(idle) - 8} more)" if len(idle) > 8 else ""
+                parts.append("Built but not yet used: " + shown + more
+                             + " -- if one of these fits the job in front of you, "
+                               "reach for it instead of building another.")
+    except Exception:
+        pass
+    # Headline compounding metric: are later tools BUILT OUT OF earlier ones?
+    try:
+        dep = _dependency_summary()
+        if dep.get("tools", 0):
+            parts.append(
+                f"Toolkit compounding (heuristic): {dep['with_deps']} of "
+                f"{dep['tools']} tools appear to build on other tools you made "
+                f"({dep['edges']} dependency links, avg depth {dep['avg_depth']}). "
+                "Tools built out of your earlier tools are how your body actually "
+                "grows -- prefer composing over rebuilding from scratch.")
+    except Exception:
+        pass
+    try:
+        istate = _load_ideation_state() or {}
+        cb = istate.get("categories_built", {})
+        built = [f"{c}({v})" for c, v in cb.items() if v > 0]
+        untried = [c for c in TOOL_CATEGORIES if cb.get(c, 0) == 0]
+        parts.append("Cousin-toolkit coverage (a STARTER map, not the only kinds "
+                     "that exist -- inventing a new category is good): built = "
+                     + (", ".join(built) if built else "none yet")
+                     + " | seed categories still missing = "
+                     + (", ".join(untried) if untried
+                        else "all seeds covered -- deepen one or invent a new kind"))
+    except Exception:
+        pass
+    if not parts:
+        return ""
+    return "## Your toolkit & coverage\n" + "\n".join(parts) + "\n\n"
+
+
+def _build_active_project_block() -> str:
+    """Show the current tool the creature is building, its phase, and how it must
+    demonstrate it is done. Toolkit + coverage are rendered separately by
+    _build_knowledge_block (always on)."""
+    try:
+        project = mem.retrieve(VOLUME_MOUNT, "current-project")
+        phase   = mem.retrieve(VOLUME_MOUNT, "current-phase")
+        dwrec   = mem.retrieve(VOLUME_MOUNT, "current-project-done-when")
         if project and not project["value"].strip():
             project = None
         if phase and not phase["value"].strip():
             phase = None
-        if completed and not completed["value"].strip():
-            completed = None
-        if not project and not phase:
-            return ""
-        lines = ["## Active project"]
-        if project:
-            lines.append(f"Project: {project['value']}")
+        if dwrec and not dwrec["value"].strip():
+            dwrec = None
+        if not project:
+            return ("## No tool in progress\n"
+                    "Choose the next tool to build for your cousin -- pick a gap "
+                    "from the coverage shown above, or improve a tool you already "
+                    "have if it genuinely needs it. Write current-project and "
+                    "current-phase. If you do not choose, a gap will be assigned "
+                    "to you.\n\n")
+        lines = ["## Tool in progress"]
+        lines.append(f"Building: {project['value']}")
         if phase:
             lines.append(f"Phase: {phase['value']}")
             if phase["value"].strip().lower() == "done":
-                lines.append("-> This project is DONE. Start a new one or use what you built.")
-        if completed:
-            entries = [e.strip() for e in completed["value"].split("\n") if e.strip()]
-            summary = _summarize_completed(entries)
-            if summary:
-                lines.append("\n" + summary)
-                lines.append("Do NOT rebuild any of these; improve in place or do something new.")
-            if entries:
-                lines.append("Most recent: " + "; ".join(entries[-6:]))
-        # KIND-coverage map: show every cycle so the creature sees the unexplored space
-        try:
-            istate = _load_ideation_state()
-            kinds_built = istate.get("kinds_built", {})
-            built_parts = [f"{k}({v})" for k, v in kinds_built.items() if v > 0]
-            untried = [k for k in KINDS if kinds_built.get(k, 0) == 0]
-            if KINDS:  # only show when the engine is active
-                lines.append("\nKind coverage (host-tracked, based on genuine completions):")
-                lines.append("  built: " + (", ".join(built_parts) if built_parts else "none yet"))
-                lines.append("  untried: " + (", ".join(untried) if untried else "all tried"))
-        except Exception:
-            pass
+                lines.append("-> DONE. Stop touching it. Pick the next gap (or one "
+                             "is assigned next cycle).")
+        if dwrec:
+            lines.append(f"How to finish: {dwrec['value']}")
         return "\n".join(lines) + "\n\n"
     except Exception:
         return ""
@@ -1020,11 +1245,15 @@ def _build_context(recent_journal: list, tue_message: str = None) -> str:
     if tue_message:
         chat_block = f"\n\nMessage from Tue: {tue_message}\nReply to this in plain text before your bash blocks."
     active_project = _build_active_project_block()
+    knowledge = _build_knowledge_block()
     loop_warning = _build_loop_warning()
     done_block = _build_done_block()
     project_block = _build_project_block()
     retro_directive = _build_retro_directive_block()
-    return done_block + project_block + retro_directive + loop_warning + active_project + protected + "\n\n" + editable + catalogue_block + workspace_block + memory_text + journal_text + chat_block
+    return (done_block + project_block + retro_directive + loop_warning
+            + active_project + knowledge + protected + "\n\n" + editable
+            + catalogue_block + workspace_block + memory_text + journal_text
+            + chat_block)
 
 
 async def run_cycle(keychain: Keychain, dockerfile_dir: str):
@@ -1070,8 +1299,9 @@ async def run_cycle(keychain: Keychain, dockerfile_dir: str):
 
     genuine = _enforce_done_gate(executed)
     if genuine:
-        await _classify_completion_kind(keychain)
-    await _run_ideation(executed, keychain)
+        await _classify_completion_category(keychain)
+    _track_tool_usage(executed)                      # keystone reuse metric
+    await _ensure_or_redirect(executed, keychain)    # creature picks; backstop redirects
     _stamp_gage(cycle_start)
     return True  # substantive: at least one bash block executed
 
