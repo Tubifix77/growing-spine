@@ -2,7 +2,7 @@
 
 A self-improvement creature in a box. Descended from [Spine Reborn](https://github.com/Tubifix77/spine-reborn).
 
-**Status:** Live. First boot 2026-06-03. Re-architected to the *toolsmith* design 2026-06-21 (v0.6). Running on a dedicated Debian laptop, thinking via a free-tier API keychain, never touching the operator's main PC.
+**Status:** Live. First boot 2026-06-03. Re-architected to the *toolsmith* design 2026-06-21 (v0.6). Self-restart capability added 2026-06-21 (v0.7). Running on a dedicated Debian laptop under a systemd supervisor, thinking via a free-tier API keychain, never touching the operator's main PC.
 
 ---
 
@@ -50,11 +50,12 @@ See [`growing-spine-architecture.md`](growing-spine-architecture.md) for how thi
 
 ---
 
-## Current status (2026-06-21, v0.6)
+## Current status (2026-06-21, v0.7)
 
-- **Implementation:** fully operational. Executive loop, self-calibrating free-tier keychain, volume persistence, adaptive wake/sleep, observer GUI, Docker container.
-- **Architecture:** toolsmith design live. Project selection is the creature's own, with a clean-context backstop that redirects relapses into the report/dashboard basin toward concrete tool-gaps. A done-gate verifies completions against ground truth (including a guard against marking "done" on an empty tool scaffold). Per-tool **reuse** and a heuristic **dependency graph** are tracked and shown to the creature each cycle.
-- **Early signal (first night on the new design):** the basin broke — it stopped building dashboards and instead built fetchers, a planner, and an LLM-delegation tool, and *reused them heavily* (dozens of reuse events, a non-zero dependency graph). It also surfaced two real bugs, since fixed (a classifier that mis-filed everything, and a done-gate that accepted empty tool scaffolds). This is a one-night-old result on a still-quota-throttled creature — promising on its core hypothesis, not a finished verdict.
+- **Implementation:** fully operational. Executive loop, self-calibrating free-tier keychain, volume persistence, adaptive wake/sleep, observer GUI, Docker container — and now a **systemd immortal-brain supervisor** that resurrects the executive on any crash or kill.
+- **Architecture:** toolsmith design live (v0.6). Project selection is the creature's own, with a clean-context backstop that redirects relapses into the report/dashboard basin toward concrete tool-gaps. A done-gate verifies completions against ground truth (including a guard against marking "done" on an empty tool scaffold). Per-tool **reuse** and a heuristic **dependency graph** are tracked and shown to the creature each cycle.
+- **Self-restart (v0.7):** the creature can now rewrite and reload its own brain, safely. It runs a `deploy-self` tool that signals the executive to validate and snapshot the current code, then exit for systemd to reload. If a self-restart crash-loops the executive, the brain is automatically rolled back to the last good snapshot and the creature is told what the diff was — so the failure teaches, rather than silently resetting. See the architecture document for the full four-layer design.
+- **Early signal (toolsmith design):** on the first night of v0.6, the basin broke — it stopped building dashboards and instead built fetchers, a planner, and an LLM-delegation tool, and *reused them heavily* (dozens of reuse events, a non-zero dependency graph). It also surfaced two real bugs, since fixed. This is a one-night-old result on a still-quota-throttled creature — promising on its core hypothesis, not a finished verdict.
 - **Providers (self-calibrating, no hardcoded limits):** Gemini 2.5 Flash (daily, resets ~07:00 UTC), Groq llama-3.3-70B (rolling, resets ~00:00 UTC), Cerebras gpt-oss-120B (rolling, ~71s refill). The creature works in bursts when budget returns; long "quota exhausted" stretches are normal, not faults.
 
 ---
@@ -74,7 +75,7 @@ cp config.yaml.example config.yaml
 python3 observer.py
 ```
 
-**Use `./restart.sh`, not `python3 main.py` by hand.** The restart sequence has a footgun (killing a live process and relaunching it without ending at zero or two instances), and hand-launching via a `bash -c` wrapper produces a transient that looks like a double-launch. `restart.sh` encapsulates the safe sequence: stop → verify zero → launch detached (in the one way that survives a closing SSH session) → verify *exactly one* → write the pid → report. `main.py` does **not** fork, so after a clean launch there must be exactly one process; the script aborts loudly if it sees two. Code changes require a restart to load (Python does not hot-reload); prompt/markdown files are re-read every cycle and take effect without a restart.
+**Use `./restart.sh`, not `python3 main.py` by hand.** Since v0.7, `restart.sh` delegates to `systemctl --user restart growing-spine` — this is atomic, avoids the double-launch footgun of hand-crafting the stop/launch sequence, and keeps the systemd supervisor in control. (Before v0.7, the script managed the stop→verify-zero→launch→verify-one sequence itself; that logic is now in the service unit.) `main.py` does **not** fork, so after a clean launch there must be exactly one process. Code changes require a restart to load (Python does not hot-reload); prompt/markdown files are re-read every cycle and take effect without a restart. The creature must be running under systemd for `restart.sh` to work — if starting from scratch, run the one-time install in `deploy/INSTALL-systemd.md` first.
 
 **Observer tabs:** Journal (live activity), Memory (working / intermediate / archive), Container (`/workspace` file browser), Quota (provider cards with discovered limits and measured reset intervals), Chat (send the creature a message; it replies on its next think cycle).
 

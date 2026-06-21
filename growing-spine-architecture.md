@@ -1,6 +1,6 @@
-# Growing Spine — Architecture v0.6 (the toolsmith design)
+# Growing Spine — Architecture v0.7
 
-This document describes the system as it actually runs after the 2026-06-21 re-architecture. It supersedes the v0.4/v0.5 architecture notes, which described the earlier "drive + survival + six layers" design. The substrate (host / container / volume / keychain / savegames / the cycle) is largely unchanged from v0.5; the *cognition* — what the creature is for, how projects are chosen, how completion is judged, and what we measure — is new. Read the README first for the story and the why; this document is the how.
+This document describes the system as it actually runs. It supersedes the v0.4/v0.5 architecture notes, which described the earlier "drive + survival + six layers" design, and was first written as v0.6 to capture the toolsmith re-architecture. v0.7 adds the self-restart capability (systemd supervisor, deploy-self tool, crash-rollback-with-diff learning loop) documented in the new section below. Read the README first for the story and the why; this document is the how.
 
 A standing rule, stated once and assumed everywhere below: **we shape the environment, we never program the creature.** Every mechanism here lives in the executive (the host-side loop) and the prompt. None of it is hard-coded behaviour inside the creature. Build the room, not the worker.
 
@@ -88,6 +88,42 @@ The toolkit view the creature sees each cycle is three neutral, ground-truth fie
 
 ---
 
+## The self-restart capability (what changed in v0.7)
+
+The creature could always grow its **body** (framework tools hot-load into the volume each cycle) but was frozen out of its own **brain** (the executive Python code only loads on start, and nothing restarted it). v0.7 closes this gap: the creature can now propose a change to its own cognition and watch the executive validate, snapshot, reload, and — if the reload crashes — roll back and explain what went wrong.
+
+Four layers, each independently verified:
+
+### 1. systemd immortal-brain supervisor
+`~/.config/systemd/user/growing-spine.service` (on the laptop, user-mode, `Restart=always`, linger enabled, starts automatically at boot). Vendored in the repo at `deploy/growing-spine.service` + `deploy/INSTALL-systemd.md` for reproducibility. Any kill of the executive — crash, operator `kill -9`, or a clean `systemctl stop` followed by `start` — is handled atomically by systemd. `restart.sh` now delegates to `systemctl --user restart growing-spine` rather than managing the stop/verify-zero/launch/verify-one sequence by hand.
+
+**Proven:** `kill -9` on the running executive → systemd resurrects it within seconds.
+
+### 2. Brain snapshots via git
+Three new operations in `volume/savegame.py`: `brain_commit` (reads the current HEAD SHA), `snapshot_brain` (commits the dirty working tree so the SHA faithfully records what is actually running — not just the last clean push), and `restore_brain` (git reset --hard to a given SHA). `brain_diff` produces a `git diff good..bad` (truncated) for inclusion in the rollback message. `save()` records the `brain_commit` SHA in each savegame, so "restore to the last good save" means restoring to the exact code the creature was running when that savegame was written.
+
+### 3. Crash-rollback-with-diff learning loop
+`executive/self_restart.py` + `boot_check` wired into `main.py`. On every startup the executive checks whether it is in a crash loop: if the process has started ≥3 times within 90 seconds, it restores the brain to the last good savegame SHA and enqueues a chat message to the creature explaining what happened: *"you crashed, I restored to save A, the diff that killed you was [diff]."* A good reload (process stays up past the 90-second window) disarms silently.
+
+This is the key design requirement: a rollback that **teaches**, not a silent reset. The creature sees the diff that broke it and can decide what to do differently.
+
+**Proven:** simulated crash-loop path reverted the brain and enqueued the message; good-reload path disarmed without intervention.
+
+### 4. deploy-self tool
+`framework-tools/deploy-self` (canonical in the repo, auto-deployed to `tools/framework/` in the volume each wake, so the creature always has the current version). The creature runs it to signal that it wants the executive to reload — typically after editing `executive/loop.py` or another brain file. The tool writes `/mind/restart_request.flag`; the executive sees it at the end of the current cycle, runs `prepare_and_arm` (compile check + full test suite + brain snapshot, ~180 seconds), and exits cleanly for systemd to reload with the new code. If any validation step fails, the creature is told why and the current working code is left in place.
+
+The prompt section **"## Reloading your own brain"** in `protected-prompt.md` tells the creature what deploy-self does, when to use it, and what to expect.
+
+**Proven:** container→host flag delivery, validation on good and failing code, systemd-triggered reload.
+
+### What the stack looks like now (three levels of supervision)
+- **systemd** (host level) supervises the **executive** (immortal brain).
+- **Executive** (`ensure_body` in loop.py) supervises the **container** (mortal body).
+- **Executive** + **systemd** jointly handle **brain restores**: the executive picks the rollback target and enqueues the message; systemd handles the actual process restart that loads the new code.
+
+Recursion: the creature can modify every part of itself. The containment is structural, not prompt-level.
+
+
 ## Memory
 
 Persistent in `memory.db` on the volume, tiered for context assembly. Two things to know:
@@ -135,7 +171,10 @@ This is the honest ledger — the point of the whole project is the trajectory, 
 - **The clean-context redirect resists relabelling.** Handing the creature a *concrete replacement tool-gap* (not a prohibition) when it relapses works where the old "don't build dashboards" notice failed — it couldn't be relabelled around.
 - **The done-gate catches false and empty completions.** Reverting on a failing check, and on a hollow tool scaffold, stops the creature from "completing" nothing.
 - **Structural containment, not prompt containment.** The container, rate limits, and volume boundary bound the creature regardless of what any prompt says. This has held since the survival framing was removed.
-- **`restart.sh` makes restart deterministic.** Encapsulating the safe stop→verify-zero→launch→verify-one sequence removed a recurring source of self-inflicted outages.
+- **`restart.sh` makes restart deterministic.** Encapsulating the safe stop→verify-zero→launch→verify-one sequence removed a recurring source of self-inflicted outages. Since v0.7, restart.sh delegates to `systemctl --user restart`; the atomicity is the service unit's, not the script's.
+- **systemd immortal-brain supervision works.** `kill -9` the executive → it comes back automatically within seconds. Starting on boot, restarting cleanly after a self-reload: all proven.
+- **Crash-rollback-with-diff is the right model for self-restart.** A silent reset after a bad self-modification teaches nothing. A rollback that delivers the diff that broke the build turns a crash into a learning event — the creature can read what it tried, understand why it failed, and propose a different approach. Both paths (crash-loop rollback + good-reload disarm) are verified.
+- **Validate-before-reload avoids irreversible self-damage.** `prepare_and_arm` (compile + test suite + snapshot) runs before the executive exits for systemd to reload. A failed validation leaves the working code in place and tells the creature what went wrong — it never touches a live process with unvalidated code.
 
 ### What we tried that didn't work (and what we learned)
 
@@ -156,6 +195,7 @@ These are interpretation/integration bugs that compiled fine and passed isolated
 - **Category classifier filed everything as "other."** The classifier took the *first word* of the model's reply, but the free-tier reasoning model emits a reasoning preamble ("We need to classify…") and was cut off before saying the label — so the first word was never a category. This stuck `categories_built` at `{other: N}`, which made the redirect think *every* seed category was untried and assign `information_fetch` forever → a pile of a dozen near-identical fetchers (the dashboard basin reincarnated one level up). *Fix:* richer prompt with category descriptions + "reply with ONLY the name," more tokens, and substring+keyword parsing of the whole reply. Verified live.
 - **Done-gate accepted hollow tool scaffolds.** The creature would `tool-new` a placeholder and immediately mark done; nothing crashed, so the gate passed it. *Fix:* the gate now detects the `tool-new` placeholder markers and blocks the completion until real code exists and runs.
 - **A "bug" that wasn't.** A reported "old KIND categories leaking into prompts" turned out to be a *pre-patch journal line* misread as current behaviour — there was no such text in the code or memory. *Lesson:* verify a bug exists before fixing it; don't fix phantoms.
+- **Testing destructive rollback against the live repo.** During development of `restore_brain`, running a rollback test against the actual working tree briefly reverted all on-disk work to the test commit. Git-recoverable (nothing lost), but alarming. *Lesson:* test rollback and self-restart mechanics against a throwaway commit, not the live development tree.
 - **A "fork" that wasn't.** A transient double-instance at startup looked like `main.py` forking; it was the *launch wrapper* (`setsid bash -c '…main.py'` left a momentary bash whose argv contained "main.py"). `main.py` does not fork. *Lesson:* check the actual process tree before designing around an imagined behaviour.
 
 ---
@@ -184,23 +224,28 @@ These are interpretation/integration bugs that compiled fine and passed isolated
 
 ## File map (where things live)
 
-- `main.py` — entry point (config check, volume init, `run_forever`).
-- `executive/loop.py` — the executive: cycle, context assembly, redirect/oracle, done-gate, classifier, reuse/dependency tracking, retrospective.
+- `main.py` — entry point (config check, volume init, `boot_check` for crash-loop detection, `run_forever`).
+- `executive/loop.py` — the executive: cycle, context assembly, redirect/oracle, done-gate, classifier, reuse/dependency tracking, retrospective, restart-request poll.
+- `executive/self_restart.py` — crash-loop detection, `prepare_and_arm` (compile + test + snapshot), rollback with diff, chat notification.
 - `executive/chat.py` — operator chat queue (`peek_unread`/`mark_read`/`record_reply`).
 - `executive/parser.py`, `executive/sandbox.py`, `executive/runtime.py` — response parsing, container control, wake/sleep.
 - `keychain/` — the free-tier cognition gateway (failover, self-calibration).
-- `volume/` — memory, tools catalogue, savegame, volume init.
-- `protected-prompt.md` — the un-editable mission/cousin/how-it-works prompt, re-injected every cycle.
+- `volume/` — memory, tools catalogue, savegame (now includes `brain_commit`, `snapshot_brain`, `restore_brain`, `brain_diff`), volume init.
+- `protected-prompt.md` — the un-editable mission/cousin/how-it-works prompt, re-injected every cycle. Includes "## Reloading your own brain" section (v0.7).
 - `editable-prompt.md` — the creature's own editable space.
-- `restart.sh` — the canonical safe (re)start.
-- `tests/test_loop_v2.py` — the regression suite (classifier, redirect, done-gate, reuse, dependency, chat).
+- `restart.sh` — the canonical safe (re)start (delegates to `systemctl --user restart growing-spine` since v0.7).
+- `deploy/growing-spine.service` — systemd unit file, vendored for reproducibility.
+- `deploy/INSTALL-systemd.md` — one-time setup instructions for the systemd supervisor.
+- `framework-tools/deploy-self` — the creature's tool for requesting a brain reload.
+- `tests/test_loop_v2.py` — the regression suite (~33 checks; also the gate that `prepare_and_arm` runs before any self-restart).
 - On the volume (`~/growing-spine-mind/`): `memory.db`, `journal.jsonl`, `chat.jsonl`, `tools/own/`, `ideation_state.json`, `tool_usage.json`, `retrospective_state.json`.
 
 ---
 
 ## Document history
 
-- **v0.6 (2026-06-21)** — the toolsmith re-architecture (this document). Project selection decoupled into a clean-context redirect; demonstration-based done with a hollow-tool guard; reuse and dependency metrics; coverage as a starter map. Survival framing already gone; the six-layer drive model superseded.
+- **v0.7 (2026-06-21)** — self-restart capability: systemd immortal-brain supervisor, brain snapshots via git, crash-rollback-with-diff learning loop, deploy-self tool. v0.7 wins and lessons added to the ledger. File map extended. Document retitled to v0.7.
+- **v0.6 (2026-06-21)** — the toolsmith re-architecture. Project selection decoupled into a clean-context redirect; demonstration-based done with a hollow-tool guard; reuse and dependency metrics; coverage as a starter map. Survival framing already gone; the six-layer drive model superseded.
 - **v0.4 / v0.5** — the "drive + don't-get-killed + six layers" design, as-built notes, and the discovery that the survival framing produced paralysis. Preserved in git history.
 
 *Note on the older spec documents in this repo* (`IDEATION-ENGINE-SPEC.md`, `GROWTH-FLYWHEEL-SPEC.md`, `GAGE-MEMORY-SPEC.md`, `HANDOVER-part5.md`, `REARCHITECTURE-PATCH.md`): these are historical build briefs and handovers, kept for provenance. Where they conflict with this document, **this document is current.** The ideation-engine spec in particular describes the Wikipedia-seed/divergent-brainstorm design that v0.6 removed.
