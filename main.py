@@ -24,5 +24,18 @@ def init_volume():
 if __name__ == "__main__":
     check_config()
     init_volume()
+    # v0.7: boot-time self-restart safety net. If a creature-triggered brain
+    # reload crash-looped, roll the brain back to the last good save and tell
+    # the creature what change killed it -- then exit so systemd restarts into
+    # the reverted (working) code.
+    try:
+        from executive.loop import VOLUME_MOUNT
+        from volume import savegame as _sg
+        from executive import chat as _chat, self_restart as _sr
+        if _sr.boot_check(VOLUME_MOUNT, _sg, _chat):
+            print("[main] self-restart rollback performed; exiting for systemd to relaunch reverted code.")
+            sys.exit(0)
+    except Exception as _e:
+        print(f"[main] boot_check skipped: {_e}")
     from executive.loop import run_forever
     asyncio.run(run_forever(dockerfile_dir=REPO_ROOT))

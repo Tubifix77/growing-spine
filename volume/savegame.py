@@ -41,6 +41,7 @@ def save(volume_mount: str, savegame_root: str, container_name: str,
     tag = _tag(label)
     body_image = commit_body(container_name, tag)
     mind_path = snapshot_mind(volume_mount, savegame_root, tag)
+    _brain = snapshot_brain(label)
     meta = {
         "tag": tag,
         "ts": time.time(),
@@ -48,6 +49,7 @@ def save(volume_mount: str, savegame_root: str, container_name: str,
         "milestone": milestone,
         "body_image": body_image,
         "mind_path": mind_path,
+        "brain_commit": _brain.get("commit"),
     }
     # write metadata
     meta_path = os.path.join(savegame_root, f"meta-{tag}.json")
@@ -172,3 +174,78 @@ def restore_mind(savegame_root: str, volume_mount: str, tag: str = None) -> bool
     shutil.copytree(mind_path, volume_mount)
     print(f"[savegame] mind restored from {target['tag']} (backup at {backup})")
     return True
+
+
+# ---------------------------------------------------------------------------
+# v0.7 -- BRAIN snapshots (the executive source code), via git.
+# The body (container) and mind (volume) are snapshotted above. The BRAIN --
+# loop.py and the rest of the executive on the host -- is tracked by git, so a
+# "save" also records the repo's current commit SHA. Restoring the brain is a
+# git reset to that SHA; the diff the creature is shown after a bad self-restart
+# is `git diff <good> <crashed>`. Git is the right tool: it already tracks
+# exactly the files that matter and produces diffs for free.
+# ---------------------------------------------------------------------------
+import subprocess as _sp
+
+def _repo_root() -> str:
+    # savegame.py lives in <repo>/volume/, so repo root is one up.
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+def _git(args: list, check: bool = False) -> tuple:
+    """Run git in the repo. Returns (rc, stdout, stderr)."""
+    try:
+        r = _sp.run(["git", "-C", _repo_root()] + args,
+                    capture_output=True, text=True, timeout=30)
+        return r.returncode, r.stdout.strip(), r.stderr.strip()
+    except Exception as e:
+        return 1, "", str(e)
+
+def brain_commit() -> str | None:
+    """Current executive commit SHA, or None if not a git repo."""
+    rc, out, _ = _git(["rev-parse", "HEAD"])
+    return out if rc == 0 and out else None
+
+def snapshot_brain(label: str = "") -> dict:
+    """Capture the brain state. If the working tree has uncommitted changes
+    (e.g. the creature just edited loop.py), commit them first so the SHA is a
+    faithful, restorable snapshot. Returns {commit, dirty_committed}."""
+    rc, status, _ = _git(["status", "--porcelain"])
+    dirty = bool(status)
+    committed = False
+    if dirty:
+        _git(["add", "-A"])
+        msg = "savegame brain snapshot" + (f" ({label})" if label else "")
+        rc, _, err = _git(["commit", "-m", msg, "--no-verify"])
+        committed = (rc == 0)
+    return {"commit": brain_commit(), "dirty_committed": committed}
+
+def restore_brain(commit: str) -> bool:
+    """Hard-reset the executive source to a known-good commit. The caller
+    (boot-time rollback) restarts the process afterward so the reverted code
+    actually loads."""
+    if not commit:
+        return False
+    # stash anything uncommitted so reset can't be blocked, then hard reset
+    _git(["add", "-A"])
+    _git(["stash", "push", "-m", "pre-restore-brain", "--include-untracked"])
+    rc, _, err = _git(["reset", "--hard", commit])
+    if rc != 0:
+        print(f"[savegame] restore_brain failed: {err}")
+        return False
+    print(f"[savegame] brain restored to {commit[:10]}")
+    return True
+
+def brain_diff(good_commit: str, bad_commit: str = "HEAD") -> str:
+    """The diff between a known-good brain and the (crashing) one -- this is what
+    the creature is shown so it can learn what its self-edit changed. Truncated
+    to keep it readable in context."""
+    if not good_commit:
+        return "(no good commit recorded; cannot diff)"
+    rc, out, err = _git(["diff", "--stat", good_commit, bad_commit])
+    rc2, full, _ = _git(["diff", good_commit, bad_commit])
+    if rc != 0 and rc2 != 0:
+        return f"(could not compute diff: {err})"
+    diff = (out + "\n\n" + full).strip()
+    if len(diff) > 6000:
+        diff = diff[:6000] + "\n... [diff truncated]"
+    return diff or "(no differences)"

@@ -2,3 +2,7 @@ config.yaml
 keychain/quota_state.json
 __pycache__/
 *.pyc
+creature.pid
+observer.pid
+*.bak
+growing-spine.log

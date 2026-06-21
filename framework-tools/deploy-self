@@ -1,0 +1,36 @@
+#!/usr/bin/env python3
+"""Reload your own brain (the executive) so changes you made to your own code go live.
+
+Your tools in /mind/tools/own already work the moment you create them. But your
+CORE code -- the executive loop that decides how you think, plan, and judge your
+own work -- only takes effect after a restart. This tool requests that restart.
+
+Usage:
+    deploy-self "<why you are reloading>"
+
+What happens when you call it:
+  1. Your executive finishes its current cycle, then VALIDATES your code
+     (it must compile and pass the test suite).
+  2. If validation FAILS: nothing restarts, you stay on your working code, and
+     you get a message explaining what was wrong. Nothing is lost.
+  3. If validation PASSES: a known-good savegame is taken, then your brain
+     reloads with your new code.
+  4. If your new code crash-loops on startup, you are automatically rolled back
+     to the known-good save and told exactly which change broke you (a diff),
+     so you can learn from it.
+
+Safe to use: the worst case is a rollback and a lesson. Make focused changes.
+"""
+import sys, time
+
+FLAG = "/mind/restart_request.flag"
+reason = sys.argv[1] if len(sys.argv) > 1 else "self-requested brain reload"
+
+with open(FLAG, "w", encoding="utf-8") as f:
+    f.write(f"{time.time()}\t{reason}")
+
+print("Brain reload REQUESTED:", reason)
+print("Your executive will validate your code at the end of this cycle, then "
+      "either reload (if it passes) or tell you what was wrong (if it fails). "
+      "If the reloaded brain crash-loops, you are rolled back automatically and "
+      "shown the diff that broke you. Nothing is lost either way.")

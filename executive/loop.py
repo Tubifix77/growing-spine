@@ -11,6 +11,7 @@ from volume import memory as mem
 from volume import savegame
 from volume import tools as toolmod
 from executive import chat as chatmod
+from executive import self_restart as _selfrestart
 
 VOLUME_MOUNT = os.path.expanduser("~/growing-spine-mind")
 EDITABLE_PROMPT_PATH = os.path.join(VOLUME_MOUNT, "editable-prompt.md")
@@ -1444,6 +1445,25 @@ async def run_forever(dockerfile_dir: str = "."):
                 await _maybe_retrospective(keychain, advance=bool(did_exec))
             except Exception as _re:
                 print(f"[retro] unexpected failure: {type(_re).__name__}: {_re}")
+
+            # v0.7: honor a creature-requested brain reload at a safe point.
+            if _selfrestart.has_request(VOLUME_MOUNT):
+                _selfrestart.clear_request(VOLUME_MOUNT)
+                ok, why = _selfrestart.prepare_and_arm(
+                    VOLUME_MOUNT, SAVEGAME_ROOT, sandbox.CONTAINER_NAME, savegame)
+                if ok:
+                    journal.append(VOLUME_MOUNT, "self_restart",
+                                   "Brain reload validated + snapshotted; restarting via systemd.")
+                    print("[executive] self-restart: validated; exiting for systemd to reload brain.")
+                    import sys as _sys
+                    _sys.exit(0)
+                else:
+                    journal.append(VOLUME_MOUNT, "self_restart_blocked", why)
+                    chatmod.enqueue(VOLUME_MOUNT,
+                        "## Your requested brain reload was blocked (you are still on your "
+                        "working code, nothing lost).\n\n" + why)
+                    print("[executive] self-restart BLOCKED (staying on current code): " + why[:120])
+
             await asyncio.sleep(10)  # breathe between cycles (anti-ban; was 30s)
 
         except RuntimeError as e:

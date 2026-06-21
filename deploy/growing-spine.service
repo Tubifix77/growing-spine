@@ -1,0 +1,23 @@
+[Unit]
+Description=Growing Spine creature (executive loop)
+# Don't fight the user manager; just keep the brain alive.
+After=docker.service
+Wants=docker.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h/growing-spine
+ExecStart=/usr/bin/python3 -u %h/growing-spine/main.py
+# THE IMMORTAL-BRAIN LAYER: if the executive dies, bring it back.
+Restart=always
+RestartSec=3
+# Don't give up after N fast restarts -- but DO leave a trail. A genuine
+# crash-loop (e.g. a bad self-edit) is caught by the boot-time rollback check
+# inside main.py (Layer 3), not by systemd giving up.
+StartLimitIntervalSec=0
+# Log to its own file AND the journal, so existing tooling keeps working.
+StandardOutput=append:%h/growing-spine.log
+StandardError=append:%h/growing-spine.log
+
+[Install]
+WantedBy=default.target

@@ -1,64 +1,41 @@
 #!/usr/bin/env bash
-# restart.sh -- the canonical, safe way to (re)start the Growing Spine creature.
+# restart.sh -- canonical (re)start of the Growing Spine creature.
 #
-# WHY THIS EXISTS: restarting by hand repeatedly went wrong this way --
-#   * launching via `setsid bash -c 'exec python3 ... main.py'` leaves a
-#     transient bash whose argv CONTAINS "main.py", so pgrep briefly counts two;
-#   * detached launches died when bundled into a multi-command SSH call;
-#   * checking the instance count too fast caught that transient as a "race".
-# main.py does NOT fork (verified: single asyncio process, no subprocess/
-# multiprocessing/threads-as-procs), so after a clean launch there must be
-# EXACTLY ONE matching process. This script enforces that and aborts loudly
-# otherwise. Run it instead of invoking python3 main.py by hand.
+# As of v0.7 the executive (brain) is supervised by a systemd USER service
+# (~/.config/systemd/user/growing-spine.service, Restart=always). systemd is the
+# immortal-brain layer: if main.py dies it is auto-restarted; it also starts on
+# boot (linger enabled). So a "restart" is just asking systemd to restart it --
+# which is atomic and cannot leave a double-brain or an orphan.
 #
-# Usage:  cd ~/growing-spine && ./restart.sh
+# Do NOT launch `python3 main.py` by hand anymore; that creates an unsupervised
+# process alongside the systemd one. Use this script (or `systemctl --user
+# restart growing-spine`).
+#
+# Usage:  ./restart.sh
 
 set -u
-REPO="$HOME/growing-spine"
-LOG="$HOME/growing-spine.log"
-PIDFILE="$REPO/creature.pid"
-# match the running interpreter line, but NOT this script and NOT the grep
-PAT='python3 -u main\.py'
+SVC="growing-spine.service"
 
-count() { pgrep -f "$PAT" | grep -v "restart.sh" | wc -l | tr -d ' '; }
-
-echo "[restart] stopping any running instance..."
-pkill -9 -f "$PAT" 2>/dev/null
-# wait up to ~6s for it to reach zero
-for i in $(seq 1 12); do
-  [ "$(count)" = "0" ] && break
-  sleep 0.5
-done
-if [ "$(count)" != "0" ]; then
-  echo "[restart] ABORT: could not stop existing instance(s): $(pgrep -f "$PAT" | tr '\n' ' ')"
-  exit 1
-fi
-echo "[restart] stopped. launching detached..."
-
-# Launch WITHOUT a bash -c wrapper (so no transient false-match), fully detached,
-# stdin/out/err severed from this shell so it survives the session closing.
-cd "$REPO" || { echo "[restart] ABORT: no repo at $REPO"; exit 1; }
-setsid python3 -u main.py >> "$LOG" 2>&1 < /dev/null &
-disown 2>/dev/null || true
-
-# settle, then verify EXACTLY ONE (no fork, so this is deterministic)
-sleep 4
-n="$(count)"
-if [ "$n" = "1" ]; then
-  pid="$(pgrep -f "$PAT" | grep -v restart.sh | head -1)"
-  echo "$pid" > "$PIDFILE"
-  echo "[restart] RESTART OK (pid $pid)"
-  echo "[restart] recent log:"
-  tail -3 "$LOG" | sed 's/^/    /'
-  exit 0
-elif [ "$n" = "0" ]; then
-  echo "[restart] ABORT: process did not start. last log:"
-  tail -8 "$LOG" | sed 's/^/    /'
+if systemctl --user list-unit-files "$SVC" >/dev/null 2>&1 && \
+   systemctl --user cat "$SVC" >/dev/null 2>&1; then
+  echo "[restart] restarting via systemd user service..."
+  systemctl --user restart "$SVC"
+  sleep 4
+  state="$(systemctl --user is-active "$SVC")"
+  pid="$(systemctl --user show "$SVC" -p MainPID --value)"
+  if [ "$state" = "active" ] && [ -n "$pid" ] && [ "$pid" != "0" ]; then
+    echo "$pid" > "$HOME/growing-spine/creature.pid"
+    echo "[restart] RESTART OK (pid $pid, systemd-supervised)"
+    tail -3 "$HOME/growing-spine.log" 2>/dev/null | sed 's/^/    /'
+    exit 0
+  fi
+  echo "[restart] ABORT: service not active after restart (state=$state). status:"
+  systemctl --user status "$SVC" --no-pager 2>&1 | head -12
   exit 1
 else
-  echo "[restart] ABORT: $n instances after launch (expected 1) -- a real double-launch:"
-  pgrep -f "$PAT" | grep -v restart.sh | tr '\n' ' '
-  echo; echo "[restart] killing all and bailing so you can investigate."
-  pkill -9 -f "$PAT" 2>/dev/null
+  echo "[restart] systemd service not installed; cannot supervise."
+  echo "[restart] install it with:"
+  echo "    systemctl --user enable --now growing-spine.service"
+  echo "[restart] (unit lives at ~/.config/systemd/user/growing-spine.service)"
   exit 1
 fi
