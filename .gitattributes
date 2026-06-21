@@ -1,2 +1,3 @@
 # Framework tool scripts run via shebang on Linux; CRLF breaks the interpreter line.
 framework-tools/* text eol=lf
+restart.sh text eol=lf
