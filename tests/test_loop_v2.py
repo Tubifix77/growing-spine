@@ -35,7 +35,7 @@ class FakeKC:
             return ('{"title":"keyword archive store","brief":"Stores notes under '
                     'keywords durably.","demonstration":"Archive two notes and show '
                     'the file.","category":"memory_archive"}')
-        if "Which category" in prompt:
+        if "Classify a tool" in prompt or "Which category" in prompt:
             return "memory_archive"
         return "PROGRESSING"
 
@@ -178,6 +178,40 @@ async def main():
     check("B12 message read after mark_read", chatmod.peek_unread(TMP) is None)
     check("B12 re-marking an already-read message returns False",
           chatmod.mark_read(TMP, _ts) is False)
+
+    # BUG A: robust category parsing -- chatty/preamble replies must still map.
+    check("A parse: clean label", loop._parse_category("information_fetch") == "information_fetch")
+    check("A parse: preamble then label",
+          loop._parse_category("We need to classify. Answer: planning") == "planning")
+    check("A parse: spaces instead of underscores",
+          loop._parse_category("memory recall") == "memory_recall")
+    check("A parse: keyword backstop (delegate->subagent)",
+          loop._parse_category("a tool that delegates to another model") == "subagent_orchestration")
+    check("A parse: fetch keyword -> information_fetch",
+          loop._parse_category("downloads json from a url") == "information_fetch")
+    check("A parse: genuinely unknown -> other",
+          loop._parse_category("a banana peeler") == "other")
+
+    # BUG B: done-gate must block marking done on a hollow tool-new placeholder.
+    owndir = os.path.join(TMP, "tools", "own")
+    # a hollow placeholder tool, freshly created this cycle
+    with open(os.path.join(owndir, "hollow_tool"), "w") as f:
+        f.write("#!/usr/bin/env python3\n# does: DESCRIBE WHAT THIS TOOL DOES - edit this line\n# Replace this whole file with real executable code\n")
+    holl = loop._hollow_tools_touched([("tool-new hollow_tool", 0)])
+    check("B detects a hollow placeholder tool", "hollow_tool" in holl)
+    # a real tool created this cycle must NOT be flagged
+    with open(os.path.join(owndir, "real_tool"), "w") as f:
+        f.write("#!/usr/bin/env python3\nimport sys, json\nprint(json.dumps({'ok': True}))\nx = sum(range(10))\n")
+    holl2 = loop._hollow_tools_touched([("tool-new real_tool", 0)])
+    check("B does NOT flag a real tool", "real_tool" not in holl2)
+    # full gate: mark done + a hollow tool-new this cycle -> blocked (returns False)
+    import volume.memory as _m
+    _m.store(TMP, "current-project", "hollow_tool: a json fetcher")
+    _m.store(TMP, "current-phase", "done")
+    gate = loop._enforce_done_gate([("tool-new hollow_tool", 0), ('remember current-phase "done"', 0)])
+    check("B gate blocks done on a hollow tool (returns False)", gate is False)
+    ph = _m.retrieve(TMP, "current-phase")
+    check("B gate reverts phase to code", bool(ph) and ph["value"].strip() == "code")
 
     print()
     if fails:

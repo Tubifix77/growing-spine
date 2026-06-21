@@ -331,20 +331,61 @@ def _save_ideation_state(state: dict):
 
 
 _CLASSIFY_CATEGORY_PROMPT = (
-    "An autonomous agent builds tools to accelerate a fellow LLM. Which category "
-    "does this tool fall in? Answer with exactly ONE of: {cats}, or 'other'.\n\n"
-    "Tool: \"{title}\"\n\nAnswer:"
+    "Classify a tool an AI agent built for another AI agent into ONE category.\n"
+    "Categories:\n"
+    "- information_fetch: fetches data from the web/APIs/sources (downloaders, "
+    "scrapers, JSON/HTTP getters, news or wake-catchup fetchers)\n"
+    "- memory_archive: stores or saves knowledge durably so it can be found later\n"
+    "- memory_recall: searches, retrieves, ranks, or summarises stored knowledge\n"
+    "- planning: turns goals into ordered steps, schedules, or task tracking\n"
+    "- subagent_orchestration: calls or coordinates other LLMs to offload subtasks\n"
+    "- other: none of the above\n\n"
+    "Tool: \"{title}\"\n\n"
+    "Reply with ONLY the category name, nothing else."
 )
+
+# keyword backstop for when the model still does not emit a clean label
+_CATEGORY_KEYWORDS = {
+    "information_fetch": ("fetch", "download", "scrap", "http", "url", "json",
+                          "news", "catchup", "rss", "api_get", "retrieve_web"),
+    "memory_archive": ("archive", "store", "save", "persist", "record_note"),
+    "memory_recall": ("recall", "search", "lookup", "summary", "summarise",
+                      "summarize", "retriev", "index_query"),
+    "planning": ("plan", "schedule", "task", "step", "todo", "roadmap"),
+    "subagent_orchestration": ("subagent", "delegate", "orchestrat", "llm",
+                               "agent", "offload"),
+}
+
+
+def _normcat(s: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", (s or "").lower()).strip("_")
+
+
+def _parse_category(reply: str) -> str:
+    """Robustly extract a category from a (possibly chatty) model reply.
+    1) any exact category token present anywhere (separator-normalized);
+    2) keyword backstop; 3) 'other'."""
+    n = _normcat(reply)
+    if not n:
+        return "other"
+    for c in TOOL_CATEGORIES:
+        if c in n:
+            return c
+    for c, kws in _CATEGORY_KEYWORDS.items():
+        if any(k in n for k in kws):
+            return c
+    return "other"
 
 
 async def _classify_category_cheap(title: str, keychain) -> str:
-    """One-word category classification. Fail-open -> 'other'."""
+    """Category classification for a built tool. Reasoning-model friendly: a
+    richer prompt, enough tokens to actually answer, and robust parsing (the old
+    version took result.split()[0] and so classified EVERYTHING as 'other' because
+    the model emitted a reasoning preamble first). Fail-open -> 'other'."""
     try:
-        prompt = _CLASSIFY_CATEGORY_PROMPT.format(
-            cats=", ".join(TOOL_CATEGORIES), title=title[:200])
-        result = (await keychain.complete(prompt, max_tokens=20) or "").strip()
-        word = result.split()[0].lower().strip(".,") if result.split() else "other"
-        return word if word in TOOL_CATEGORIES else "other"
+        prompt = _CLASSIFY_CATEGORY_PROMPT.format(title=title[:200])
+        result = (await keychain.complete(prompt, max_tokens=120) or "").strip()
+        return _parse_category(result)
     except Exception:
         return "other"
 
@@ -739,6 +780,50 @@ def _dependency_summary() -> dict:
             "avg_depth": avg}
 
 
+# Markers left by tool-new in a freshly-scaffolded, not-yet-written tool.
+_TOOL_PLACEHOLDER_MARKERS = (
+    "DESCRIBE WHAT THIS TOOL DOES",
+    "Replace this whole file with real executable code",
+    "A file with no real code fails",
+)
+
+
+def _hollow_tools_touched(executed) -> list:
+    """Return names of own-tools that were CREATED via tool-new this cycle but are
+    still empty placeholders (the tool-new scaffold, never filled in). Marking a
+    project 'done' while its tool is a hollow shell is an empty completion -- the
+    done-gate treats this like a failing check. Detection is by the placeholder
+    markers tool-new leaves behind."""
+    try:
+        # which tools did the creature create/edit this cycle?
+        touched = set()
+        for (cmd, _code) in executed:
+            for mm in re.finditer(r"\btool-new\s+([A-Za-z0-9_.\-]+)", cmd):
+                touched.add(mm.group(1))
+        if not touched:
+            return []
+        base = os.path.join(VOLUME_MOUNT, "tools", "own")
+        hollow = []
+        for name in touched:
+            p = os.path.join(base, name)
+            try:
+                with open(p, encoding="utf-8", errors="replace") as f:
+                    body = f.read()
+            except Exception:
+                continue  # if we cannot read it, do not block on it
+            if any(mk in body for mk in _TOOL_PLACEHOLDER_MARKERS):
+                hollow.append(name)
+            else:
+                # also catch "no real code": <2 non-comment, non-blank lines
+                code_lines = [ln for ln in body.splitlines()
+                              if ln.strip() and not ln.strip().startswith("#")]
+                if len(code_lines) < 2:
+                    hollow.append(name)
+        return hollow
+    except Exception:
+        return []
+
+
 def _enforce_done_gate(executed):
     """Verify a 'done' assertion against ground truth.
 
@@ -763,6 +848,26 @@ def _enforce_done_gate(executed):
         failures = [(c, code) for (c, code) in executed
                     if code != 0 and not c.strip().startswith("remember ")
                     and not DONE_MARK_RE.search(c)]
+        # Guard: a 'done' on a tool that is still an empty tool-new placeholder
+        # is an empty completion. Treat it like a failing check -- revert and tell
+        # the creature to actually write the tool before marking done.
+        hollow = _hollow_tools_touched(executed)
+        if hollow and not failures:
+            mem.store(VOLUME_MOUNT, "current-phase", "code")
+            names = ", ".join(hollow)
+            reason = (f"You marked this project done, but the tool(s) you created "
+                      f"this cycle ({names}) are still empty placeholders from "
+                      f"tool-new -- they contain no real code. A tool that does "
+                      f"nothing is not a completion. Phase reverted to code. Open "
+                      f"the file, replace the placeholder with real working code, "
+                      f"RUN it on a real input to prove it works, and only then "
+                      f"mark done.")
+            with open(DONE_BLOCK_PATH, "w", encoding="utf-8") as f:
+                f.write(reason)
+            journal.append(VOLUME_MOUNT, "error",
+                           "Done-gate blocked an empty (placeholder) completion: " + reason)
+            return False
+
         if not failures:
             _record_completion()  # genuine completion: log it durably
             return True  # signal to caller: classify this completion's kind
