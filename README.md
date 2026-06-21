@@ -82,7 +82,7 @@ python3 observer.py
 
 ## Development & deployment flow (load-bearing)
 
-The creature *runs* on the Debian laptop; the repo is *authored* on a Windows PC (`D:\Projects\growing-spine`). The laptop is **pull-only** — it has no GitHub push credentials. So the flow is always:
+The creature *runs* on the Debian laptop; the repo is *authored* on a Windows PC (`D:\Projects\growing-spine`). Both machines are full git peers (both can push and pull); GitHub is the hub. The usual flow is:
 
 ```
 edit on Windows PC  →  commit + push to GitHub  →  laptop: git pull  →  ./restart.sh

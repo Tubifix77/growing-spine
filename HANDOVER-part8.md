@@ -18,7 +18,7 @@ Growing Spine is a self-improvement "toolsmith" creature: an LLM in a Docker con
 - **Container** = the creature's mortal body (`growing-spine-body`); `/workspace` is its workshop. Dies and respawns; mind persists.
 - **Volume** = `~/growing-spine-mind` (mounted at `/mind` in the container): memory.db, journal.jsonl, chat.jsonl, `tools/own/`, and v0.7 state files.
 - **Keychain** = free-tier rotation (Gemini 2.5 Flash daily, Groq llama-3.3-70B, Cerebras gpt-oss-120B). Quota exhaustion is NORMAL; the creature works in bursts.
-- **Repo**: authored on PC `D:\Projects\growing-spine` (has GitHub push creds); runs on laptop `~/growing-spine` (PULL-ONLY). GitHub: https://github.com/Tubifix77/growing-spine
+- **Repo**: PC `D:\Projects\growing-spine` and laptop `~/growing-spine` are BOTH full git peers (both push & pull; both use the same stored HTTPS token). GitHub: https://github.com/Tubifix77/growing-spine. (The old "laptop is pull-only" note was wrong and is fixed.)
 - **Deploy flow**: edit on PC -> commit + push -> laptop `git pull` -> `./restart.sh`. Code changes need a restart; prompt/markdown (`protected-prompt.md`, `editable-prompt.md`) are re-read each cycle, no restart.
 
 Method discipline (load-bearing): **shape the environment, never program the creature.** Every mechanism is executive-side. Build the room, not the worker. Sharpest debugging tool = LLM-simulation (roleplay the model reading its context).
