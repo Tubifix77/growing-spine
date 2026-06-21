@@ -3,7 +3,7 @@ import os, shutil, time, subprocess, json
 
 SAVEGAME_DIR = None  # set by init; host-side dir outside volume
 
-MAX_SAVEGAMES = 7  # keep last N plus milestone saves
+MAX_SAVEGAMES = 1  # keep only the latest save; rollback only ever uses saves[0]
 
 def _savegame_dir(host_savegame_root: str) -> str:
     os.makedirs(host_savegame_root, exist_ok=True)
@@ -62,7 +62,7 @@ def save(volume_mount: str, savegame_root: str, container_name: str,
         print(f"[savegame] reaped {len(rep['orphans_removed'])} orphan image(s): {rep['orphans_removed']}")
     return meta
 
-SAVE_IMAGE_KEEP = 3  # untracked/orphan growing-spine-save images to retain as a margin
+SAVE_IMAGE_KEEP = 0  # orphan images (no matching meta) are garbage — remove all of them
 
 
 def _container_image_refs() -> set:
@@ -80,10 +80,11 @@ def prune_save_images(savegame_root: str = None, keep: int = SAVE_IMAGE_KEEP) ->
     and accumulate forever (this filled the disk on 2026-06-17). This grounds
     cleanup in docker's ACTUAL state instead: delete `growing-spine-save:*`
     images that are (a) NOT referenced by any current meta file and (b) NOT used
-    by a container, keeping the newest `keep` orphans as a safety margin. Then
-    prune dangling images and build cache. Best-effort: never raises, logs only.
-    Runs docker WITHOUT sudo -- same as commit_body, which the creature's own
-    process already does successfully."""
+    by a container (keep=0 by default — orphans are garbage). Then prune
+    dangling images, build cache, and unused Docker volumes (volumes with no
+    container attachment are safe to remove; the mind volume and active container
+    volumes are never touched by docker volume prune). Best-effort: never raises,
+    logs only. Runs docker WITHOUT sudo -- same as commit_body."""
     summary = {"orphans_removed": [], "errors": []}
     try:
         tracked = set()
@@ -112,6 +113,10 @@ def prune_save_images(savegame_root: str = None, keep: int = SAVE_IMAGE_KEEP) ->
                 summary["errors"].append(f"rmi {im['ref']}: {rm.stderr.strip()[:80]}")
         subprocess.run(["docker", "image", "prune", "-f"], capture_output=True)
         subprocess.run(["docker", "builder", "prune", "-f"], capture_output=True)
+        # Prune Docker volumes not attached to any container.  Safe: docker only
+        # removes volumes with no live container reference, so the mind volume
+        # and any active container volumes are never touched.
+        subprocess.run(["docker", "volume", "prune", "-f"], capture_output=True)
     except Exception as e:
         summary["errors"].append(f"{type(e).__name__}: {e}")
     return summary
