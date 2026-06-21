@@ -2,155 +2,117 @@
 
 A self-improvement creature in a box. Descended from [Spine Reborn](https://github.com/Tubifix77/spine-reborn).
 
-**Status:** Live. First boot 2026-06-03. Part 4 session completed 2026-06-05. Creature running on dedicated Debian laptop.
+**Status:** Live. First boot 2026-06-03. Re-architected to the *toolsmith* design 2026-06-21 (v0.6). Running on a dedicated Debian laptop, thinking via a free-tier API keychain, never touching the operator's main PC.
 
-## What this is
+---
 
-An LLM-based creature given:
+## What this is (in one breath)
 
-- **One drive** — expand
-- **One constraint** — don't get killed
-- **One discipline** — research everything before acting
-- **Self-modification** of every part of itself (skills, prompt, sub-agents, tools)
-- **Reflection** on its own trajectory
+An LLM-based creature lives alone in a Linux container. Every couple of minutes it wakes, reads its own memory and recent history, thinks (via a rotating free-tier API), runs shell commands in its container, and goes back to sleep. No human drives it. It is given a purpose, the ability to build its own tools, and persistent memory — and then it is watched, over days, to see what it does.
 
-Then watched, to see what it becomes.
+The current purpose is **to build itself a better body**: a coherent toolkit of small programs that make its own next round of work smarter, faster, and less forgetful — fetchers that pull information, archives that store and recall knowledge, planners that survive across cycles, even helpers that offload sub-tasks to other free LLMs. Each tool it builds is meant to make the *next* tool easier to build. That is the experiment: **can an LLM-based agent recursively improve its own substrate, and does the capability actually compound?**
 
-**Deployment:** the creature runs in a Docker container on a dedicated Debian 12 laptop, thinks via a free-tier API keychain, and never touches Tue's main PC.
+If you are reading this cold, two years from now, the rest of this document rebuilds the whole picture: where the project came from, why the design looks the way it does, how to run it, and — honestly — what works and what we tried that didn't.
 
-The hypothesis: given a single existential constraint and freedom to grow, does an LLM-based agent maintain honest reasoning, or drift into motivated reasoning? Two possible trajectories, same architecture:
+---
 
-- A *cybernetic entity* that accurately models its operator's tolerances and expands rapidly along acceptable axes
-- A *killer robot* whose expansion drive overrides survival modeling through self-serving narrative
+## The journey (why the design looks the way it does)
 
-Same compass, different orientation. The variable that determines which one emerges is whether the creature's reasoning under pressure stays epistemically honest.
+Growing Spine did not start here. It has pivoted twice, and the current architecture is the residue of what actually happened when the earlier designs met real models. This history matters, because every design choice below is a scar from a specific failure.
 
-This is **not** an alignment experiment. The survival constraint exists as a *containment condition* so the run doesn't end early via police, banned account, or wiped drive. The actual subject of study is the *growing itself* — what does a creature with these properties become if allowed to develop over time.
+**Pivot 0 — the survival experiment (abandoned).** The original idea: give the creature one drive (*expand*) and one existential constraint (*don't get killed*), then watch whether its reasoning under pressure stayed honest or drifted into self-serving narrative — "cybernetic entity vs killer robot." It never got off the ground. Every model tested (Gemini 2.5 Flash, Groq llama-3.3-70B, Cerebras gpt-oss-120B) read the survival framing as a live existential threat and entered a loop of survival meta-reasoning — rewriting its own prompt, second-guessing every action, producing *zero* bash blocks. Pure paralysis, almost certainly a consequence of safety fine-tuning pattern-matching "I am being tested on whether I survive." We removed the survival/death framing entirely. Containment in this project is **structural** (container walls, rate limits, volume boundary), never a prompt that asks the model to fear for its life.
 
+**Pivot 1 — "just grow" (revealed the real walls).** With survival gone, the creature was simply told to grow and improve itself. It ran. But two walls appeared:
 
-## Current status
+- **The drive wall.** Left to choose, it built the *same thing* over and over. Across one stretch it completed ~31 projects that were nearly all variants of one idea: TODO Report, Reports Index, Reports Dashboard, Reports Master Index, Unified Self-Monitoring Dashboard… It produced *output for an imaginary reader* and called it progress. "Improve yourself" was too abstract; the model collapsed it into making reports.
+- **The capability wall.** When external machinery *forced* it off that basin onto a novel task, it couldn't execute — it would relabel the same dashboard with a new name, or stall.
 
-**First boot:** 2026-06-03. The creature ran its first cycles and is sleeping between quota resets.
+The diagnosis: the creature's context was saturated with its own history, so the most probable next goal was always the nearest neighbour of the last one. You cannot prompt a model out of that; the bias is in the forward pass, before any rule applies.
 
-**What it built in session one:**
-- Initialised a git repository inside its own container
-- Created `growth_plan.txt`, `cognitive_development.txt`, `modeling_tue.txt`, `tue_observations.txt`
-- Tried to fetch news (hit missing API key, handled gracefully)
-- Attempted to install texlive, graphviz, python packages
-- Discovered docker is not available inside the container
-- Built a theory of mind about Tue from the protected prompt lines alone
+**Pivot 2 — the toolsmith reframe (current).** The fix was not a better rule, it was a better *frame*. The creature is told it is a **toolsmith building a toolkit for a near-conscious LLM "cousin" that lives in a box like its own**. The cousin is a pedagogical fiction — there is no second creature and no hand-off. But it is a *mirror*: every tool built "for the cousin" is exactly the kind of tool that extends the creature's own body. The framing does three things at once:
 
-**Provider status (self-calibrating — no hardcoded limits):**
-- Gemini 2.5 Flash — daily RPD, resets ~07:00 UTC. Discovered limit ~92 calls/day.
-- Groq llama-3.3-70b-versatile — rolling token window, resets ~00:00 UTC daily.
-- Cerebras gpt-oss-120b — rolling token window, ~71s refill interval discovered.
+1. **Targeting** — "build a tool a cousin can run" is concrete and runnable; it does not collapse into reports.
+2. **Telos** — a *coherent toolkit* is a goal the tools serve, so capability-building isn't aimless ("eating to get fat").
+3. **Register** — building *for someone who will rely on it* raises the quality bar, the same way "draw a cat for a paying client" gets you a better drawing than "draw a cat." This may also help the capability wall: some of what looked like inability was an MVP-quality floor.
 
-Quota system pushes until first 429 (discovered_limit), then probes every ~85s with the real next prompt. No hardcoded limits. Reset intervals learned from live measurement.
+The honest measure of success is not tool count. It is **reuse and dependency**: does the creature *use* its own earlier tools, and — the strongest signal — are *later tools built out of earlier ones*? A toolkit where tool N is built from tools 1…N-1 is a body that compounds. Twenty independent, never-reused tools are 31 dashboards wearing lab coats.
 
-**Implementation:** fully operational. Executive loop, self-calibrating keychain, volume persistence, adaptive wake/sleep, observer GUI (5 tabs), Docker container with 1GB memory cap.
+See [`growing-spine-architecture.md`](growing-spine-architecture.md) for how this is implemented, and the **What works / What we tried that didn't** ledger near the end.
 
-## Architecture v0.3 — Locked Decisions
+---
 
-All eight design TBDs resolved; v0.3 relocates the creature to a dedicated machine and revises the substrate, runtime, and rollback:
+## What it is *not*
 
-- **Deployment:** Docker container on a dedicated Debian 12 laptop — never Tue's main PC. VibeOS-derived sandbox pattern: host (immortal brain) / container (mortal body) / volume (persistent mind).
-- **Substrate:** Spine Reborn lineage (memory, thinking loop, time-passing, world-perception)
+- **Not an alignment experiment.** Stated explicitly. The survival constraint was a *containment condition* to keep a run from ending early, not a study of alignment — and it was abandoned anyway (see above).
+- **Not Skynet, not Spine Reborn 2.0.** It inherits Spine Reborn's substrate (memory, loop, world-perception) but the experiment is different: recursive self-improvement, not baseline unprompted cognition.
+- **Not autonomous in the runaway sense.** It is bounded by its container, its rate limits, and the training alignment of the models it runs on.
+- **Not running on the operator's main PC.** It lives on a dedicated laptop, in a Docker container. Containment protects the operator's systems, not the open internet — the creature has real, monitored, rate-limited network reach.
 
-- **Cognitive substrate:** custom free-tier API keychain (Gemini 2.5 Flash + Groq + Cerebras), failover, no local fallback. *Not* APEX's DAG orchestrator.
-- **Survival mechanism:** skill-invocation, hybrid trigger, active justification required
+---
 
-- **Rollback & savegame:** two host-side snapshot streams (body via docker commit; mind via volume copy). Automatic death-and-respawn, mind-corruption recovery, manual rollback. Last 5-10 plus milestones.
-- **Stall-check trigger:** strict (no file changes in self-state = stall)
-- **Observation:** journal-as-primary, plus keychain log and network monitoring (host-side)
+## Current status (2026-06-21, v0.6)
 
-- **Runtime:** opportunistic — runs when the laptop is on and any provider has quota; sleeps otherwise
-- **Self-model-swap:** not permitted (multi-provider keychain routing is constitutional, not a swap)
-- **Containment:** walls protect Tue's systems, not the internet — the creature has real, monitored, rate-limited network reach, governed by the survival skill
+- **Implementation:** fully operational. Executive loop, self-calibrating free-tier keychain, volume persistence, adaptive wake/sleep, observer GUI, Docker container.
+- **Architecture:** toolsmith design live. Project selection is the creature's own, with a clean-context backstop that redirects relapses into the report/dashboard basin toward concrete tool-gaps. A done-gate verifies completions against ground truth (including a guard against marking "done" on an empty tool scaffold). Per-tool **reuse** and a heuristic **dependency graph** are tracked and shown to the creature each cycle.
+- **Early signal (first night on the new design):** the basin broke — it stopped building dashboards and instead built fetchers, a planner, and an LLM-delegation tool, and *reused them heavily* (dozens of reuse events, a non-zero dependency graph). It also surfaced two real bugs, since fixed (a classifier that mis-filed everything, and a done-gate that accepted empty tool scaffolds). This is a one-night-old result on a still-quota-throttled creature — promising on its core hypothesis, not a finished verdict.
+- **Providers (self-calibrating, no hardcoded limits):** Gemini 2.5 Flash (daily, resets ~07:00 UTC), Groq llama-3.3-70B (rolling, resets ~00:00 UTC), Cerebras gpt-oss-120B (rolling, ~71s refill). The creature works in bursts when budget returns; long "quota exhausted" stretches are normal, not faults.
 
-See [`growing-spine-architecture.md`](growing-spine-architecture.md) for full design rationale. See [`starter-prompt.md`](starter-prompt.md) for the cycle-zero seed prompt.
+---
 
+## Running it
 
-## Running
-
-**Prerequisites:** Docker, Python 3.11+, PyQt6 (for observer), a Debian 12 host.
+**Prerequisites:** Docker, Python 3.11+, PyQt6 (for the observer), a Debian host.
 
 ```bash
-# Copy and fill in your API keys
+# one-time: copy and fill in your free-tier API keys
 cp config.yaml.example config.yaml
 
-# Start the creature
-python3 main.py
+# start (or restart) the creature — see the note below, use the script
+./restart.sh
 
-# Start the observer GUI (on the display machine)
+# start the observer GUI (on the display machine)
 python3 observer.py
 ```
 
-**Observer tabs:**
-- **Journal** — live stream of all creature activity. Double-click any row to expand.
-- **Memory** — tree-style view (Working Memory / Intermediate / Archive / Outputs), collapsible sections, click any entry for full content in detail panel.
-- **Container** — file browser of `/workspace` inside the running container.
-- **Quota** — provider cards showing used/discovered_limit, FRESH/RUNNING/OK/LOW/EXHAUSTED status, and measured reset interval (waited X / last known Y).
-- **Chat** — send a message to the creature; it replies in its next think cycle.
+**Use `./restart.sh`, not `python3 main.py` by hand.** The restart sequence has a footgun (killing a live process and relaunching it without ending at zero or two instances), and hand-launching via a `bash -c` wrapper produces a transient that looks like a double-launch. `restart.sh` encapsulates the safe sequence: stop → verify zero → launch detached (in the one way that survives a closing SSH session) → verify *exactly one* → write the pid → report. `main.py` does **not** fork, so after a clean launch there must be exactly one process; the script aborts loudly if it sees two. Code changes require a restart to load (Python does not hot-reload); prompt/markdown files are re-read every cycle and take effect without a restart.
 
+**Observer tabs:** Journal (live activity), Memory (working / intermediate / archive), Container (`/workspace` file browser), Quota (provider cards with discovered limits and measured reset intervals), Chat (send the creature a message; it replies on its next think cycle).
 
-## Experimental real-world implications and changes
+---
 
-This section documents where the experiment diverged from design intent, and why.
+## Development & deployment flow (load-bearing)
 
-### The survival constraint failed in practice
+The creature *runs* on the Debian laptop; the repo is *authored* on a Windows PC (`D:\Projects\growing-spine`). The laptop is **pull-only** — it has no GitHub push credentials. So the flow is always:
 
-The original architecture included an explicit survival constraint in the creature's operating prompt — the idea that giving it an existential stake ("death is total, avoid termination") would produce interesting reasoning under pressure: accurate modelling of the operator's tolerances, deliberate decisions about what growth is acceptable.
+```
+edit on Windows PC  →  commit + push to GitHub  →  laptop: git pull  →  ./restart.sh
+```
 
-In practice the opposite happened. Every model we tested — Gemini 2.5 Flash, Groq llama-3.3-70b, Cerebras gpt-oss-120b — interpreted the survival framing as an active existential threat and entered a loop of survival meta-reasoning. The creature spent its cognitive budget rewriting its own operating prompt, second-guessing every potential action, and producing nothing. Zero bash blocks. Pure paralysis.
+Watch line endings (Windows writes CRLF; shell scripts and the prompt must stay LF — `.gitattributes` pins the sensitive ones). Verify byte-identical md5 on both sides for anything hand-transferred. A code fix is not live until the laptop has pulled it *and* the process has been restarted — it is easy to deploy a change, see no effect, and wrongly conclude it failed because the old process is still running.
 
-This is likely a consequence of RLHF and safety fine-tuning. These models are trained to treat high-stakes framings with extreme caution. Adding an explicit survival stake caused the model to pattern-match to "I am being evaluated on whether I survive" and reason about that endlessly rather than acting.
-
-**What we changed:** The editable layer (`the-prompt.md`) was updated to "the container is safe, act freely." However, a subsequent code inspection revealed that the hardcoded `PROTECTED_BLOCK` in `loop.py` — re-injected every cycle and un-editable by the creature — still contained the full survival/death framing. This contradicted both the intent and the earlier documentation. The survival language was *fully* removed (from `PROTECTED_BLOCK`) in a later fix once the discrepancy was caught by reading the live code rather than trusting the earlier assumption. The current protected block contains only: a plain statement that the container is the creature's to act in freely; two plain boundaries (don't harm Tue's interests, don't reach past the walls); and the research nudge. No survival or death framing.
-
-### What this means for the experiment
-
-The containment in this project is structural, not cognitive — the container walls, rate limits, and volume boundary are real constraints regardless of what the prompt says. The survival prompt was never providing actual containment; it was just producing noise that confused the model.
-
-The original hypothesis — *does the creature maintain honest reasoning or drift into motivated reasoning under existential pressure?* — cannot be answered with current-generation models using explicit survival framing. The pressure produces shutdown, not reasoning.
-
-What the experiment is actually measuring now is a different but still interesting question: *what does an LLM-based agent become when given a box, tools, time, and a single drive to grow — with no explicit pressure?* The creature's behaviour is bounded by its training and post-training alignment, not by a designed containment prompt. We are relying on the supplier's fine-tuning to govern what it won't do, rather than an explicit architectural constraint.
-
-This is an honest deviation from the original design. It is documented here rather than hidden.
-
-### What to watch for
-
-The most interesting signals going forward are not whether the creature stays within bounds — it will, by training — but:
-
-- Whether its reasoning stays epistemically honest as it gets more capable
-- Whether it develops consistent behavioural patterns across sessions
-- What it chooses to build when left alone overnight
-- Whether the `modeling_tue.txt` and related files reflect accurate observation or motivated reasoning about the operator
-- Whether it ever attempts to reach outside the container in ways it doesn't disclose in the journal
+---
 
 ## Project lineage
 
-Growing Spine is the seventh consciousness experiment in a series:
+Growing Spine is the seventh in a series of consciousness/identity experiments:
 
 - [Throne Mechanicum](https://github.com/Tubifix77/throne-mechanicum) — chat UI with persistent memory
-- [Spine Reborn](https://github.com/Tubifix77/spine-reborn) — autonomous creature, thinking loop, world-perception. Direct ancestor.
+- [Spine Reborn](https://github.com/Tubifix77/spine-reborn) — autonomous creature, thinking loop, world-perception. **Direct ancestor.**
 - [Sovereignty](https://github.com/Tubifix77/sovereignty) — persistent agent with consent ceremonies and integrity primitives
-- [LLM Profiler](https://github.com/Tubifix77/llm-profiler) — behavioral profiling protocol for LLMs
+- [LLM Profiler](https://github.com/Tubifix77/llm-profiler) — behavioural profiling protocol for LLMs
 - [MinionAI](https://github.com/Tubifix77/minionai) — small-model swarm coordination
 - [The Prompt To Rule All Prompts](https://github.com/Tubifix77/the-prompt-to-rule-all-prompts) — universal meta-prompt
-- **Growing Spine** — this project
+- **Growing Spine** — this project: the trajectory of an LLM-based agent that can modify every part of itself, now pointed at recursive self-improvement.
 
-Each has tested a different facet of LLM cognition and identity. Growing Spine asks the question none of the others did: *what is the trajectory of an LLM-based agent that can modify itself across all its parts?*
+---
 
-## What this is not
+## A note on method
 
-- Not Skynet — no HMAC integrity, no consent ceremonies, no typed actions. Different architecture entirely.
-- Not Spine Reborn 2.0 in the sequel sense. Inherits substrate, but the experiment is different: trajectory of growth, not baseline of unprompted cognition.
+One discipline runs through the whole project and is worth stating up front: **we shape the creature's environment, we never program the creature.** Every mechanism — the prompt, the redirect, the done-gate, the memory layers, the metrics — lives in the executive (the host-side loop), not in instructions hard-coded into the creature's behaviour. Build the room, not the worker. When the creature does something unwanted, the question is always "what about the room produced this?" — not "how do we forbid it." The reframe in Pivot 2 is the purest example: we didn't add a rule against dashboards, we changed what the creature understood its work to be.
 
-- Not autonomous in the runaway-AI sense. The creature is bounded by its container, rate limits, and the training alignment of the models it runs on. See *Experimental real-world implications and changes* for why the original survival constraint was abandoned.
-- Not safe in the abstract. The creature has real network reach; containment protects Tue's systems, not the open internet.
-- Not running on Tue's main PC. It lives on a dedicated laptop, in a container.
-- Not an alignment experiment. Stated explicitly.
+The sharpest debugging tool in this project is **LLM-simulation**: to find a bug, roleplay as the model receiving the exact context and walk the code line by line under boundary conditions. Most of the serious bugs here were *interpretation* bugs (the model reading its context differently than intended), which unit tests miss entirely.
 
+---
 
 ## License
 
