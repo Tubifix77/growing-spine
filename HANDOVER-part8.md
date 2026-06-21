@@ -79,3 +79,5 @@ That's the only outstanding work. Nothing the running creature depends on is at 
 ## Lineage / what this is NOT
 
 7th in a series (Throne Mechanicum, Spine Reborn [direct ancestor], Sovereignty, LLM Profiler, MinionAI, The Prompt To Rule All Prompts, Growing Spine). NOT an alignment experiment; NOT Skynet; the abandoned original survival/"killer-robot vs cybernetic-entity" framing produced paralysis and was removed (containment is structural: container + rate limits + volume boundary). Old spec docs in the repo (IDEATION-ENGINE-SPEC, GROWTH-FLYWHEEL-SPEC, GAGE-MEMORY-SPEC, HANDOVER-part5) are historical; where they conflict with README/architecture, the latter are current.
+
+_Laptop push access verified 2026-06-21T14:19Z_
