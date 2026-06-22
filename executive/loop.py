@@ -1349,7 +1349,7 @@ def _build_context(recent_journal: list, tue_message: str = None) -> str:
     workspace_block = ("\n\nYour workspace (/workspace/README.md):\n" + workspace_map) if workspace_map else ""
     chat_block = ""
     if tue_message:
-        chat_block = f"\n\nMessage from Tue: {tue_message}\nReply to this in plain text before your bash blocks."
+        chat_block = f"\n\nMessage from Tue: {tue_message}\nReply to this message using a <reply>...</reply> tag immediately before your bash blocks. Example: <reply>Got it, will fix llm_ask_helper to use Groq.</reply>"
     active_project = _build_active_project_block()
     knowledge = _build_knowledge_block()
     loop_warning = _build_loop_warning()

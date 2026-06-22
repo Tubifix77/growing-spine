@@ -106,11 +106,21 @@ def all_messages(volume_mount: str) -> list:
 
 
 def extract_text_reply(response: str) -> str:
-    """Pull text before the first bash block. Falls back to full response if no bash."""
+    """Extract the creature's reply to a Tue message.
+
+    Primary: looks for <reply>...</reply> — unambiguous regardless of what
+    else the creature writes around it.
+    Fallback: text before the first bash block (old behaviour, for any cycle
+    that predates this fix).
+    Returns empty string if neither yields anything.
+    """
     import re
-    match = re.search(r"```bash", response, re.IGNORECASE)
-    if match:
-        text = response[:match.start()].strip()
+    m = re.search(r"<reply>(.*?)</reply>", response, re.DOTALL | re.IGNORECASE)
+    if m:
+        return m.group(1).strip()
+    m2 = re.search(r"```bash", response, re.IGNORECASE)
+    if m2:
+        text = response[:m2.start()].strip()
     else:
         text = response.strip()
     return text if text else ""
