@@ -22,6 +22,7 @@ CHAT_PATH     = os.path.join(MIND_DIR, "chat.jsonl")
 CONFIG_PATH   = os.path.expanduser("~/growing-spine/config.yaml")
 QUOTA_PATH    = os.path.expanduser("~/growing-spine/keychain/quota_state.json")
 CONTAINER     = "growing-spine-body"
+WORKSPACE_DIR = os.path.expanduser("~/growing-spine-workspace")
 
 # -- Live memory module (same code the creature uses -> Memory tab can't drift) --
 import importlib.util as _ilu
@@ -448,46 +449,82 @@ class ContainerTab(QWidget):
         )
         return r.stdout.strip()
 
-    def refresh(self):
-        # Check container is running
+    def _container_running(self):
         r = subprocess.run(
             ["docker", "inspect", "-f", "{{.State.Running}}", CONTAINER],
             capture_output=True, text=True
         )
-        if r.stdout.strip() != "true":
-            self.status.setText("Container not running")
-            self.tree.clear()
-            return
+        return r.stdout.strip() == "true"
 
-        try:
-            output = self._docker_exec("find /workspace -maxdepth 3 ! -path '*/.git/*' -not -name '.git' 2>/dev/null")
-        except Exception as e:
-            self.status.setText(f"Error: {e}")
-            return
-
+    def _build_tree(self, paths, root_label, node_prefix):
+        """Populate the tree from a list of absolute path strings."""
         self.tree.clear()
-        root_item = QTreeWidgetItem(self.tree, ["/workspace"])
-        nodes = {"/workspace": root_item}
-
-        for path in sorted(output.splitlines()):
-            if path == "/workspace":
+        root_item = QTreeWidgetItem(self.tree, [root_label])
+        nodes = {node_prefix: root_item}
+        for path in sorted(paths):
+            if path == node_prefix:
                 continue
             parent_path = os.path.dirname(path)
             name = os.path.basename(path)
+            if name.startswith(".git"):
+                continue
             parent_node = nodes.get(parent_path, root_item)
             item = QTreeWidgetItem(parent_node, [name])
             item.setData(0, Qt.ItemDataRole.UserRole, path)
             nodes[path] = item
-
         root_item.setExpanded(True)
-        self.status.setText(f"Container running  |  {time.strftime('%H:%M:%S')}")
+
+    def refresh(self):
+        if self._container_running():
+            # Live: read via docker exec
+            try:
+                output = self._docker_exec(
+                    "find /workspace -maxdepth 3 ! -path '*/.git/*' -not -name '.git' 2>/dev/null"
+                )
+            except Exception as e:
+                self.status.setText(f"Error: {e}")
+                return
+            self._build_tree(output.splitlines(), "/workspace", "/workspace")
+            self.status.setText(f"Container running  |  {time.strftime('%H:%M:%S')}")
+            self.tree.setHeaderLabel("/workspace  (live)")
+        else:
+            # Offline: fall back to host-side volume directory
+            if not os.path.isdir(WORKSPACE_DIR):
+                self.status.setText("Container offline — workspace directory not found")
+                self.tree.clear()
+                return
+            paths = []
+            for dirpath, dirnames, filenames in os.walk(WORKSPACE_DIR):
+                # skip .git
+                dirnames[:] = [d for d in dirnames if d != ".git"]
+                rel = os.path.relpath(dirpath, os.path.dirname(WORKSPACE_DIR))
+                norm = "/" + rel.replace(os.sep, "/")
+                paths.append(norm)
+                for fname in filenames:
+                    paths.append(norm + "/" + fname)
+            self._build_tree(paths, "/workspace", "/growing-spine-workspace")
+            self.status.setText(
+                f"Container offline — showing host volume  |  {time.strftime('%H:%M:%S')}"
+            )
+            self.tree.setHeaderLabel("/workspace  (container offline — host view)")
 
     def _on_item_clicked(self, item, col):
         path = item.data(0, Qt.ItemDataRole.UserRole)
         if not path:
             return
         try:
-            content = self._docker_exec(f"cat '{path}' 2>/dev/null | head -200")
+            if self._container_running():
+                content = self._docker_exec(f"cat '{path}' 2>/dev/null | head -200")
+            else:
+                # Translate the /workspace path back to the host-side path
+                host_path = path.replace(
+                    "/growing-spine-workspace", WORKSPACE_DIR, 1
+                )
+                if not os.path.isfile(host_path):
+                    self.file_view.setPlainText(f"(directory or not found: {path})")
+                    return
+                with open(host_path, encoding="utf-8", errors="replace") as f:
+                    content = "".join(f.readlines()[:200])
             if content:
                 self.file_view.setPlainText(content)
             else:
