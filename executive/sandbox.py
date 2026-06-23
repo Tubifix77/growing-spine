@@ -33,6 +33,25 @@ def start(dockerfile_dir: str = "."):
     host_ws = os.path.expanduser("~/growing-spine-workspace")
     os.makedirs(host_mind, exist_ok=True)
     os.makedirs(host_ws, exist_ok=True)
+    # Read API keys from config so bash tools inside the container can use them
+    # without needing Python or the keychain module.
+    _api_env = []
+    try:
+        import yaml as _yaml
+        _cfg = _yaml.safe_load(open(os.path.expanduser("~/growing-spine/config.yaml")))
+        _key_map = {
+            "groq":     "GROQ_API_KEY",
+            "gemini":   "GEMINI_API_KEY",
+            "cerebras": "CEREBRAS_API_KEY",
+        }
+        for _p in _cfg.get("providers", []):
+            _env_name = _key_map.get(_p.get("key", ""))
+            _api_key  = _p.get("api_key", "")
+            if _env_name and _api_key:
+                _api_env += ["-e", f"{_env_name}={_api_key}"]
+    except Exception:
+        pass  # best-effort — container still starts without keys
+
     subprocess.run([
         "docker", "run", "-d",
         "--name", CONTAINER_NAME,
@@ -43,6 +62,7 @@ def start(dockerfile_dir: str = "."):
         "--memory", "1g",          # hard cap — prevent OOM kills of host
         "--memory-swap", "1g",     # no swap either — fail fast inside container
         "--cpus", "1.5",           # leave headroom for host OS and observer
+    ] + _api_env + [
         IMAGE_NAME,
         "sleep", "infinity"
     ], check=True)
