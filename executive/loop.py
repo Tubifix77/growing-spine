@@ -24,6 +24,20 @@ RETRO_STATE_PATH = os.path.join(VOLUME_MOUNT, "retrospective_state.json")
 RETRO_INTERVAL = 20      # real creature cycles between retrospectives
 DIRECTIVE_WINDOW = 20    # cycles a STUCK directive stays in every prompt
 
+# v0.8 composition phase: once every seed category has at least this many tools,
+# the toolsmith has finished BREADTH (covering the basics) and the highest-value
+# work shifts to DEPTH -- building tools that COMPOSE existing tools into larger
+# capabilities. Below the threshold the oracle fills category gaps (breadth mode);
+# at or above it the oracle briefs composition tools (depth mode). 3 is enough to
+# prove a category is genuinely covered, not just touched once.
+COMPOSITION_THRESHOLD = 3
+
+# Sentinel returned by the oracle when it can produce no genuinely NEW work this
+# cycle (LLM unavailable AND the only fallback would rebuild an existing tool).
+# The caller treats this as "rest, don't spin" -- assign nothing and let the
+# cycle pass, rather than burning effort rebuilding a tool that already exists.
+_REST_SENTINEL = {"__rest__": True}
+
 IDEATION_STATE_PATH = os.path.join(VOLUME_MOUNT, "ideation_state.json")
 
 # Tool categories for the cousin's acceleration-toolkit. These are a DESCRIPTIVE
@@ -423,6 +437,87 @@ def _pick_uncovered_category() -> str:
     return min(TOOL_CATEGORIES, key=lambda c: built.get(c, 0))
 
 
+def _seeds_saturated() -> bool:
+    """True once every seed category has >= COMPOSITION_THRESHOLD tools built --
+    breadth is done, depth (composition) is now the higher-value work."""
+    state = _load_ideation_state() or {}
+    built = state.get("categories_built", {})
+    return all(built.get(c, 0) >= COMPOSITION_THRESHOLD for c in TOOL_CATEGORIES)
+
+
+def _most_used_tools(n: int = 8) -> list:
+    """The creature's most-adopted own tools (by run count), as (name, uses).
+    These are the strong building blocks a composition tool should orchestrate."""
+    try:
+        own = set(_own_tool_names())
+        usage = _load_tool_usage()
+        ranked = sorted(((k, v) for k, v in usage.items() if k in own),
+                        key=lambda kv: kv[1], reverse=True)
+        return ranked[:n]
+    except Exception:
+        return []
+
+
+_COMPOSITION_PROMPT = (
+    "You are briefing an autonomous coding agent that has ALREADY built a broad "
+    "toolkit for a near-conscious LLM 'cousin' (Linux container, Python 3, "
+    "persistent memory, shell tools, free-tier LLM APIs, no human watching). The "
+    "basics are covered. The next stage is DEPTH: building a tool that COMPOSES "
+    "existing tools into a single higher-order capability the cousin runs as one "
+    "command, so capability compounds instead of accumulating as a flat pile.\n\n"
+    "The cousin's most-used existing tools (compose FROM these):\n{tool_list}\n\n"
+    "Specify ONE new tool that CHAINS two or more of the above tools into a "
+    "workflow worth more than the sum of its parts. It must be a real command the "
+    "cousin RUNS, using only the Python 3 standard library plus the container's "
+    "curl/wget, completable in a few build steps. It must actually CALL the named "
+    "tools (by invoking them), not reimplement them. It is a TOOL the cousin RUNS, "
+    "never a report, dashboard, index, or summary for a human.\n\n"
+    "Example shape (do not copy literally): a 'morning-orient' tool that runs the "
+    "wake-catchup fetcher, pipes each item through the subagent ask helper to "
+    "summarise it, and stores the digest with the memory archive tool: one "
+    "command, three tools, a capability none of them had alone.\n\n"
+    "Reply with STRICT JSON only, no markdown fences, no text around it:\n"
+    "{{\n"
+    '  "title": "tool name plus at most 6 words, no colon",\n'
+    '  "brief": "2-3 sentences: what the composed tool does, which existing tools it chains, and why the combination accelerates the cousin",\n'
+    '  "demonstration": "one sentence: how to PROVE it works by RUNNING it on real input and showing the chained tools produced a combined result",\n'
+    '  "category": "composition"\n'
+    "}}"
+)
+
+
+# Composition fallbacks: used only when the oracle LLM call fails in depth mode.
+# Each names REAL seed tools to chain. Unlike the breadth fallbacks (which name a
+# single tool and so caused rebuild-loops once categories saturated), these
+# describe a COMBINATION, so even the fallback pushes dependency depth up rather
+# than rebuilding something that exists.
+_COMPOSITION_FALLBACKS = [
+    {"title": "wake orient digest",
+     "brief": "Chains the wake-catchup fetcher into the subagent ask helper to "
+              "summarise what changed, then stores the digest with the archive "
+              "tool, so the cousin wakes to one synthesised brief instead of raw "
+              "feeds it must process itself.",
+     "demonstration": "Run it once on wake and show it fetched real items, "
+                      "summarised them via the subagent, and stored the digest.",
+     "category": "composition"},
+    {"title": "plan from question",
+     "brief": "Chains the subagent ask helper (to break a goal into steps) into "
+              "the step planner tracker (to persist and track them), so the "
+              "cousin turns a vague goal into a tracked multi-cycle plan in one "
+              "command.",
+     "demonstration": "Run it on a real goal and show it produced steps via the "
+                      "subagent and stored them in the planner.",
+     "category": "composition"},
+    {"title": "recall and answer",
+     "brief": "Chains the archive search/recall tool (to pull relevant stored "
+              "notes) into the subagent ask helper (to answer using them), so the "
+              "cousin answers a question grounded in its own memory in one command.",
+     "demonstration": "Ask it something you archived earlier and show it recalled "
+                      "the note and used it to answer.",
+     "category": "composition"},
+]
+
+
 _GAP_PROMPT = (
     "You are briefing an autonomous coding agent that builds a coherent toolkit to "
     "accelerate a near-conscious LLM 'cousin' living in a Linux container with "
@@ -462,6 +557,28 @@ def _parse_gap_json(raw: str, category: str) -> dict:
         return {}
     d.setdefault("demonstration", "Run the tool on a real input and show it works.")
     d.setdefault("category", category)
+    return d
+
+
+def _parse_composition_json(raw: str) -> dict:
+    """Parse a composition gap brief. Same robust JSON extraction as
+    _parse_gap_json, fixed category='composition'."""
+    if not raw:
+        return {}
+    s = re.sub(r"^```(?:json)?\s*", "", raw.strip())
+    s = re.sub(r"\s*```$", "", s)
+    a, b = s.find("{"), s.rfind("}")
+    if a == -1 or b == -1 or b <= a:
+        return {}
+    try:
+        d = json.loads(s[a:b + 1])
+    except Exception:
+        return {}
+    if not (str(d.get("title", "")).strip() and str(d.get("brief", "")).strip()):
+        return {}
+    d.setdefault("demonstration",
+                 "Run it on real input and show the chained tools produced a combined result.")
+    d["category"] = "composition"
     return d
 
 
@@ -512,13 +629,36 @@ _FALLBACK_GAPS = {
 }
 
 
+async def _oracle_composition_spec(keychain) -> dict:
+    """Depth-mode brief: a tool that COMPOSES existing tools. reserve=0 so the
+    oracle is not starved by the executor's budget floor. On LLM failure, falls
+    back to a composition that chains real seed tools (never a rebuild)."""
+    tool_list = "\n".join(f"  - {n} ({u} uses)" for n, u in _most_used_tools(8)) \
+        or "  - (no usage data yet; chain any two tools you have built)"
+    prompt = _COMPOSITION_PROMPT.format(tool_list=tool_list)
+    raw = ""
+    try:
+        raw = await keychain.complete(prompt, max_tokens=500, reserve=0) or ""
+    except Exception as e:
+        print(f"[oracle] composition call failed ({type(e).__name__}); using fallback composition")
+    spec = _parse_composition_json(raw)
+    if spec:
+        return spec
+    import random
+    fb = dict(random.choice(_COMPOSITION_FALLBACKS))
+    print("[oracle] using fallback composition gap")
+    return fb
+
+
 async def _oracle_gap_spec(category: str, keychain) -> dict:
-    """Clean-context gap brief for a category. Free-tier keychain -> fallback gap."""
+    """Clean-context gap brief for a category (breadth mode). reserve=0 so the
+    oracle's gap-finding always has a sliver even when the executor is throttled.
+    On LLM failure, returns the category fallback gap."""
     hint = _CATEGORY_HINTS.get(category, _CATEGORY_HINTS["other"])
     prompt = _GAP_PROMPT.format(category=category, hint=hint)
     raw = ""
     try:
-        raw = await keychain.complete(prompt, max_tokens=500) or ""
+        raw = await keychain.complete(prompt, max_tokens=500, reserve=0) or ""
     except Exception as e:
         print(f"[oracle] gap call failed ({type(e).__name__}); using fallback gap")
     spec = _parse_gap_json(raw, category)
@@ -527,6 +667,36 @@ async def _oracle_gap_spec(category: str, keychain) -> dict:
     fb = dict(_FALLBACK_GAPS.get(category, _FALLBACK_GAPS["memory_archive"]))
     print(f"[oracle] using fallback gap for category={category}")
     return fb
+
+
+async def _oracle_next_spec(keychain) -> dict:
+    """Top-level oracle entry: choose breadth or depth based on saturation.
+
+    - seeds NOT saturated -> breadth: brief a gap in the least-covered category.
+    - seeds saturated      -> depth: brief a composition of existing tools.
+
+    Returns a gap spec to install, or _REST_SENTINEL when the only available
+    action would be a no-value rebuild (breadth fallback for an already-built
+    category while the LLM is down). Composition mode never rests -- a composition
+    fallback is always genuinely new work (it chains existing tools)."""
+    if _seeds_saturated():
+        return await _oracle_composition_spec(keychain)
+    category = _pick_uncovered_category()
+    # If this category is already built out AND we'd be forced onto a static
+    # rebuild fallback (LLM down), rest instead of rebuilding.
+    state = _load_ideation_state() or {}
+    built = state.get("categories_built", {})
+    already_built = built.get(category, 0) > 0
+    spec = await _oracle_gap_spec(category, keychain)
+    # Detect "fell back to the static gap" by matching the fallback title.
+    fb_title = (_FALLBACK_GAPS.get(category, {}) or {}).get("title", "")
+    used_fallback = bool(fb_title) and _project_title(spec.get("title", "")) == fb_title
+    if already_built and used_fallback:
+        print(f"[oracle] category={category} already built and only a rebuild "
+              f"fallback is available -- resting this cycle instead of rebuilding")
+        return dict(_REST_SENTINEL)
+    spec.setdefault("category", category)
+    return spec
 
 
 def _install_gap(spec: dict, category: str):
@@ -614,8 +784,14 @@ async def _ensure_or_redirect(executed, keychain):
                 return  # refinement of the same pick, already judged
             _last_pick["title"] = new_title
             if await _is_basin_relapse(proposed, keychain):
-                category = _pick_uncovered_category()
-                spec = await _oracle_gap_spec(category, keychain)
+                spec = await _oracle_next_spec(keychain)
+                if spec.get("__rest__"):
+                    # nothing genuinely new to redirect TO this cycle; just clear
+                    # the basin pick and let the creature breathe.
+                    _clear_project_state()
+                    print("[oracle] basin relapse cleared; resting (no new gap available)")
+                    return
+                category = spec.get("category", "composition")
                 _clear_project_state()
                 _install_gap(spec, category)
                 journal.append(VOLUME_MOUNT, "novelty_block",
@@ -629,8 +805,11 @@ async def _ensure_or_redirect(executed, keychain):
 
         # creature set nothing AND has no active project -> assign (anti-idle)
         if not active:
-            category = _pick_uncovered_category()
-            spec = await _oracle_gap_spec(category, keychain)
+            spec = await _oracle_next_spec(keychain)
+            if spec.get("__rest__"):
+                print("[oracle] idle, but no genuinely new gap available -- resting this cycle")
+                return
+            category = spec.get("category", "composition")
             _clear_project_state()
             _install_gap(spec, category)
             print(f"[oracle] anti-idle assignment -> category={category}")
@@ -1286,6 +1465,14 @@ def _build_knowledge_block() -> str:
                      + " | seed categories still missing = "
                      + (", ".join(untried) if untried
                         else "all seeds covered -- deepen one or invent a new kind"))
+        if _seeds_saturated():
+            parts.append("DEPTH MODE: every basic category is covered. The highest-"
+                         "value work now is COMPOSITION -- build a tool that CHAINS "
+                         "two or more of your existing tools into one command that "
+                         "does more than any of them alone. Compose, don't multiply: "
+                         "a fourth archiver adds nothing; a tool that runs your "
+                         "fetcher -> your summariser -> your archiver adds a real "
+                         "new capability.")
     except Exception:
         pass
     if not parts:

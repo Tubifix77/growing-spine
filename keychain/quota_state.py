@@ -60,11 +60,27 @@ def effective_limit(state: dict, key: str, cfg: dict) -> int:
     return s.get("discovered_limit", cfg["quota"].get("limit", 9999999))
 
 
+def remaining(state: dict, key: str, cfg: dict) -> int:
+    """Estimated calls/tokens left this window (>=0). Best-effort: discovered or
+    configured limit minus usage. Used by reserve-aware availability checks."""
+    s = state.get(key, {})
+    return max(0, effective_limit(state, key, cfg) - s.get("used", 0))
+
+
 def is_available(state: dict, key: str, cfg: dict) -> bool:
     if not cfg.get("enabled", True):
         return False
     s = state.get(key, {})
     return s.get("used", 0) < effective_limit(state, key, cfg)
+
+
+def is_available_with_reserve(state: dict, key: str, cfg: dict, reserve: int) -> bool:
+    """Available only if more than `reserve` budget remains. The reserve is a
+    floor the general executor must not cross, so the oracle (reserve=0) always
+    has a sliver. reserve=0 is identical to is_available."""
+    if not cfg.get("enabled", True):
+        return False
+    return remaining(state, key, cfg) > reserve
 
 
 def record_usage(state: dict, key: str, tokens: int):

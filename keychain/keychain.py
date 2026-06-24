@@ -4,6 +4,14 @@ from . import quota_state as qs
 from . import provider as prov
 
 
+# Budget floor the GENERAL executor must leave untouched, per provider, so the
+# oracle's gap-finding (deciding WHAT to build -- higher leverage than one more
+# build step) always has a sliver. The oracle calls with reserve=0; everything
+# else uses this default. Small on purpose: only needs to cover a few short
+# gap-brief calls per window.
+EXECUTOR_RESERVE = 40
+
+
 def _load_config() -> list:
     cfg_path = os.path.join(os.path.dirname(__file__), "..", "config.yaml")
     with open(cfg_path) as f:
@@ -15,16 +23,24 @@ class Keychain:
         self.providers = _load_config()
         self.state = qs.load_state(self.providers)
 
-    def available_providers(self) -> list:
-        return [p for p in self.providers if qs.is_available(self.state, p["key"], p)]
+    def available_providers(self, reserve: int = 0) -> list:
+        return [p for p in self.providers
+                if qs.is_available_with_reserve(self.state, p["key"], p, reserve)]
 
-    async def complete(self, prompt: str, system: str = "", max_tokens: int = 2048) -> str:
+    async def complete(self, prompt: str, system: str = "", max_tokens: int = 2048,
+                       reserve: int = EXECUTOR_RESERVE) -> str:
         """
         Send prompt through the highest-priority available provider.
         Returns response text. Raises RuntimeError if all quota exhausted.
         Distinguishes transient failures (retry) from real exhaustion (sleep).
+
+        `reserve` is a per-provider budget floor this call will not cross. The
+        general executor uses EXECUTOR_RESERVE so it cannot drain the last of the
+        budget; the oracle calls with reserve=0 so gap-finding survives when the
+        executor is throttled. The probe path (everything exhausted) ignores
+        reserve -- a probe must always be allowed to test for reset.
         """
-        available = self.available_providers()
+        available = self.available_providers(reserve=reserve)
         # If nothing is available, still attempt all providers as a probe.
         # The probe IS the real next prompt — a 429 means 'not yet',
         # a success means quota reset and we record the interval.
@@ -113,5 +129,5 @@ class Keychain:
             raise RuntimeError("All providers temporarily unavailable.")
         raise RuntimeError("All providers failed or exhausted.")
 
-    def any_available(self) -> bool:
-        return bool(self.available_providers())
+    def any_available(self, reserve: int = 0) -> bool:
+        return bool(self.available_providers(reserve=reserve))
