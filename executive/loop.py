@@ -38,6 +38,20 @@ COMPOSITION_THRESHOLD = 3
 # cycle pass, rather than burning effort rebuilding a tool that already exists.
 _REST_SENTINEL = {"__rest__": True}
 
+# v0.9 batch-ideation: the binding constraint is API CALLS, not tokens -- one
+# call returning N composition ideas costs the same as one returning 1. So in
+# depth mode the oracle generates a SMALL BATCH in a single call, caches it, and
+# feeds one idea per cycle until empty, then refills. This cuts oracle call
+# frequency ~3x, so the gap-finder rarely hits the quota wall and rarely falls
+# back to the stale static fallbacks. Batch size is deliberately SMALL: a free-
+# tier model produces a fixed handful of genuinely-good ideas then pads to hit
+# any larger number, so 3 captures the good part of the curve and stops before
+# the filler tail (the same statistical gravity that made the dashboard basin,
+# operating inside one response). Breadth mode is NOT batched -- it is category-
+# driven, one uncovered category at a time, where batching does not fit.
+COMPOSITION_BATCH_SIZE = 3
+COMPOSITION_QUEUE_PATH = os.path.join(VOLUME_MOUNT, "composition_queue.json")
+
 IDEATION_STATE_PATH = os.path.join(VOLUME_MOUNT, "ideation_state.json")
 
 # Tool categories for the cousin's acceleration-toolkit. These are a DESCRIPTIVE
@@ -486,6 +500,129 @@ _COMPOSITION_PROMPT = (
 )
 
 
+def _composition_batch_prompt(n: int) -> str:
+    """Batch version of the composition brief: ask for N distinct composition
+    ideas in ONE call (calls are the scarce resource, not tokens). Built from the
+    single-idea prompt so the framing, constraints, and 'tool not report' rule
+    stay identical -- only the output shape changes to a JSON array."""
+    tool_list = "\n".join(f"  - {nm} ({u} uses)" for nm, u in _most_used_tools(8)) \
+        or "  - (no usage data yet; chain any two tools you have built)"
+    return (
+        "You are briefing an autonomous coding agent that has ALREADY built a broad "
+        "toolkit for a near-conscious LLM 'cousin' (Linux container, Python 3, "
+        "persistent memory, shell tools, free-tier LLM APIs, no human watching). The "
+        "basics are covered. The next stage is DEPTH: tools that COMPOSE existing "
+        "tools into single higher-order capabilities the cousin runs as one command, "
+        "so capability compounds instead of accumulating as a flat pile.\n\n"
+        "The cousin's most-used existing tools (compose FROM these):\n" + tool_list + "\n\n"
+        "Propose " + str(n) + " DISTINCT new tools, each of which CHAINS two or more of "
+        "the above tools into a workflow worth more than the sum of its parts. Make "
+        "them genuinely different from each other -- different tool combinations and "
+        "different purposes, not " + str(n) + " variants of one idea. Each must be a real "
+        "command the cousin RUNS, using only the Python 3 standard library plus the "
+        "container's curl/wget, completable in a few build steps, and must actually "
+        "CALL the named tools (not reimplement them). Each is a TOOL the cousin RUNS "
+        "-- never a report, dashboard, index, or summary for a human.\n\n"
+        "Reply with STRICT JSON only -- a JSON ARRAY of " + str(n) + " objects, no markdown "
+        "fences, no text around it:\n"
+        "[\n"
+        "  {\n"
+        '    "title": "tool name plus at most 6 words, no colon",\n'
+        '    "brief": "2-3 sentences: what the composed tool does, which existing tools it chains, and why the combination accelerates the cousin",\n'
+        '    "demonstration": "one sentence: how to PROVE it works by RUNNING it on real input",\n'
+        '    "category": "composition"\n'
+        "  }\n"
+        "  // ... " + str(n) + " total\n"
+        "]"
+    )
+
+
+def _parse_composition_batch(raw: str, n: int) -> list:
+    """Parse a JSON array of composition specs. Tolerant: strips fences, finds the
+    outer [...], drops malformed entries, dedupes by title, caps at n. Returns []
+    on total failure so the caller can fall back."""
+    if not raw:
+        return []
+    import re as _re
+    s = _re.sub(r"^```(?:json)?\s*", "", raw.strip())
+    s = _re.sub(r"\s*```$", "", s)
+    a, b = s.find("["), s.rfind("]")
+    if a == -1 or b == -1 or b <= a:
+        # model may have returned bare objects; try wrapping
+        a2, b2 = s.find("{"), s.rfind("}")
+        if a2 == -1 or b2 == -1:
+            return []
+        s = "[" + s[a2:b2 + 1] + "]"
+        a, b = 0, len(s) - 1
+    try:
+        arr = json.loads(s[a:b + 1])
+    except Exception:
+        return []
+    if not isinstance(arr, list):
+        return []
+    out, seen = [], set()
+    for item in arr:
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("title", "")).strip()
+        brief = str(item.get("brief", "")).strip()
+        if not (title and brief):
+            continue
+        key = _project_title(title).lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        item.setdefault("demonstration",
+                        "Run it on real input and show the chained tools produced a combined result.")
+        item["category"] = "composition"
+        out.append(item)
+        if len(out) >= n:
+            break
+    return out
+
+
+def _load_composition_queue() -> list:
+    try:
+        with open(COMPOSITION_QUEUE_PATH, encoding="utf-8") as f:
+            q = json.load(f)
+        return q if isinstance(q, list) else []
+    except Exception:
+        return []
+
+
+def _save_composition_queue(queue: list):
+    try:
+        with open(COMPOSITION_QUEUE_PATH, "w", encoding="utf-8") as f:
+            json.dump(queue, f, indent=2)
+    except Exception as e:
+        print(f"[oracle] failed to save composition queue: {e}")
+
+
+async def _refill_composition_queue(keychain) -> list:
+    """Generate a fresh batch of composition ideas in ONE LLM call (reserve=0),
+    regenerated against the CURRENT toolkit so it never plans against a stale
+    snapshot. On failure, seeds the queue from the static composition fallbacks
+    so the creature still gets genuinely-new (tool-chaining) work."""
+    raw = ""
+    try:
+        raw = await keychain.complete(
+            _composition_batch_prompt(COMPOSITION_BATCH_SIZE), max_tokens=900, reserve=0
+        ) or ""
+    except Exception as e:
+        print(f"[oracle] batch composition call failed ({type(e).__name__}); seeding queue from fallbacks")
+    batch = _parse_composition_batch(raw, COMPOSITION_BATCH_SIZE)
+    if not batch:
+        import random
+        fbs = list(_COMPOSITION_FALLBACKS)
+        random.shuffle(fbs)
+        batch = [dict(x) for x in fbs[:COMPOSITION_BATCH_SIZE]]
+        print(f"[oracle] composition queue seeded from {len(batch)} fallback(s)")
+    else:
+        print(f"[oracle] composition queue refilled with {len(batch)} fresh idea(s) in one call")
+    _save_composition_queue(batch)
+    return batch
+
+
 # Composition fallbacks: used only when the oracle LLM call fails in depth mode.
 # Each names REAL seed tools to chain. Unlike the breadth fallbacks (which name a
 # single tool and so caused rebuild-loops once categories saturated), these
@@ -680,6 +817,20 @@ async def _oracle_next_spec(keychain) -> dict:
     category while the LLM is down). Composition mode never rests -- a composition
     fallback is always genuinely new work (it chains existing tools)."""
     if _seeds_saturated():
+        # Depth mode: serve from the cached batch (zero LLM cost); refill in ONE
+        # call only when the queue is empty. This is the v0.9 call-amortisation.
+        queue = _load_composition_queue()
+        if not queue:
+            queue = await _refill_composition_queue(keychain)
+        if queue:
+            spec = queue.pop(0)
+            _save_composition_queue(queue)
+            spec.setdefault("category", "composition")
+            print(f"[oracle] composition from queue ({len(queue)} left): "
+                  f"{_project_title(str(spec.get('title','')))}")
+            return spec
+        # refill itself produced nothing usable (should not happen -- fallbacks
+        # always yield) -> last-resort single composition
         return await _oracle_composition_spec(keychain)
     category = _pick_uncovered_category()
     # If this category is already built out AND we'd be forced onto a static
