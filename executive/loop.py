@@ -44,12 +44,16 @@ _REST_SENTINEL = {"__rest__": True}
 # feeds one idea per cycle until empty, then refills. This cuts oracle call
 # frequency ~3x, so the gap-finder rarely hits the quota wall and rarely falls
 # back to the stale static fallbacks. Batch size is deliberately SMALL: a free-
-# tier model produces a fixed handful of genuinely-good ideas then pads to hit
-# any larger number, so 3 captures the good part of the curve and stops before
-# the filler tail (the same statistical gravity that made the dashboard basin,
-# operating inside one response). Breadth mode is NOT batched -- it is category-
+# tier model produces ~10-15 genuinely-distinct, grounded composition ideas, then
+# starts (a) recycling the same tool-pair with new verbs and (b) drifting into a
+# fictional devops/production frame to manufacture novelty. Measured directly by
+# pasting the real N=100 prompt into Gemini Flash: distinctness held to ~item 15,
+# then collapsed to ~5 archetypes reskinned. 10 sits inside the good zone with a
+# margin and gives a ~10x call saving. Refill regenerates from the CURRENT toolkit,
+# so the combination space grows as the creature builds, keeping later batches
+# fresher than a one-shot test. Breadth mode is NOT batched -- it is category-
 # driven, one uncovered category at a time, where batching does not fit.
-COMPOSITION_BATCH_SIZE = 3
+COMPOSITION_BATCH_SIZE = 10
 COMPOSITION_QUEUE_PATH = os.path.join(VOLUME_MOUNT, "composition_queue.json")
 
 IDEATION_STATE_PATH = os.path.join(VOLUME_MOUNT, "ideation_state.json")
@@ -606,7 +610,7 @@ async def _refill_composition_queue(keychain) -> list:
     raw = ""
     try:
         raw = await keychain.complete(
-            _composition_batch_prompt(COMPOSITION_BATCH_SIZE), max_tokens=900, reserve=0
+            _composition_batch_prompt(COMPOSITION_BATCH_SIZE), max_tokens=3000, reserve=0
         ) or ""
     except Exception as e:
         print(f"[oracle] batch composition call failed ({type(e).__name__}); seeding queue from fallbacks")
