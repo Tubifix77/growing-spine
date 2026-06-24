@@ -25,9 +25,39 @@ def commit_body(container_name: str, tag: str) -> str | None:
         return None
     return image
 
+def _normalise_ownership(path: str) -> int:
+    """Walk *path* and chown any root-owned files/dirs to the current process
+    uid:gid.  This fixes tools the container wrote as root before snapshot_mind
+    tries to copy them.  Best-effort: errors are swallowed so a permissions
+    hiccup never aborts the save.  Returns count of items re-owned."""
+    uid, gid = os.getuid(), os.getgid()
+    if uid == 0:
+        return 0  # already root — nothing to do
+    count = 0
+    try:
+        for dirpath, dirnames, filenames in os.walk(path):
+            for name in dirnames + filenames:
+                full = os.path.join(dirpath, name)
+                try:
+                    st = os.lstat(full)
+                    if st.st_uid == 0:
+                        os.chown(full, uid, gid)
+                        count += 1
+                except OSError:
+                    pass
+    except Exception:
+        pass
+    return count
+
 def snapshot_mind(volume_mount: str, savegame_root: str, tag: str) -> str | None:
     """Copy volume contents to host-side snapshot dir. Returns path or None."""
     dst = os.path.join(savegame_root, f"mind-{tag}")
+    # Normalise any root-owned files the container wrote before we try to copy.
+    # This is self-healing: the container runs as root and periodically writes
+    # tool scripts that the host user can't copy until ownership is fixed.
+    fixed = _normalise_ownership(volume_mount)
+    if fixed:
+        print(f"[savegame] normalised ownership on {fixed} item(s) before snapshot")
     try:
         shutil.copytree(volume_mount, dst)
         return dst
