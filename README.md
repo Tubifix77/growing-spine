@@ -2,7 +2,7 @@
 
 A self-improvement creature in a box. Descended from [Spine Reborn](https://github.com/Tubifix77/spine-reborn).
 
-**Status:** Live. First boot 2026-06-03. Re-architected to the *toolsmith* design 2026-06-21 (v0.6). Self-restart capability added 2026-06-21 (v0.7). Running on a dedicated Debian laptop under a systemd supervisor, thinking via a free-tier API keychain, never touching the operator's main PC.
+**Status:** Live. First boot 2026-06-03. Re-architected to the *toolsmith* design 2026-06-21 (v0.6). Self-restart capability added 2026-06-21 (v0.7). Composition/depth mode added 2026-06-23 (v0.8). Running on a dedicated Debian laptop under a systemd supervisor, thinking via a free-tier API keychain, never touching the operator's main PC.
 
 ---
 
@@ -50,11 +50,12 @@ See [`growing-spine-architecture.md`](growing-spine-architecture.md) for how thi
 
 ---
 
-## Current status (2026-06-21, v0.7)
+## Current status (2026-06-23, v0.8)
 
 - **Implementation:** fully operational. Executive loop, self-calibrating free-tier keychain, volume persistence, adaptive wake/sleep, observer GUI, Docker container — and now a **systemd immortal-brain supervisor** that resurrects the executive on any crash or kill. Operational fixes shipped 2026-06-22/23: pruner corrected (disk 92%→82%, holding); chat reply capture fixed; `llm_ask_helper` upgraded from GPT-2 to Groq llama-3.3-70b; API keys now injected into container; observer shows workspace when container is offline.
 - **Architecture:** toolsmith design live (v0.6). Project selection is the creature's own, with a clean-context backstop that redirects relapses into the report/dashboard basin toward concrete tool-gaps. A done-gate verifies completions against ground truth (including a guard against marking "done" on an empty tool scaffold). Per-tool **reuse** and a heuristic **dependency graph** are tracked and shown to the creature each cycle.
 - **Self-restart (v0.7):** the creature can now rewrite and reload its own brain, safely. It runs a `deploy-self` tool that signals the executive to validate and snapshot the current code, then exit for systemd to reload. If a self-restart crash-loops the executive, the brain is automatically rolled back to the last good snapshot and the creature is told what the diff was — so the failure teaches, rather than silently resetting. See the architecture document for the full four-layer design.
+- **Composition / depth mode (v0.8):** the seed categories are now saturated (each built 14–16 deep), so the toolsmith has finished *breadth*. The oracle now reserves a budget slice (so its gap-finding is never starved by the builder), rests instead of rebuilding when no new gap exists, and — the headline change — briefs **composition** tools that chain the creature's own most-used tools into one higher-order command. The aim is to move the dependency-depth metric: tools built out of tools, not a wider flat pile. Shipped and tested; not yet validated on a live budgeted cycle.
 - **Early signal (toolsmith design):** on the first night of v0.6, the basin broke — it stopped building dashboards and instead built fetchers, a planner, and an LLM-delegation tool, and *reused them heavily* (dozens of reuse events, a non-zero dependency graph). It also surfaced two real bugs, since fixed. This is a one-night-old result on a still-quota-throttled creature — promising on its core hypothesis, not a finished verdict.
 - **Providers (self-calibrating, no hardcoded limits):** Gemini 2.5 Flash (daily, resets ~07:00 UTC), Groq llama-3.3-70B (rolling, resets ~00:00 UTC), Cerebras gpt-oss-120B (rolling, ~71s refill). The creature works in bursts when budget returns; long "quota exhausted" stretches are normal, not faults.
 

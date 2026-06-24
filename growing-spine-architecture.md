@@ -1,6 +1,6 @@
-# Growing Spine — Architecture v0.7
+# Growing Spine — Architecture v0.8
 
-This document describes the system as it actually runs. It supersedes the v0.4/v0.5 architecture notes, which described the earlier "drive + survival + six layers" design, and was first written as v0.6 to capture the toolsmith re-architecture. v0.7 adds the self-restart capability (systemd supervisor, deploy-self tool, crash-rollback-with-diff learning loop) documented in the new section below. Read the README first for the story and the why; this document is the how.
+This document describes the system as it actually runs. It supersedes the v0.4/v0.5 architecture notes, which described the earlier "drive + survival + six layers" design, and was first written as v0.6 to capture the toolsmith re-architecture. v0.7 adds the self-restart capability (systemd supervisor, deploy-self tool, crash-rollback-with-diff learning loop). v0.8 shifts the toolsmith objective from breadth to depth — a reserved-budget oracle, a rest-not-spin rule, and a composition phase that has the creature build tools out of its own existing tools, all documented in the new sections below. Read the README first for the story and the why; this document is the how.
 
 A standing rule, stated once and assumed everywhere below: **we shape the environment, we never program the creature.** Every mechanism here lives in the executive (the host-side loop) and the prompt. None of it is hard-coded behaviour inside the creature. Build the room, not the worker.
 
@@ -42,7 +42,7 @@ One iteration of the creature's life (`run_cycle` in `executive/loop.py`):
 4. **Parse & act.** The response is read for ```bash blocks; those are executed in the container. **Plain text is recorded but never executed** — a cycle with no bash block does nothing.
 5. **Done-gate.** If the creature marked the project "done" this cycle, the gate verifies it against ground truth (see below) before accepting the completion.
 6. **Classify + measure.** On a genuine completion, the built tool's *category* is classified and coverage is bumped. Every cycle, **tool-reuse is tracked** (did the creature run one of its own prior tools?).
-7. **Pick or redirect.** A backstop checks the creature's project choice: a relapse into the report/dashboard basin is redirected to a concrete tool-gap; an idle cycle gets a gap assigned. Otherwise the creature's own choice stands.
+7. **Pick or redirect.** A backstop checks the creature's project choice: a relapse into the report/dashboard basin is redirected to a concrete tool-gap; an idle cycle gets a gap assigned. Otherwise the creature's own choice stands. Since v0.8 the gap the oracle hands back depends on saturation — a breadth gap (fill a thin category) while categories are still filling, a **composition** gap (chain existing tools) once they are all covered — and when only a no-value rebuild is available the oracle rests instead of assigning it.
 8. **Persist.** Journal and memory written to the volume; savegame committed if a trigger fired. Loop.
 
 Periodically (not every cycle) a **retrospective** runs as a separate judge call over a window digest, returning PROGRESSING or STUCK (with a directive); STUCK clears the project and resets the creature's self-concept.
@@ -122,6 +122,30 @@ The prompt section **"## Reloading your own brain"** in `protected-prompt.md` te
 - **Executive** + **systemd** jointly handle **brain restores**: the executive picks the rollback target and enqueues the message; systemd handles the actual process restart that loads the new code.
 
 Recursion: the creature can modify every part of itself. The containment is structural, not prompt-level.
+
+
+## The composition phase (what changed in v0.8)
+
+By v0.7 the toolsmith frame had succeeded at its first job: the creature had built a broad, balanced, heavily-reused toolkit (~90 tools, every seed category covered 14–16 deep, top tools run 100–180×). But "build one more tool in category X" had hit diminishing returns, and a failure mode surfaced — the creature kept rebuilding slight variations of tools it already had. v0.8 diagnoses why and shifts the objective from breadth to depth. Three coupled changes, all executive-side.
+
+### 1. Reserved oracle budget (B)
+Root cause of the rebuild loop: the oracle (the clean-context call that decides WHAT to build) shares the free-tier budget with the executor (the call that does the building). On free tier the budget is exhausted most of the time, so the oracle's real gap-finding call almost never ran — it fell back to a small static library of gap briefs. Those briefs name the five seed tools, which the creature had already built. So every quota-blocked cycle assigned "build [tool that already exists]," the creature rebuilt it, the done-gate saw a matching tool and accepted it, and coverage inflated on duplicates.
+
+The fix gives the oracle a reserved slice. `keychain.complete()` now takes a `reserve` floor: the general executor reserves `EXECUTOR_RESERVE` (40) units per provider, so it cannot drain the last of the budget; the oracle calls with `reserve=0`. Deciding *what* to build is higher-leverage than one more build step, so the oracle's gap-finding survives even when the executor is throttled. The probe path (everything exhausted) ignores the reserve, so the hourly reset-probe still reaches the API.
+
+### 2. Rest, not spin (C)
+Even with reserved budget, there are moments when no genuinely new breadth-gap exists and the LLM is down. Before, the creature would spin — rebuild an existing tool. Now the oracle returns a rest sentinel in exactly one case: the target category is already built out AND the only available brief is the static rebuild fallback. The cycle then passes quietly rather than manufacturing a duplicate. (Composition mode never rests — a composition brief is always genuinely new work.)
+
+### 3. Composition / depth mode (D)
+The headline change. Once every seed category has at least `COMPOSITION_THRESHOLD` (3) tools — i.e. breadth is genuinely done — the oracle switches mode. Instead of asking "what category is thin?", it asks "what capability could be built by COMBINING tools the cousin already has?"
+
+A composition brief is structurally different from a breadth brief: it names the creature's most-used existing tools (pulled live from `tool_usage.json`) as building blocks, and asks for a tool that CHAINS two or more of them into one command worth more than the sum of its parts — for example a "morning-orient" tool that runs the wake-catchup fetcher, pipes each item through the subagent ask helper to summarise it, then stores the digest with the archive tool. One command, three tools, a capability none of them had alone. The composition *fallbacks* (used when the LLM is down in depth mode) also chain real seed tools, so even a fallback pushes dependency depth up rather than rebuilding.
+
+The creature is told it is in depth mode: the always-on knowledge block gains a line — *"DEPTH MODE: compose, don't multiply — a fourth archiver adds nothing; a tool that runs your fetcher → summariser → archiver adds a real new capability."*
+
+**Why this is the right design and not a new subsystem.** It reuses everything already there — the category coverage map (now also a mode switch), the gap-brief mechanism (a second prompt template), and the dependency-depth tracker (which already detects composition, since a composition tool references its component tools by construction). The loop closes on the metric the retrospective *already* rewards: "later tools built out of earlier ones, dependency depth climbing." v0.8 promotes that metric from a passive signal the judge watches into the active objective the oracle pursues.
+
+**Status: shipped, not yet validated.** All 33 tests pass, all files compile, and the reserve and mode-selection logic are verified in isolation (seeds read as saturated; a dead-LLM oracle correctly falls back to a composition that chains real tools). Whether the creature actually *builds* good composition tools — and whether dependency depth visibly climbs over days — is the open question this version exists to answer. As of writing it has not yet run a budgeted cycle in depth mode.
 
 
 ## Memory
@@ -208,11 +232,11 @@ These are interpretation/integration bugs that compiled fine and passed isolated
 
 ## Open questions (what we don't know yet)
 
-- **Does it keep compounding, or plateau?** One night showed reuse and a non-zero dependency graph. Whether dependency *depth* keeps rising over many days — genuine compounding vs. a brief novelty — is unknown.
+- **Does it keep compounding, or plateau?** One night showed reuse and a non-zero dependency graph. Whether dependency *depth* keeps rising over many days — genuine compounding vs. a brief novelty — is unknown. v0.8's composition mode is the direct intervention on this question: it actively pushes the creature to build tools out of tools. Whether that moves the depth metric is now the headline thing to watch.
 - **Does the capability wall fully fall under the new register?** The frame produced real tools; whether "build for someone who'll rely on it" reliably gets *finished, robust* tools (vs. the MVP floor) across categories is still being watched. The hollow-tool guard will make this visible.
 - **Will category coverage actually spread, now that the classifier is fixed?** Pre-fix it was jammed on `information_fetch`. The fix is verified in isolation; the live spread across planning / memory / sub-agent categories is the thing to watch next.
 - **Does drive-to-pick hold, or does it need the oracle more often?** The creature currently picks its own tools with the redirect as a backstop. If it relapses constantly, switching to oracle-assigns-every-project is a small change — but that trades away the drive question. Not yet needed.
-- **What does a *coherent* toolkit look like to it?** The telos is coherence, not count. Whether the creature develops an actual architecture to its toolkit (primitives + tools that compose them) or just a heap of related utilities is the deep question the dependency metric is trying to surface.
+- **What does a *coherent* toolkit look like to it?** The telos is coherence, not count. Whether the creature develops an actual architecture to its toolkit (primitives + tools that compose them) or just a heap of related utilities is the deep question the dependency metric is trying to surface. v0.8 makes this explicit by briefing composition tools once breadth saturates; the test is whether the composed tools are genuinely useful or merely chain tools for the sake of it.
 
 ---
 
@@ -231,11 +255,11 @@ These are interpretation/integration bugs that compiled fine and passed isolated
 ## File map (where things live)
 
 - `main.py` — entry point (config check, volume init, `boot_check` for crash-loop detection, `run_forever`).
-- `executive/loop.py` — the executive: cycle, context assembly, redirect/oracle, done-gate, classifier, reuse/dependency tracking, retrospective, restart-request poll.
+- `executive/loop.py` — the executive: cycle, context assembly, redirect/oracle, done-gate, classifier, reuse/dependency tracking, retrospective, restart-request poll. v0.8 adds the mode-aware oracle (`_oracle_next_spec` → breadth `_oracle_gap_spec` or depth `_oracle_composition_spec`), the `_seeds_saturated` / `_most_used_tools` helpers, the composition prompt + fallbacks, and the `_REST_SENTINEL` rest path.
 - `executive/self_restart.py` — crash-loop detection, `prepare_and_arm` (compile + test + snapshot), rollback with diff, chat notification.
 - `executive/chat.py` — operator chat queue (`peek_unread`/`mark_read`/`record_reply`).
 - `executive/parser.py`, `executive/sandbox.py`, `executive/runtime.py` — response parsing, container control, wake/sleep.
-- `keychain/` — the free-tier cognition gateway (failover, self-calibration).
+- `keychain/` — the free-tier cognition gateway (failover, self-calibration). Since v0.8, `complete()` takes a `reserve` budget floor (`EXECUTOR_RESERVE=40` for the executor, `0` for the oracle) so gap-finding survives executor throttling.
 - `volume/` — memory, tools catalogue, savegame (now includes `brain_commit`, `snapshot_brain`, `restore_brain`, `brain_diff`), volume init.
 - `protected-prompt.md` — the un-editable mission/cousin/how-it-works prompt, re-injected every cycle. Includes "## Reloading your own brain" section (v0.7).
 - `editable-prompt.md` — the creature's own editable space.
@@ -253,6 +277,7 @@ The container receives `GROQ_API_KEY`, `GEMINI_API_KEY`, and `CEREBRAS_API_KEY` 
 
 ## Document history
 
+- **v0.8 (2026-06-23)** — composition phase. Reserved oracle budget (B: `complete()` reserve floor, executor 40 / oracle 0) so the gap-finder is no longer starved; rest-not-spin (C: a rest sentinel when only a rebuild fallback is available); composition/depth mode (D: once all seed categories hit `COMPOSITION_THRESHOLD`=3, the oracle briefs tools that chain existing tools, with composition fallbacks that also chain real tools). Promotes dependency depth from a watched signal to the active objective. Shipped + tested in isolation; not yet validated on a budgeted live cycle.
 - **v0.7 (2026-06-23, updated)** — four more operational fixes: `llm_ask_helper` rewritten from GPT-2 to Groq llama-3.3-70b; API keys injected into container environment; root-owned tool files fixed; observer Container tab falls back to host-volume view when container is offline. All added to bugs ledger.
 - **v0.7 (2026-06-22, updated)** — two operational fixes added to the bugs ledger: pruner `MAX_SAVEGAMES 7→1` + orphaned Docker volume cleanup (disk: 92%→86%); chat reply capture switched to structured `<reply>` tag. Both found by running the live system.
 - **v0.7 (2026-06-21)** — self-restart capability: systemd immortal-brain supervisor, brain snapshots via git, crash-rollback-with-diff learning loop, deploy-self tool. v0.7 wins and lessons added to the ledger. File map extended. Document retitled to v0.7.
