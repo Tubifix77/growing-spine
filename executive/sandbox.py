@@ -74,9 +74,8 @@ def start(dockerfile_dir: str = "."):
     # image is (the Dockerfile bakes these in for fresh builds; this covers the rest).
     subprocess.run(
         ["docker", "exec", CONTAINER_NAME, "bash", "-c",
-         "ln -sf /usr/bin/python3 /usr/local/bin/python; "
          "mkdir -p /mind/tools/framework /mind/tools/own; "
-         "git config --global --replace-all safe.directory '*'"],
+         "git config --global --replace-all safe.directory '*' 2>/dev/null || true"],
         check=False
     )
 
