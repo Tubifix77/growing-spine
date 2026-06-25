@@ -508,9 +508,18 @@ def _composition_batch_prompt(n: int) -> str:
     """Batch version of the composition brief: ask for N distinct composition
     ideas in ONE call (calls are the scarce resource, not tokens). Built from the
     single-idea prompt so the framing, constraints, and 'tool not report' rule
-    stay identical -- only the output shape changes to a JSON array."""
+    stay identical -- only the output shape changes to a JSON array.
+    Injects the full existing tool list so the model explicitly avoids duplicates."""
     tool_list = "\n".join(f"  - {nm} ({u} uses)" for nm, u in _most_used_tools(8)) \
         or "  - (no usage data yet; chain any two tools you have built)"
+    # Full existing tool inventory — tell the model exactly what already exists
+    # so it doesn't regenerate near-identical tools under different names.
+    existing = _own_tool_names()
+    existing_block = (
+        "The cousin ALREADY HAS these " + str(len(existing)) + " tools — "
+        "do NOT propose anything with the same name or purpose as any of them:\n"
+        + "\n".join(f"  {nm}" for nm in sorted(existing))
+    ) if existing else ""
     return (
         "You are briefing an autonomous coding agent that has ALREADY built a broad "
         "toolkit for a near-conscious LLM 'cousin' (Linux container, Python 3, "
@@ -519,7 +528,8 @@ def _composition_batch_prompt(n: int) -> str:
         "tools into single higher-order capabilities the cousin runs as one command, "
         "so capability compounds instead of accumulating as a flat pile.\n\n"
         "The cousin's most-used existing tools (compose FROM these):\n" + tool_list + "\n\n"
-        "Propose " + str(n) + " DISTINCT new tools, each of which CHAINS two or more of "
+        + (existing_block + "\n\n" if existing_block else "")
+        + "Propose " + str(n) + " DISTINCT new tools, each of which CHAINS two or more of "
         "the above tools into a workflow worth more than the sum of its parts. Make "
         "them genuinely different from each other -- different tool combinations and "
         "different purposes, not " + str(n) + " variants of one idea. Each must be a real "
@@ -564,6 +574,14 @@ def _parse_composition_batch(raw: str, n: int) -> list:
         return []
     if not isinstance(arr, list):
         return []
+    # Pre-build a normalised set of existing tool names for dedup.
+    # Strips underscores, hyphens, spaces and lowercases so that
+    # "fetch_json_url", "fetch-json-url", and "fetchjsonurl" all collide.
+    def _norm(s: str) -> str:
+        import re as _re2
+        return _re2.sub(r"[^a-z0-9]", "", s.lower())
+    existing_norm = {_norm(nm) for nm in _own_tool_names()}
+
     out, seen = [], set()
     for item in arr:
         if not isinstance(item, dict):
@@ -574,6 +592,9 @@ def _parse_composition_batch(raw: str, n: int) -> list:
             continue
         key = _project_title(title).lower()
         if key in seen:
+            continue
+        # Reject if the normalised title matches any existing tool name
+        if _norm(title) in existing_norm:
             continue
         seen.add(key)
         item.setdefault("demonstration",

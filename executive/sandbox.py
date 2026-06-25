@@ -56,6 +56,9 @@ def start(dockerfile_dir: str = "."):
         "docker", "run", "-d",
         "--name", CONTAINER_NAME,
         "--rm",  # auto-remove when stopped — safe now, all data is on host binds
+        "--user", f"{os.getuid()}:{os.getgid()}",  # run as host user — files written to
+                                                    # bind-mounts are host-user-owned from
+                                                    # birth; eliminates root-owned tool files
         "-v", f"{host_mind}:/mind",            # curated durable mind (memory, prompts, tools)
         "-v", f"{host_ws}:/workspace",         # the creature's persistent build space
         "--network", "bridge",
