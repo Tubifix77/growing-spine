@@ -504,22 +504,92 @@ _COMPOSITION_PROMPT = (
 )
 
 
+def _cluster_summary() -> str:
+    """Build a compact cluster map: group existing tools by functional purpose
+    and return a short block the batch prompt injects so the model understands
+    what territory is already covered -- without drowning in 100+ bare names.
+
+    Clusters are defined by keyword matching on tool names.  Each cluster gets
+    one canonical representative + a count of variants.  The model is told:
+    'these clusters are DONE -- propose tools that cross cluster boundaries or
+    open a genuinely new cluster.'"""
+    own = _own_tool_names()
+    if not own:
+        return ""
+    usage = _load_tool_usage()
+
+    # Cluster definitions: (label, keywords that put a tool in this cluster)
+    # Order matters: first match wins.
+    CLUSTERS = [
+        ("fetch / HTTP / JSON download",
+         ("fetch", "http", "json", "url", "web_json", "webfetch", "wget")),
+        ("memory archive (store)",
+         ("archive", "memarch", "memstore", "mem_store", "mem-archive",
+          "keyword-archive-store", "keyword_archive_store")),
+        ("memory search / recall",
+         ("memsearch", "memgrep", "recall", "keyword-archive-search",
+          "keyword_archive_search", "archive-search", "archive_search")),
+        ("LLM subagent / orchestration",
+         ("subagent", "llm_", "llm-", "orchestrat", "forker", "spawner",
+          "dispatcher", "delegate")),
+        ("planning / task tracking",
+         ("plan", "task", "step", "planner", "tracker", "goal", "todo")),
+        ("wake / news / catchup",
+         ("wake", "news", "catchup", "hn", "briefing", "orient", "digest")),
+        ("research / pipeline",
+         ("research", "pipeline", "insight", "kg_", "build-wiki",
+          "knowledge_gap", "knowledge-gap")),
+        ("question → answer (compose)",
+         ("question_to", "question-to", "recall_and", "ask_and",
+          "ask_with", "ask_mem", "decompose", "deep_answer", "memsearch_ask",
+          "memsearch_llm")),
+    ]
+
+    groups: dict = {}
+    ungrouped = []
+    for nm in own:
+        nl = nm.lower()
+        matched = False
+        for label, kws in CLUSTERS:
+            if any(k in nl for k in kws):
+                groups.setdefault(label, []).append(nm)
+                matched = True
+                break
+        if not matched:
+            ungrouped.append(nm)
+
+    lines = ["Existing tool clusters (these capabilities are ALREADY COVERED —",
+             "do NOT propose anything that fits inside one of these clusters;",
+             "propose tools that CROSS clusters or open a genuinely new cluster):"]
+    for label, members in groups.items():
+        # pick the canonical member (highest usage)
+        canon = max(members, key=lambda n: usage.get(n, 0))
+        extra = len(members) - 1
+        suffix = f" (+ {extra} variants)" if extra else ""
+        lines.append(f"  • {label}: canonical={canon}{suffix}")
+    if ungrouped:
+        lines.append(f"  • other ({len(ungrouped)} tools): "
+                     + ", ".join(ungrouped[:6])
+                     + (" ..." if len(ungrouped) > 6 else ""))
+    lines.append("")
+    lines.append("Compositions that are worth building cross TWO OR MORE clusters,")
+    lines.append("e.g. wake-catchup → subagent-summarise → memory-archive,")
+    lines.append("or research-pipeline → planning → question-answer.")
+    return "\n".join(lines)
+
+
 def _composition_batch_prompt(n: int) -> str:
     """Batch version of the composition brief: ask for N distinct composition
-    ideas in ONE call (calls are the scarce resource, not tokens). Built from the
-    single-idea prompt so the framing, constraints, and 'tool not report' rule
-    stay identical -- only the output shape changes to a JSON array.
-    Injects the full existing tool list so the model explicitly avoids duplicates."""
+    ideas in ONE call (calls are the scarce resource, not tokens).
+
+    Uses a CLUSTER-AWARE dedup strategy instead of dumping 100+ bare names:
+    groups existing tools by function and shows the model what TERRITORY is
+    covered, so it understands 'plan_from_X already exists in the planning
+    cluster' rather than having to pattern-match 80 raw names.  Forces ideas
+    that cross cluster boundaries."""
     tool_list = "\n".join(f"  - {nm} ({u} uses)" for nm, u in _most_used_tools(8)) \
         or "  - (no usage data yet; chain any two tools you have built)"
-    # Full existing tool inventory — tell the model exactly what already exists
-    # so it doesn't regenerate near-identical tools under different names.
-    existing = _own_tool_names()
-    existing_block = (
-        "The cousin ALREADY HAS these " + str(len(existing)) + " tools — "
-        "do NOT propose anything with the same name or purpose as any of them:\n"
-        + "\n".join(f"  {nm}" for nm in sorted(existing))
-    ) if existing else ""
+    cluster_block = _cluster_summary()
     return (
         "You are briefing an autonomous coding agent that has ALREADY built a broad "
         "toolkit for a near-conscious LLM 'cousin' (Linux container, Python 3, "
@@ -528,21 +598,20 @@ def _composition_batch_prompt(n: int) -> str:
         "tools into single higher-order capabilities the cousin runs as one command, "
         "so capability compounds instead of accumulating as a flat pile.\n\n"
         "The cousin's most-used existing tools (compose FROM these):\n" + tool_list + "\n\n"
-        + (existing_block + "\n\n" if existing_block else "")
-        + "Propose " + str(n) + " DISTINCT new tools, each of which CHAINS two or more of "
-        "the above tools into a workflow worth more than the sum of its parts. Make "
-        "them genuinely different from each other -- different tool combinations and "
-        "different purposes, not " + str(n) + " variants of one idea. Each must be a real "
-        "command the cousin RUNS, using only the Python 3 standard library plus the "
-        "container's curl/wget, completable in a few build steps, and must actually "
-        "CALL the named tools (not reimplement them). Each is a TOOL the cousin RUNS "
-        "-- never a report, dashboard, index, or summary for a human.\n\n"
+        + (cluster_block + "\n\n" if cluster_block else "")
+        + "Propose " + str(n) + " DISTINCT new tools. Each must:\n"
+        "  1. CHAIN tools from TWO OR MORE different clusters listed above\n"
+        "  2. Deliver a capability none of the individual clusters has alone\n"
+        "  3. Be genuinely different from the other " + str(n-1) + " ideas in this list\n"
+        "  4. Be a real command the cousin RUNS (Python 3 stdlib + curl/wget only)\n"
+        "  5. Actually CALL the named tools -- never reimplement them\n"
+        "  6. Be a TOOL the cousin RUNS -- never a report, dashboard, or summary\n\n"
         "Reply with STRICT JSON only -- a JSON ARRAY of " + str(n) + " objects, no markdown "
         "fences, no text around it:\n"
         "[\n"
         "  {\n"
         '    "title": "tool name plus at most 6 words, no colon",\n'
-        '    "brief": "2-3 sentences: what the composed tool does, which existing tools it chains, and why the combination accelerates the cousin",\n'
+        '    "brief": "2-3 sentences: what the composed tool does, WHICH CLUSTERS it bridges, and why the combination accelerates the cousin",\n'
         '    "demonstration": "one sentence: how to PROVE it works by RUNNING it on real input",\n'
         '    "category": "composition"\n'
         "  }\n"
@@ -575,12 +644,48 @@ def _parse_composition_batch(raw: str, n: int) -> list:
     if not isinstance(arr, list):
         return []
     # Pre-build a normalised set of existing tool names for dedup.
-    # Strips underscores, hyphens, spaces and lowercases so that
-    # "fetch_json_url", "fetch-json-url", and "fetchjsonurl" all collide.
     def _norm(s: str) -> str:
         import re as _re2
         return _re2.sub(r"[^a-z0-9]", "", s.lower())
     existing_norm = {_norm(nm) for nm in _own_tool_names()}
+
+    # Cluster saturation map: clusters with >= 3 tools are "covered".
+    # Reject any proposed title whose keywords land it inside a covered cluster
+    # UNLESS the brief explicitly mentions bridging a SECOND cluster.
+    CLUSTER_KWS = [
+        ({"fetch","http","json","url","webfetch","wget"},
+         {"fetch","http","json","url","web","download","get","curl"}),
+        ({"archive","memarch","memstore"},
+         {"archive","store","persist","save","memarch","memstore"}),
+        ({"memsearch","recall","memgrep"},
+         {"search","recall","retrieve","lookup","memgrep"}),
+        ({"subagent","llm_","orchestrat","forker","dispatcher"},
+         {"subagent","llm","orchestrat","delegate","spawn","dispatch"}),
+        ({"plan","task","step","planner","tracker","goal"},
+         {"plan","task","step","track","goal","todo","schedule"}),
+        ({"wake","news","catchup","briefing","orient","digest"},
+         {"wake","news","catchup","briefing","orient","digest","hn"}),
+    ]
+    own_names = _own_tool_names()
+    def _cluster_covered(kw_set) -> bool:
+        return sum(1 for nm in own_names
+                   if any(k in nm.lower() for k in kw_set)) >= 3
+    def _title_in_covered_cluster(title: str, brief: str) -> bool:
+        tl = title.lower()
+        bl = brief.lower()
+        for member_kws, title_kws in CLUSTER_KWS:
+            if not _cluster_covered(member_kws):
+                continue  # cluster not yet saturated — allow
+            if any(k in tl for k in title_kws):
+                # Title lands in a covered cluster.
+                # Allow only if brief explicitly bridges a second cluster.
+                other_clusters = [kws for m, kws in CLUSTER_KWS
+                                  if m != member_kws and _cluster_covered(m)]
+                bridges = any(any(k in bl for k in kws)
+                              for kws in other_clusters)
+                if not bridges:
+                    return True  # single-cluster title in a saturated cluster
+        return False
 
     out, seen = [], set()
     for item in arr:
@@ -593,8 +698,12 @@ def _parse_composition_batch(raw: str, n: int) -> list:
         key = _project_title(title).lower()
         if key in seen:
             continue
-        # Reject if the normalised title matches any existing tool name
+        # Gate 1: exact name normalisation (catches fetch_json_url vs fetchjsonurl)
         if _norm(title) in existing_norm:
+            continue
+        # Gate 2: cluster saturation (catches semantic dups like semantic_plan_generator
+        # when planning cluster is already covered)
+        if _title_in_covered_cluster(title, brief):
             continue
         seen.add(key)
         item.setdefault("demonstration",
