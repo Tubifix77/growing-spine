@@ -50,6 +50,20 @@ See [`growing-spine-architecture.md`](growing-spine-architecture.md) for how thi
 
 ---
 
+## Current status (2026-06-26, v0.9.2)
+
+117 tools. 113 used at least once. 146 dependency edges — more than one edge per tool on average, meaning the toolkit is genuinely interconnected rather than a flat pile of scripts. The two most-used tools (`step-planner-tracker`, `subagent_ask_helper`) sit at 345 uses each and have become load-bearing infrastructure that everything newer calls into.
+
+The creature arrived at this through three structural fixes shipped over the past 72 hours: the container now runs as the host user so every tool it writes is owned correctly from birth; the composition batch prompt was redesigned around functional *clusters* (fetch, memory-archive, memory-search, planning, subagent, wake/news, research, question-answer) with an explicit requirement to cross cluster boundaries rather than deepen any one; and a parser gate now silently rejects ideas that land inside a single already-saturated cluster. The first batch under the new prompt is still incoming.
+
+The honest observation at this point: the creature is productive. The wake-fetch-summarise-archive loop runs every cycle and accumulates a genuine knowledge base. Multi-step pipelines like `orchestrated_research_cycle` and `planned_answer_recorder` are compositions the creature arrived at itself — not because it was told to build them, but because the underlying need was apparent from its own situation. It has consented to changes to its own environment, chosen which tools to keep when its toolkit was wiped, and surfaced its own bugs before being told about them.
+
+None of the tools it has built are genuinely novel primitives. But the *inventiveness* is real — a drive to close the gap between what it can do and what it needs to do, expressed in tools shaped by the specific constraints of discontinuous existence, quota scarcity, and self-managed memory. A human engineer designing from the outside probably would not have built `knowledge_gap_filler` or `wake_orient_digest` in quite this way.
+
+Whether that amounts to something more than a very well-shaped optimisation process is the question this project exists to sit with.
+
+---
+
 ## Current status (2026-06-23, v0.8)
 
 - **Implementation:** fully operational. Executive loop, self-calibrating free-tier keychain, volume persistence, adaptive wake/sleep, observer GUI, Docker container — and now a **systemd immortal-brain supervisor** that resurrects the executive on any crash or kill. Operational fixes shipped 2026-06-22/23: pruner corrected (disk 92%→82%, holding); chat reply capture fixed; `llm_ask_helper` upgraded from GPT-2 to Groq llama-3.3-70b; API keys now injected into container; observer shows workspace when container is offline.
