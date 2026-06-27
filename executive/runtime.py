@@ -70,18 +70,17 @@ async def ensure_body(volume_mount: str, savegame_root: str,
 
 
 def sleep_duration_seconds(keychain) -> float:
+    """How long to sleep when exhausted.
+    Uses last_window_duration (gap between consecutive exhaustions) if known,
+    else a conservative 1 hour. Floor of 60s to avoid hammering the API.
     """
-    Sleep until the soonest provider is likely to have reset.
-    Uses discovered_reset_interval if known (+ 20% buffer), else 1 hour.
-    Floor of 60s to avoid hammering the API.
-    """
-    intervals = []
+    durations = []
     for p in keychain.providers:
-        interval = keychain.state.get(p["key"], {}).get("discovered_reset_interval")
-        if interval and interval > 0:
-            intervals.append(interval)
-    if intervals:
-        return max(60.0, min(intervals) * 1.2)  # shortest known + 20% buffer
+        dur = keychain.state.get(p["key"], {}).get("last_window_duration")
+        if dur and dur > 0:
+            durations.append(dur)
+    if durations:
+        return max(60.0, min(durations) * 1.1)  # shortest known + 10% buffer
     return 3600  # no history yet — conservative hourly probe
 
 
@@ -94,16 +93,12 @@ async def wake_entry(volume_mount: str, keychain):
     except Exception as e:
         print(f"[runtime] framework materialize failed: {e}")
 
-    available = keychain.available_providers()
-    provider_names = [p["key"] for p in available]
-    budget_info = ", ".join(
-        f"{p['key']}: {p['quota']['limit'] - keychain.state.get(p['key'], {}).get('used', 0)} remaining"
-        for p in available
-    ) or "none"
-    msg = (
-        f"Resumed. Available providers: {provider_names}. "
-        f"Cognitive budget: {budget_info}."
-    )
+    from keychain import quota_state as qs
+    available_names = [
+        p["key"] for p in keychain.providers
+        if p.get("enabled", True) and not qs.is_exhausted(keychain.state, p["key"])
+    ]
+    msg = f"Resumed. Available providers: {available_names}."
     journal.append(volume_mount, "wake", msg)
     print(f"[runtime] Wake: {msg}")
 
