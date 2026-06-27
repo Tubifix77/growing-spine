@@ -1,15 +1,7 @@
 """keychain.py — one function: give it a prompt, get a response."""
-import asyncio, os, time, yaml
+import asyncio, os, yaml
 from . import quota_state as qs
 from . import provider as prov
-
-
-# Budget floor the GENERAL executor must leave untouched, per provider, so the
-# oracle's gap-finding (deciding WHAT to build -- higher leverage than one more
-# build step) always has a sliver. The oracle calls with reserve=0; everything
-# else uses this default. Small on purpose: only needs to cover a few short
-# gap-brief calls per window.
-EXECUTOR_RESERVE = 40
 
 
 def _load_config() -> list:
@@ -23,33 +15,25 @@ class Keychain:
         self.providers = _load_config()
         self.state = qs.load_state(self.providers)
 
-    def available_providers(self, reserve: int = 0) -> list:
-        return [p for p in self.providers
-                if qs.is_available_with_reserve(self.state, p["key"], p, reserve)]
+    async def complete(self, prompt: str, system: str = "",
+                       max_tokens: int = 2048, **_kwargs) -> str:
+        """Send prompt through the first available provider.
 
-    async def complete(self, prompt: str, system: str = "", max_tokens: int = 2048,
-                       reserve: int = EXECUTOR_RESERVE) -> str:
-        """
-        Send prompt through the highest-priority available provider.
-        Returns response text. Raises RuntimeError if all quota exhausted.
-        Distinguishes transient failures (retry) from real exhaustion (sleep).
+        Tries non-exhausted providers first, then exhausted ones as a probe
+        (a 429 from an exhausted provider means "not yet"; a success means
+        the window reopened). Raises RuntimeError if all providers fail.
 
-        `reserve` is a per-provider budget floor this call will not cross. The
-        general executor uses EXECUTOR_RESERVE so it cannot drain the last of the
-        budget; the oracle calls with reserve=0 so gap-finding survives when the
-        executor is throttled. The probe path (everything exhausted) ignores
-        reserve -- a probe must always be allowed to test for reset.
+        **_kwargs swallows any legacy keyword arguments — ignored.
         """
-        available = self.available_providers(reserve=reserve)
-        # If nothing is available, still attempt all providers as a probe.
-        # The probe IS the real next prompt — a 429 means 'not yet',
-        # a success means quota reset and we record the interval.
-        probe_mode = not available
-        if probe_mode:
-            available = self.providers  # try everyone regardless of is_available
+        enabled = [p for p in self.providers if p.get("enabled", True)]
+        # Put non-exhausted providers first; exhausted ones at the end as probes
+        ordered = (
+            [p for p in enabled if not qs.is_exhausted(self.state, p["key"])] +
+            [p for p in enabled if qs.is_exhausted(self.state, p["key"])]
+        )
 
         had_transient = False
-        for cfg in available:
+        for cfg in ordered:
             messages = []
             if system:
                 messages.append({"role": "system", "content": system})
@@ -59,75 +43,46 @@ class Keychain:
                 result = await prov.call(cfg, messages, max_tokens=max_tokens)
 
                 if result["error"] is None:
-                    usage = 1 if cfg["quota"].get("type") == "daily_calls" else result["tokens_used"]
-                    qs.record_usage(self.state, cfg["key"], usage)
-                    # If we just recovered from exhaustion, record the reset interval
-                    exhausted_at = self.state[cfg["key"]].get("exhausted_at")
-                    if exhausted_at:
-                        interval = time.time() - exhausted_at
-                        self.state[cfg["key"]]["discovered_reset_interval"] = interval
-                        del self.state[cfg["key"]]["exhausted_at"]
-                        qs.save_state(self.state)
+                    qs.record_success(self.state, cfg["key"])
                     return result["text"]
 
                 err = str(result["error"])
-                # Check quota exhaustion first — a "quota exceeded" 429
-                # must not be misclassified as a transient per-minute limit.
                 err_l = err.lower()
-                # Per-minute rate limits look like quota errors but must not
-                # trigger daily exhaustion — they should retry with backoff.
+
+                # Per-minute rate limit — transient, retry with backoff
                 is_per_minute = (
                     ("rate_limit" in err_l or "too_many_requests" in err_l) and
                     ("per minute" in err_l or "per-minute" in err_l or
                      "per_minute" in err_l or "rpm" in err_l)
                 )
+
+                # Quota exhaustion — mark provider and move on
                 is_quota = not is_per_minute and (
                     "quota" in err_l or
                     "rate_limit_exceeded" in err_l or
                     "exceeded" in err_l or
-                    "billing" in err_l
+                    "billing" in err_l or
+                    "429" in err
                 )
-                if is_quota:
-                    current_used = self.state[cfg["key"]].get("used", 0)
-                    self.state[cfg["key"]]["used"] = current_used + 1  # mark exhausted
-                    # Start the clock on the first hit this window.
-                    # Subsequent probe rejections leave exhausted_at untouched.
-                    if "exhausted_at" not in self.state[cfg["key"]]:
-                        self.state[cfg["key"]]["exhausted_at"] = time.time()
-                    # Only update discovered_limit if we genuinely ran this window
-                    # (current_used > 0 and reached at least the previous ceiling).
-                    # Probe rejections at used=0 or 1 must not trash last window's value.
-                    prev = self.state[cfg["key"]].get("discovered_limit", 0)
-                    if current_used > 0 and current_used >= max(prev, 1):
-                        self.state[cfg["key"]]["discovered_limit"] = current_used
-                    qs.save_state(self.state)
-                    break  # move to next provider
 
-                # Transient: retry same provider with backoff
-                is_transient = is_per_minute or (
-                    "429" in err or
-                    "too_many_requests" in err_l or
-                    "high traffic" in err_l or
-                    "HTTP 500" in err or
-                    "HTTP 502" in err or
-                    "HTTP 503" in err or
-                    "HTTP 504" in err
-                )
-                if is_transient:
+                if is_quota:
+                    qs.record_exhaustion(self.state, cfg["key"])
+                    break  # try next provider
+
+                if is_per_minute or "500" in err or "502" in err or                         "503" in err or "504" in err or                         "high traffic" in err_l:
                     had_transient = True
                     if attempt < 2:
-                        backoff = 3 * (2 ** attempt)  # 3s then 6s
-                        await asyncio.sleep(backoff)
-                        continue  # retry same provider
-                    break  # exhausted retries, move to next provider
+                        await asyncio.sleep(3 * (2 ** attempt))  # 3s, 6s
+                        continue
+                    break  # move to next provider
 
-                # hard error - raise immediately
+                # Hard error
                 raise RuntimeError(f"Provider {cfg['key']} error: {err}")
-                break  # move to next provider (unreachable but clear)
 
         if had_transient:
             raise RuntimeError("All providers temporarily unavailable.")
-        raise RuntimeError("All providers failed or exhausted.")
+        raise RuntimeError("All providers exhausted.")
 
-    def any_available(self, reserve: int = 0) -> bool:
-        return bool(self.available_providers(reserve=reserve))
+    def any_available(self) -> bool:
+        enabled = [p for p in self.providers if p.get("enabled", True)]
+        return any(not qs.is_exhausted(self.state, p["key"]) for p in enabled)

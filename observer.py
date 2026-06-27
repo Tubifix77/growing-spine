@@ -654,14 +654,14 @@ class QuotaTab(QWidget):
                 stat1_text = "Last success:  never"
 
             # Stat 2: last recovery duration
-            discovered_interval = ps.get("discovered_reset_interval")
+            discovered_interval = ps.get("last_window_duration")
             if discovered_interval is not None:
                 di_h = int(discovered_interval // 3600)
                 di_m = int((discovered_interval % 3600) // 60)
-                stat2_text = (f"Last recovery took:  {di_h}h {di_m:02d}m"
-                              if di_h else f"Last recovery took:  {di_m}m")
+                stat2_text = (f"Last window lasted:  {di_h}h {di_m:02d}m"
+                              if di_h else f"Last window lasted:  {di_m}m")
             else:
-                stat2_text = "Last recovery took:  not yet measured"
+                stat2_text = "Last window lasted:  not yet measured"
 
             for stat_text in (stat1_text, stat2_text):
                 lbl = QLabel(stat_text)

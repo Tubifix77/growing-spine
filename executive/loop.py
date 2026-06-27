@@ -733,14 +733,14 @@ def _save_composition_queue(queue: list):
 
 
 async def _refill_composition_queue(keychain) -> list:
-    """Generate a fresh batch of composition ideas in ONE LLM call (reserve=0),
+    """Generate a fresh batch of composition ideas in ONE LLM call,
     regenerated against the CURRENT toolkit so it never plans against a stale
     snapshot. On failure, seeds the queue from the static composition fallbacks
     so the creature still gets genuinely-new (tool-chaining) work."""
     raw = ""
     try:
         raw = await keychain.complete(
-            _composition_batch_prompt(COMPOSITION_BATCH_SIZE), max_tokens=3000, reserve=0
+            _composition_batch_prompt(COMPOSITION_BATCH_SIZE), max_tokens=3000
         ) or ""
     except Exception as e:
         print(f"[oracle] batch composition call failed ({type(e).__name__}); seeding queue from fallbacks")
@@ -901,15 +901,14 @@ _FALLBACK_GAPS = {
 
 
 async def _oracle_composition_spec(keychain) -> dict:
-    """Depth-mode brief: a tool that COMPOSES existing tools. reserve=0 so the
-    oracle is not starved by the executor's budget floor. On LLM failure, falls
+    """Depth-mode brief: a tool that COMPOSES existing tools. On LLM failure, falls
     back to a composition that chains real seed tools (never a rebuild)."""
     tool_list = "\n".join(f"  - {n} ({u} uses)" for n, u in _most_used_tools(8)) \
         or "  - (no usage data yet; chain any two tools you have built)"
     prompt = _COMPOSITION_PROMPT.format(tool_list=tool_list)
     raw = ""
     try:
-        raw = await keychain.complete(prompt, max_tokens=500, reserve=0) or ""
+        raw = await keychain.complete(prompt, max_tokens=500) or ""
     except Exception as e:
         print(f"[oracle] composition call failed ({type(e).__name__}); using fallback composition")
     spec = _parse_composition_json(raw)
@@ -922,14 +921,13 @@ async def _oracle_composition_spec(keychain) -> dict:
 
 
 async def _oracle_gap_spec(category: str, keychain) -> dict:
-    """Clean-context gap brief for a category (breadth mode). reserve=0 so the
-    oracle's gap-finding always has a sliver even when the executor is throttled.
+    """Clean-context gap brief for a category (breadth mode).
     On LLM failure, returns the category fallback gap."""
     hint = _CATEGORY_HINTS.get(category, _CATEGORY_HINTS["other"])
     prompt = _GAP_PROMPT.format(category=category, hint=hint)
     raw = ""
     try:
-        raw = await keychain.complete(prompt, max_tokens=500, reserve=0) or ""
+        raw = await keychain.complete(prompt, max_tokens=500) or ""
     except Exception as e:
         print(f"[oracle] gap call failed ({type(e).__name__}); using fallback gap")
     spec = _parse_gap_json(raw, category)
