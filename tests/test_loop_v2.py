@@ -210,6 +210,27 @@ async def main():
     _m.store(TMP, "current-phase", "done")
     gate = loop._enforce_done_gate([("tool-new hollow_tool", 0), ('remember current-phase "done"', 0)])
     check("B gate blocks done on a hollow tool (returns False)", gate is False)
+
+    # NEW: cross-cycle library backlog. Create enough hollow stubs (beyond the
+    # tolerance) WITHOUT touching them this cycle, then mark a CLEAN project done.
+    # The widened gate must still block, citing the library backlog.
+    for i in range(loop.HOLLOW_BACKLOG_TOLERANCE + 2):
+        with open(os.path.join(owndir, f"stub_{i}"), "w") as f:
+            f.write("#!/usr/bin/env python3\n# does: DESCRIBE WHAT THIS TOOL DOES - edit this line\nimport sys\nprint('hello from ' + sys.argv[0])\n")
+    lib_holl = loop._library_hollow_tools()
+    check("library scan finds cross-cycle stubs",
+          len([h for h in lib_holl if h.startswith("stub_")]) >= loop.HOLLOW_BACKLOG_TOLERANCE + 2)
+    # a clean tool marked done, nothing hollow touched THIS cycle, but backlog exists
+    with open(os.path.join(owndir, "clean_done_tool"), "w") as f:
+        f.write("#!/usr/bin/env python3\nimport sys\nprint('real output')\nx = 1 + 1\n")
+    _m.store(TMP, "current-project", "clean_done_tool: a real tool")
+    _m.store(TMP, "current-phase", "done")
+    gate2 = loop._enforce_done_gate([("clean_done_tool", 0), ('remember current-phase "done"', 0)])
+    check("B gate blocks done when library backlog exceeds tolerance", gate2 is False)
+    # clean up the stubs so they don't pollute later tests
+    for i in range(loop.HOLLOW_BACKLOG_TOLERANCE + 2):
+        try: os.remove(os.path.join(owndir, f"stub_{i}"))
+        except Exception: pass
     ph = _m.retrieve(TMP, "current-phase")
     check("B gate reverts phase to code", bool(ph) and ph["value"].strip() == "code")
 

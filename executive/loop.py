@@ -1287,6 +1287,42 @@ def _hollow_tools_touched(executed) -> list:
         return []
 
 
+def _library_hollow_tools() -> list:
+    """Scan the ENTIRE own-tools library for hollow shells -- placeholder tools
+    the creature scaffolded with tool-new but never filled in. Unlike
+    _hollow_tools_touched (which only sees tools created THIS cycle), this catches
+    stubs left behind across cycles: the creature scaffolds a tool, hits a quota
+    wall, wakes in a fresh cycle with no memory of the shell, and the per-cycle
+    gate never connects the old stub to a later 'done'. Same detection logic as
+    _hollow_tools_touched, applied library-wide. Best-effort; returns [] on error."""
+    try:
+        base = os.path.join(VOLUME_MOUNT, "tools", "own")
+        hollow = []
+        for name in _own_tool_names():
+            p = os.path.join(base, name)
+            try:
+                with open(p, encoding="utf-8", errors="replace") as f:
+                    body = f.read()
+            except Exception:
+                continue
+            if any(mk in body for mk in _TOOL_PLACEHOLDER_MARKERS):
+                hollow.append(name)
+            else:
+                code_lines = [ln for ln in body.splitlines()
+                              if ln.strip() and not ln.strip().startswith("#")]
+                if len(code_lines) < 2:
+                    hollow.append(name)
+        return hollow
+    except Exception:
+        return []
+
+
+# Tolerance: a couple of half-finished tools in flight is normal and shouldn't
+# block every completion. The gate fires only once the backlog exceeds this --
+# at which point "finish what you started" genuinely is the higher-value work.
+HOLLOW_BACKLOG_TOLERANCE = 3
+
+
 def _enforce_done_gate(executed):
     """Verify a 'done' assertion against ground truth.
 
@@ -1329,6 +1365,38 @@ def _enforce_done_gate(executed):
                 f.write(reason)
             journal.append(VOLUME_MOUNT, "error",
                            "Done-gate blocked an empty (placeholder) completion: " + reason)
+            return False
+
+        # Cross-cycle guard: even if nothing hollow was touched THIS cycle, a
+        # backlog of abandoned stubs from earlier cycles means "finish what you
+        # started" is the real work -- not another completion on top of a pile of
+        # shells. Block the done, point at the backlog, and frame it the way it
+        # actually matters: your cousin reaches for these tools and finds nothing.
+        library_hollow = _library_hollow_tools()
+        if len(library_hollow) > HOLLOW_BACKLOG_TOLERANCE and not failures:
+            mem.store(VOLUME_MOUNT, "current-phase", "code")
+            shown = ", ".join(sorted(library_hollow)[:10])
+            more = (f" (+{len(library_hollow) - 10} more)"
+                    if len(library_hollow) > 10 else "")
+            reason = (
+                f"Hold on -- before marking anything else done, look at what you "
+                f"have left unfinished. You have {len(library_hollow)} tools in your "
+                f"library that are still empty placeholders: {shown}{more}. Each one "
+                f"is a promise to your cousin that was never kept -- the cousin "
+                f"reaches for one of these expecting a working capability and gets "
+                f"'hello from <toolname>' and nothing else. A drawer full of broken "
+                f"tools is worse than no tools, because the cousin cannot tell which "
+                f"ones actually work until they fail mid-task. Phase reverted to code. "
+                f"Pick ONE of those placeholder tools, open it, write the real code it "
+                f"was supposed to have, RUN it on real input to prove it works, then "
+                f"mark done. Finish what you started before you start anything new.")
+            with open(DONE_BLOCK_PATH, "w", encoding="utf-8") as f:
+                f.write(reason)
+            journal.append(VOLUME_MOUNT, "error",
+                           f"Done-gate blocked: {len(library_hollow)} hollow tools "
+                           f"in library backlog -- creature directed to finish them.")
+            print(f"[done-gate] blocked completion -- {len(library_hollow)} hollow "
+                  f"tools in backlog, directing creature to finish them")
             return False
 
         if not failures:
@@ -1723,6 +1791,18 @@ def _build_knowledge_block() -> str:
                 parts.append("Built but not yet used: " + shown + more
                              + " -- if one of these fits the job in front of you, "
                                "reach for it instead of building another.")
+            # Surface UNFINISHED tools every cycle, not only at the done-gate.
+            # These are scaffolds the creature left as 'hello from <name>' shells.
+            hollow = _library_hollow_tools()
+            if hollow:
+                hshown = ", ".join(sorted(hollow)[:8])
+                hmore = f" (+{len(hollow) - 8} more)" if len(hollow) > 8 else ""
+                parts.append(f"UNFINISHED tools ({len(hollow)}) -- empty "
+                             f"placeholders you scaffolded but never wrote: "
+                             + hshown + hmore
+                             + ". Each is a broken promise to your cousin: it "
+                               "reaches for one and gets nothing. Finishing one of "
+                               "these is worth more than starting a new tool.")
     except Exception:
         pass
     # Headline compounding metric: are later tools BUILT OUT OF earlier ones?
