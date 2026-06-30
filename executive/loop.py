@@ -938,6 +938,49 @@ async def _oracle_gap_spec(category: str, keychain) -> dict:
     return fb
 
 
+def _finish_stub_spec() -> dict:
+    """Build an assignment that points the creature at a SPECIFIC unfinished stub
+    to complete, rather than briefing a new tool. Returned by the oracle when the
+    hollow backlog exceeds tolerance, so the assignment system and the done-gate
+    pull in the SAME direction (finish what's started) instead of fighting --
+    the gate was blocking completions while the oracle kept handing out new tools.
+
+    Picks the stub with the SHORTEST name as a cheap proxy for 'simplest to
+    finish' (long generated names tend to be the most speculative compositions).
+    Reads the stub's own placeholder '# does:' line if present so the brief tells
+    the creature what the tool was meant to do."""
+    stubs = _library_hollow_tools()
+    if not stubs:
+        return {}
+    target = min(stubs, key=len)  # shortest name ~= simplest intended tool
+    intended = ""
+    try:
+        p = os.path.join(VOLUME_MOUNT, "tools", "own", target)
+        with open(p, encoding="utf-8", errors="replace") as f:
+            for line in f:
+                if "# does:" in line:
+                    intended = line.split("# does:", 1)[1].strip()
+                    if "DESCRIBE WHAT THIS TOOL DOES" in intended:
+                        intended = ""
+                    break
+    except Exception:
+        pass
+    intended_clause = (f" It was meant to: {intended}" if intended
+                       else " Decide what it should do from its name, keep it "
+                            "simple, and make it real.")
+    return {
+        "title": target,
+        "brief": (f"FINISH the unfinished tool '{target}'. It is currently an empty "
+                  f"placeholder shell -- a broken promise to your cousin who reaches "
+                  f"for it and gets nothing.{intended_clause} Open the file, replace "
+                  f"the placeholder with real working code that chains tools you "
+                  f"already have where it helps, and prove it runs."),
+        "demonstration": (f"Run {target} on real input and show it produces a real "
+                          f"result, not the placeholder line."),
+        "category": "finish_stub",
+    }
+
+
 async def _oracle_next_spec(keychain) -> dict:
     """Top-level oracle entry: choose breadth or depth based on saturation.
 
@@ -948,6 +991,16 @@ async def _oracle_next_spec(keychain) -> dict:
     action would be a no-value rebuild (breadth fallback for an already-built
     category while the LLM is down). Composition mode never rests -- a composition
     fallback is always genuinely new work (it chains existing tools)."""
+    # Backlog-first: if too many unfinished stubs have piled up, the highest-value
+    # work is FINISHING one, not briefing another. This makes the oracle agree with
+    # the done-gate instead of fighting it (gate blocks new completions; oracle was
+    # still handing out new tools -> stubs grew). Cleared once back under tolerance.
+    if len(_library_hollow_tools()) > HOLLOW_BACKLOG_TOLERANCE:
+        fin = _finish_stub_spec()
+        if fin:
+            print(f"[oracle] backlog over tolerance -- assigning stub-finish: "
+                  f"{fin['title']}")
+            return fin
     if _seeds_saturated():
         # Depth mode: serve from the cached batch (zero LLM cost); refill in ONE
         # call only when the queue is empty. This is the v0.9 call-amortisation.
@@ -1006,11 +1059,17 @@ def _install_gap(spec: dict, category: str):
         mem.forget(VOLUME_MOUNT, "current_focus")
     except Exception:
         pass
-    mem.store(VOLUME_MOUNT, "current_focus",
-              f"[assigned] Build for your cousin: {title}. {brief} This is a TOOL "
-              f"the cousin RUNS, not a report. Build it to a standard the cousin "
-              f"can rely on, then prove it works by running it for real ({demo}). "
-              f"Reuse any tool you already have if it helps you build this.")
+    if category == "finish_stub":
+        mem.store(VOLUME_MOUNT, "current_focus",
+                  f"[assigned] FINISH the unfinished tool '{title}'. {brief} "
+                  f"Prove it by running it for real ({demo}). Do not start a new "
+                  f"tool until this one actually works.")
+    else:
+        mem.store(VOLUME_MOUNT, "current_focus",
+                  f"[assigned] Build for your cousin: {title}. {brief} This is a TOOL "
+                  f"the cousin RUNS, not a report. Build it to a standard the cousin "
+                  f"can rely on, then prove it works by running it for real ({demo}). "
+                  f"Reuse any tool you already have if it helps you build this.")
     journal.append(VOLUME_MOUNT, "ideation",
                    f"Assigned cousin-tool gap [{category}]: '{title}'")
     print(f"[oracle] assigned gap category={category} title='{title}'")
@@ -1082,8 +1141,34 @@ async def _ensure_or_redirect(executed, keychain):
                                f"'{_project_title(proposed)}' -> cousin-tool gap "
                                f"[{category}]")
                 print(f"[oracle] redirected relapse -> category={category}")
-            else:
-                print(f"[oracle] pick '{new_title}' is a cousin-tool -- allowed")
+                return
+            # Backlog guard: if the creature is starting a NEW tool while a pile of
+            # unfinished stubs exists, redirect it to finish one first. This stops
+            # the loop where the gate blocks each new completion but the creature
+            # just hops to yet another new tool, growing the stub pile. Skip the
+            # redirect if the thing it just set IS one of the stubs (then it is
+            # already doing the right thing -- finishing one).
+            try:
+                stubs = set(_library_hollow_tools())
+                starting_title = _project_title(proposed)
+                already_finishing = any(
+                    re.sub(r"[^a-z0-9]", "", starting_title.lower())
+                    == re.sub(r"[^a-z0-9]", "", s.lower()) for s in stubs)
+                if len(stubs) > HOLLOW_BACKLOG_TOLERANCE and not already_finishing:
+                    fin = _finish_stub_spec()
+                    if fin:
+                        _clear_project_state()
+                        _install_gap(fin, "finish_stub")
+                        journal.append(VOLUME_MOUNT, "novelty_block",
+                                       f"Redirected new-tool start "
+                                       f"'{starting_title}' -> finish stub "
+                                       f"'{fin['title']}' ({len(stubs)} stubs pending)")
+                        print(f"[oracle] redirected new start -> finish stub "
+                              f"{fin['title']} ({len(stubs)} pending)")
+                        return
+            except Exception as _e:
+                print(f"[oracle] backlog-redirect skipped ({type(_e).__name__})")
+            print(f"[oracle] pick '{new_title}' is a cousin-tool -- allowed")
             return
 
         # creature set nothing AND has no active project -> assign (anti-idle)

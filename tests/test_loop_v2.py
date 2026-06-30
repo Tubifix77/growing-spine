@@ -231,6 +231,21 @@ async def main():
     for i in range(loop.HOLLOW_BACKLOG_TOLERANCE + 2):
         try: os.remove(os.path.join(owndir, f"stub_{i}"))
         except Exception: pass
+
+    # NEW: oracle must assign a stub-FINISH when backlog is over tolerance,
+    # instead of briefing a brand-new tool. (main() is async, so await directly.)
+    for i in range(loop.HOLLOW_BACKLOG_TOLERANCE + 2):
+        with open(os.path.join(owndir, f"pend_{i}"), "w") as f:
+            f.write("#!/usr/bin/env python3\n# does: DESCRIBE WHAT THIS TOOL DOES - edit this line\nimport sys\nprint('hello from ' + sys.argv[0])\n")
+    class _FakeKC:
+        async def complete(self, *a, **k):
+            return "PROGRESSING"  # should never be reached for the finish path
+    spec = await loop._oracle_next_spec(_FakeKC())
+    check("oracle assigns finish_stub when backlog over tolerance",
+          spec.get("category") == "finish_stub" and spec.get("title", "").startswith("pend_"))
+    for i in range(loop.HOLLOW_BACKLOG_TOLERANCE + 2):
+        try: os.remove(os.path.join(owndir, f"pend_{i}"))
+        except Exception: pass
     ph = _m.retrieve(TMP, "current-phase")
     check("B gate reverts phase to code", bool(ph) and ph["value"].strip() == "code")
 
