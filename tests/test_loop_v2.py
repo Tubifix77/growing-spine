@@ -246,6 +246,32 @@ async def main():
     for i in range(loop.HOLLOW_BACKLOG_TOLERANCE + 2):
         try: os.remove(os.path.join(owndir, f"pend_{i}"))
         except Exception: pass
+
+    # NEW: extension-collision duplicate scan. Create a shell tool and its .py
+    # twin with different usage counts; the scan should pair them, higher-use
+    # first, and NOT pair unrelated tools.
+    with open(os.path.join(owndir, "twintool"), "w") as f:
+        f.write("#!/usr/bin/env bash\necho real\nx=1\n")
+    with open(os.path.join(owndir, "twintool.py"), "w") as f:
+        f.write("#!/usr/bin/env python3\nprint('real')\nx = 1\n")
+    with open(os.path.join(owndir, "lonelytool"), "w") as f:
+        f.write("#!/usr/bin/env bash\necho solo\ny=2\n")
+    # set usage so twintool (5) > twintool.py (1)
+    _u = loop._load_tool_usage()
+    _u["twintool"] = 5; _u["twintool.py"] = 1
+    loop._save_tool_usage(_u)
+    pairs = loop._extension_collision_pairs()
+    twin_pairs = [p for p in pairs if p[0].startswith("twintool") or p[2].startswith("twintool")]
+    check("collision scan finds the .py twin", len(twin_pairs) == 1)
+    if twin_pairs:
+        keep, uk, drop, ud = twin_pairs[0]
+        check("collision scan puts higher-use tool first (keep)",
+              keep == "twintool" and drop == "twintool.py")
+    check("collision scan does NOT pair unrelated tools",
+          not any("lonelytool" in (p[0], p[2]) for p in pairs))
+    for t in ("twintool", "twintool.py", "lonelytool"):
+        try: os.remove(os.path.join(owndir, t))
+        except Exception: pass
     ph = _m.retrieve(TMP, "current-phase")
     check("B gate reverts phase to code", bool(ph) and ph["value"].strip() == "code")
 

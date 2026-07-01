@@ -1408,6 +1408,81 @@ def _library_hollow_tools() -> list:
 HOLLOW_BACKLOG_TOLERANCE = 3
 
 
+# Extension-collision duplicate scan runs at most this often (seconds). It's
+# slow-accumulating cleanliness debt, not urgent, so a 3-day cadence is plenty
+# and keeps it near-free between passes.
+DUP_SCAN_INTERVAL = 3 * 24 * 3600  # 3 days
+
+
+def _extension_collision_pairs() -> list:
+    """Find tools that are the SAME tool under two names differing only by a
+    trailing extension (e.g. 'wake_insight_plan' vs 'wake_insight_plan.py', or a
+    '.sh' twin). These are near-always an accident: the creature rebuilt a tool
+    under a '.py'/'.sh' name and kept using the original, leaving a low-use twin.
+
+    Returns a list of (name_a, uses_a, name_b, uses_b) with the higher-use tool
+    first in each pair, so the report can suggest keeping it. Pure string/stat
+    work -- no LLM, deterministic. Does NOT touch semantic duplicates (different
+    stems that happen to overlap in purpose); those need real judgement and are
+    handled by the cluster gate at proposal time, not here."""
+    own = _own_tool_names()
+    usage = _load_tool_usage()
+    # stem -> list of full names sharing it
+    from collections import defaultdict
+    stems = defaultdict(list)
+    for name in own:
+        # strip a single trailing .py/.sh (only the extensions we actually see)
+        stem = re.sub(r"\.(py|sh)$", "", name)
+        stems[stem].append(name)
+    pairs = []
+    for stem, names in stems.items():
+        if len(names) < 2:
+            continue
+        # emit each colliding combination as an ordered pair (higher-use first)
+        names_sorted = sorted(names, key=lambda n: usage.get(n, 0), reverse=True)
+        keep = names_sorted[0]
+        for drop in names_sorted[1:]:
+            pairs.append((keep, usage.get(keep, 0), drop, usage.get(drop, 0)))
+    return pairs
+
+
+def _due_for_dup_scan() -> bool:
+    """True if at least DUP_SCAN_INTERVAL has passed since the last scan.
+    Timestamp persists in ideation_state, so the cadence survives restarts."""
+    state = _load_ideation_state() or {}
+    last = state.get("last_dup_scan_at", 0)
+    return (time.time() - last) >= DUP_SCAN_INTERVAL
+
+
+def _run_dup_scan_if_due() -> str:
+    """If due, run the extension-collision scan, stamp the time, and return a
+    report block for the knowledge section (empty string if not due or nothing
+    found). The creature DECIDES which twin to remove -- the scan only reports.
+    Advisory only: never blocks progress (unlike the hollow-tool gate), because
+    two working tools that overlap is untidy, not broken."""
+    try:
+        if not _due_for_dup_scan():
+            return ""
+        state = _load_ideation_state() or {}
+        state["last_dup_scan_at"] = time.time()
+        _save_ideation_state(state)
+        pairs = _extension_collision_pairs()
+        if not pairs:
+            return ""
+        lines = ["## Duplicate tools found (3-day scan)",
+                 "These look like the SAME tool saved under two names that differ "
+                 "only by a .py/.sh extension. Keeping both is clutter and the "
+                 "cousin can't tell which to trust. Review each pair and delete "
+                 "the one you don't want (usually the lower-use twin, but keep "
+                 "whichever has the better code):"]
+        for keep, uk, drop, ud in pairs:
+            lines.append(f"  - {keep} ({uk} uses)  vs  {drop} ({ud} uses)  "
+                         f"-> likely keep {keep}, remove {drop}")
+        return "\n".join(lines) + "\n\n"
+    except Exception:
+        return ""
+
+
 def _enforce_done_gate(executed):
     """Verify a 'done' assertion against ground truth.
 
@@ -1991,10 +2066,11 @@ def _build_context(recent_journal: list, tue_message: str = None) -> str:
     done_block = _build_done_block()
     project_block = _build_project_block()
     retro_directive = _build_retro_directive_block()
-    return (done_block + project_block + retro_directive + loop_warning
-            + active_project + knowledge + protected + "\n\n" + editable
-            + catalogue_block + workspace_block + memory_text + journal_text
-            + chat_block)
+    dup_report = _run_dup_scan_if_due()
+    return (done_block + project_block + retro_directive + dup_report
+            + loop_warning + active_project + knowledge + protected + "\n\n"
+            + editable + catalogue_block + workspace_block + memory_text
+            + journal_text + chat_block)
 
 
 async def run_cycle(keychain: Keychain, dockerfile_dir: str):
