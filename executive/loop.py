@@ -1469,15 +1469,30 @@ def _run_dup_scan_if_due() -> str:
         pairs = _extension_collision_pairs()
         if not pairs:
             return ""
-        lines = ["## Duplicate tools found (3-day scan)",
-                 "These look like the SAME tool saved under two names that differ "
-                 "only by a .py/.sh extension. Keeping both is clutter and the "
-                 "cousin can't tell which to trust. Review each pair and delete "
-                 "the one you don't want (usually the lower-use twin, but keep "
-                 "whichever has the better code):"]
+        lines = [
+            "## Possible duplicate tools (3-day scan)",
+            "Each pair below is two tools whose names differ ONLY by a trailing "
+            ".py/.sh extension -- often the same tool saved twice, which leaves the "
+            "cousin unsure which to trust. These are SUGGESTIONS, not orders.",
+            "",
+            "How the suggestion is made: the scan only counts how many times each "
+            "tool has been run and suggests keeping the MORE-used one. That is a "
+            "weak signal -- a tool can be used more just because it sits on a common "
+            "path, and the less-used twin may actually have better or newer code. "
+            "The scan has NOT read either file; you should.",
+            "",
+            "For each pair: open BOTH files. If they are truly the same tool, delete "
+            "the worse one (often, but not always, the lower-use twin the scan "
+            "names). If they have quietly diverged and BOTH do useful and different "
+            "work, keep both and ignore the suggestion. If unsure, keep both -- "
+            "deleting a tool something depends on is worse than a little clutter.",
+            "",
+        ]
         for keep, uk, drop, ud in pairs:
+            gap = "clear-cut" if (uk >= 5 * max(ud, 1)) else "CLOSE -- judge carefully"
             lines.append(f"  - {keep} ({uk} uses)  vs  {drop} ({ud} uses)  "
-                         f"-> likely keep {keep}, remove {drop}")
+                         f"-> suggestion (by use-count only): keep {keep}, "
+                         f"remove {drop}  [{gap}]")
         return "\n".join(lines) + "\n\n"
     except Exception:
         return ""
