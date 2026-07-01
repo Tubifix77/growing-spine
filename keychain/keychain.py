@@ -49,15 +49,29 @@ class Keychain:
                 err = str(result["error"])
                 err_l = err.lower()
 
+                # STRUCTURAL: request too big for this provider (e.g. Groq 413
+                # "Request too large ... TPM Limit 12000"). Retrying the identical
+                # oversized request always fails; the message says "per minute" so
+                # it must be caught BEFORE the per-minute check. Mark & move on.
+                is_too_large = (
+                    "413" in err or
+                    "request too large" in err_l or
+                    "request_too_large" in err_l or
+                    "too large for model" in err_l or
+                    "context length" in err_l or
+                    "maximum context" in err_l or
+                    "reduce the length" in err_l
+                )
+
                 # Per-minute rate limit — transient, retry with backoff
-                is_per_minute = (
+                is_per_minute = (not is_too_large) and (
                     ("rate_limit" in err_l or "too_many_requests" in err_l) and
                     ("per minute" in err_l or "per-minute" in err_l or
                      "per_minute" in err_l or "rpm" in err_l)
                 )
 
                 # Quota exhaustion — mark provider and move on
-                is_quota = not is_per_minute and (
+                is_quota = (not is_per_minute) and (not is_too_large) and (
                     "quota" in err_l or
                     "rate_limit_exceeded" in err_l or
                     "exceeded" in err_l or
@@ -65,9 +79,9 @@ class Keychain:
                     "429" in err
                 )
 
-                if is_quota:
+                if is_too_large or is_quota:
                     qs.record_exhaustion(self.state, cfg["key"])
-                    break  # try next provider
+                    break  # try next provider — retrying won't help
 
                 if is_per_minute or "500" in err or "502" in err or                         "503" in err or "504" in err or                         "high traffic" in err_l:
                     had_transient = True
