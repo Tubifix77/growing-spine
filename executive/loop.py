@@ -1246,10 +1246,13 @@ async def _ensure_or_redirect(executed, keychain):
                 theme = _basin_theme_of(proposed) or "report"
                 streak = _record_basin_relapse(theme)
                 if streak >= BASIN_YANK_THRESHOLD:
-                    # CONFIRMED rut -> auto-yank. Arm the theme ban, install a
-                    # concrete non-basin gap, and lead working memory with the
-                    # escalated stop-message.
-                    _arm_theme_ban(theme)
+                    # CONFIRMED rut -> auto-yank. Fetch the replacement gap
+                    # FIRST: if the oracle call raises here, fail-open keeps the
+                    # pick and the already-recorded streak retries the yank on
+                    # the next relapse. The ban is armed LAST, after the redirect
+                    # and stop-message have landed, so a ban can never exist
+                    # without its explanation (v0.10.1; was armed first, which on
+                    # oracle failure left a silent ban and no yank text).
                     spec = await _oracle_next_spec(keychain)
                     category = spec.get("category", "composition") if spec and not spec.get("__rest__") else "composition"
                     _clear_project_state()
@@ -1257,6 +1260,7 @@ async def _ensure_or_redirect(executed, keychain):
                         _install_gap(spec, category)
                     mem.store(VOLUME_MOUNT, "current_focus",
                               _basin_yank_focus(theme, streak))
+                    _arm_theme_ban(theme)
                     journal.append(VOLUME_MOUNT, "novelty_block",
                                    f"CONFIRMED RUT: '{theme}' x{streak} consecutive "
                                    f"-> auto-yank issued, theme banned for "

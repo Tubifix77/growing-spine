@@ -301,6 +301,36 @@ async def main():
     ph = _m.retrieve(TMP, "current-phase")
     check("B gate reverts phase to code", bool(ph) and ph["value"].strip() == "code")
 
+    # v0.10.1 regression: a FAILED yank must not leave a silent ban behind.
+    # Old order armed the ban before the oracle call; an oracle failure then
+    # left a ban armed with no yank message and no redirect installed. New
+    # order fetches the redirect first and arms the ban last, so on failure:
+    # no ban, streak preserved (retry next relapse), pick stands (fail-open).
+    loop._reset_basin_streak()
+    loop._record_basin_relapse("sentiment")
+    loop._record_basin_relapse("sentiment")  # streak=2; the pick below makes 3
+    _real_oracle = loop._oracle_next_spec
+    async def _boom(_kc):
+        raise RuntimeError("oracle down (simulated)")
+    loop._oracle_next_spec = _boom
+    kc.mode = "output"  # judge calls the pick a basin OUTPUT
+    loop._last_pick["title"] = ""
+    loop._clear_project_state()
+    mem.store(TMP, "current-project", "Sentiment Alerting Service")
+    mem.store(TMP, "current-phase", "explore")
+    await loop._ensure_or_redirect(
+        [('remember current-project "Sentiment Alerting Service"', 0)], kc)
+    loop._oracle_next_spec = _real_oracle
+    st = loop._load_ideation_state() or {}
+    proj = mem.retrieve(TMP, "current-project")
+    check("failed yank arms no silent ban", not st.get("banned_theme"))
+    check("failed yank preserves the streak for a retry",
+          int(st.get("basin_relapse_streak", 0)) >= loop.BASIN_YANK_THRESHOLD)
+    check("failed yank fails open (the pick stands)",
+          bool(proj and "Sentiment Alerting" in proj["value"]))
+    loop._reset_basin_streak()
+    loop._clear_project_state()
+
     print()
     if fails:
         print("FAILURES: " + ", ".join(fails))
