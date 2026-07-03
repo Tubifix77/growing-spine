@@ -2,7 +2,7 @@
 
 A self-improvement creature in a box. Descended from [Spine Reborn](https://github.com/Tubifix77/spine-reborn).
 
-**Status:** Live. First boot 2026-06-03. Re-architected to the *toolsmith* design 2026-06-21 (v0.6). Self-restart capability added 2026-06-21 (v0.7). Composition/depth mode added 2026-06-23 (v0.8). Running on a dedicated Debian laptop under a systemd supervisor, thinking via a free-tier API keychain, never touching the operator's main PC.
+**Status:** Live. First boot 2026-06-03. Re-architected to the *toolsmith* design 2026-06-21 (v0.6). Self-restart capability added 2026-06-21 (v0.7). Composition/depth mode added 2026-06-23 (v0.8). Batched ideation + pipeline hygiene 2026-06-25 → 07-02 (v0.9.x). Systematic rut detection 2026-07-03 (v0.10). Running on a dedicated Debian laptop under a systemd supervisor, thinking via a free-tier API keychain, never touching the operator's main PC.
 
 ---
 
@@ -50,6 +50,14 @@ See [`growing-spine-architecture.md`](growing-spine-architecture.md) for how thi
 
 ---
 
+## Current status (2026-07-03, v0.10.1)
+
+228 tools. The hollow-stub backlog is draining under the v0.9.4/5 cross-cycle gate — ~30 at its peak, 9 as of writing (the done-gate's own latest count) against a tolerance of 3 — with the oracle assigning "finish this stub" instead of new work until it clears. The container has run as the host user since v0.9.1: zero root-owned files, the recurring chown tax is gone for good. The quota tracker was deliberately dumbed down to timestamps only (v0.9.3): no token modelling, no reserve floors — just "when did it last work, when did it go dark, how long did the outage really last", which is what the observer now reports.
+
+The headline unknown is v0.10: **systematic rut detection**. The per-pick basin redirect never had a memory of repetition, so a multi-day sentiment/report rut could survive it by being redirected one pick at a time, forever. Now a scoreboard counts consecutive same-theme relapses; three in a row confirms the rut and fires an automatic escalated yank — name the rut, ban the theme for 12 cycles, install concrete non-basin work (ordering hardened in v0.10.1 so a failed yank can never leave a silent ban). It is shipped and isolation-tested (48 regression checks) and is deliberately awaiting an **unaided** live test — no operator nudges — because the mechanism's entire value is that it breaks ruts without a human. The first live run will also answer a sharper question raised in pre-registration review: whether the basin flavour even enters through the creature's picks at all, or upstream through the oracle's own composition batches — in which case the guard is watching the wrong door and the fix moves into the batch prompt.
+
+---
+
 ## Current status (2026-06-26, v0.9.2)
 
 117 tools. 113 used at least once. 146 dependency edges — more than one edge per tool on average, meaning the toolkit is genuinely interconnected rather than a flat pile of scripts. The two most-used tools (`step-planner-tracker`, `subagent_ask_helper`) sit at 345 uses each and have become load-bearing infrastructure that everything newer calls into.
@@ -92,7 +100,7 @@ python3 observer.py
 
 **Use `./restart.sh`, not `python3 main.py` by hand.** Since v0.7, `restart.sh` delegates to `systemctl --user restart growing-spine` — this is atomic, avoids the double-launch footgun of hand-crafting the stop/launch sequence, and keeps the systemd supervisor in control. (Before v0.7, the script managed the stop→verify-zero→launch→verify-one sequence itself; that logic is now in the service unit.) `main.py` does **not** fork, so after a clean launch there must be exactly one process. Code changes require a restart to load (Python does not hot-reload); prompt/markdown files are re-read every cycle and take effect without a restart. The creature must be running under systemd for `restart.sh` to work — if starting from scratch, run the one-time install in `deploy/INSTALL-systemd.md` first.
 
-**Observer tabs:** Journal (live activity), Memory (working / intermediate / archive), Container (`/workspace` file browser), Quota (provider cards with discovered limits and measured reset intervals), Chat (send the creature a message; it replies on its next think cycle).
+**Observer tabs:** Journal (live activity), Memory (working / intermediate / archive), Container (`/workspace` file browser), Quota (per-provider timestamps — last success, dark-period start, and the measured "Last recovery took" outage length), Chat (send the creature a message; it replies on its next think cycle).
 
 ---
 
