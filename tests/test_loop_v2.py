@@ -272,6 +272,32 @@ async def main():
     for t in ("twintool", "twintool.py", "lonelytool"):
         try: os.remove(os.path.join(owndir, t))
         except Exception: pass
+
+    # NEW: systematic rut detection state machine (streak -> confirm -> ban -> cooldown)
+    loop._reset_basin_streak()
+    # three consecutive SAME-theme relapses must escalate the streak to threshold
+    s1 = loop._record_basin_relapse("sentiment")
+    s2 = loop._record_basin_relapse("sentiment")
+    s3 = loop._record_basin_relapse("sentiment")
+    check("basin streak counts consecutive same-theme relapses",
+          s1 == 1 and s2 == 2 and s3 == 3 and s3 >= loop.BASIN_YANK_THRESHOLD)
+    # a DIFFERENT theme resets the streak to 1
+    s4 = loop._record_basin_relapse("dashboard")
+    check("basin streak resets when the theme changes", s4 == 1)
+    # theme detection picks the right keyword
+    check("basin theme detection finds the tripping keyword",
+          loop._basin_theme_of("Customer Sentiment Analysis Report") in ("sentiment","report","analytics"))
+    check("basin theme detection returns empty for a clean tool name",
+          loop._basin_theme_of("json_diff_merger") == "")
+    # arming a ban makes the theme active for the cooldown window, then it expires
+    loop._arm_theme_ban("sentiment")
+    active_now = loop._banned_theme_active()
+    check("armed ban reports the theme as active", active_now == "sentiment")
+    # burn down the cooldown; it must expire to '' eventually
+    for _ in range(loop.BASIN_COOLDOWN_CYCLES + 2):
+        expired = loop._banned_theme_active()
+    check("ban expires after cooldown window", expired == "")
+    loop._reset_basin_streak()
     ph = _m.retrieve(TMP, "current-phase")
     check("B gate reverts phase to code", bool(ph) and ph["value"].strip() == "code")
 

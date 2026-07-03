@@ -85,6 +85,98 @@ _CATEGORY_HINTS = {
 _BASIN_SIGNATURE = ("dashboard", "report", "index", "summary", "analytics",
                     "sentiment", "monitor", "insight", "overview", "stats")
 
+# --- Systematic rut detection + auto-yank -----------------------------------
+# The per-pick basin redirect (_is_basin_relapse -> _ensure_or_redirect) catches
+# ONE relapsing pick at a time, but has no memory of REPETITION: the creature can
+# propose the same basin theme every cycle, get gently redirected each time, and
+# never actually leave the basin (observed: a multi-day "sentiment/report" rut
+# that every single-pick guard failed to break). This adds a scoreboard: count
+# CONSECUTIVE relapses on the SAME theme, and once confirmed (>= threshold) fire
+# an ESCALATED, self-generated yank that names the rut, forbids the theme, and
+# sets a cooldown so picks matching it are hard-blocked for a window.
+BASIN_YANK_THRESHOLD = 3      # consecutive same-theme relapses that CONFIRM a rut
+BASIN_COOLDOWN_CYCLES = 12    # how long the confirmed theme stays banned after a yank
+
+
+def _basin_theme_of(text: str) -> str:
+    """Which basin keyword a proposal trips, '' if none. First match wins so the
+    theme is stable across cycles (lets us tell 'same rut' from 'new rut')."""
+    t = (text or "").lower()
+    for kw in _BASIN_SIGNATURE:
+        if kw in t:
+            return kw
+    return ""
+
+
+def _record_basin_relapse(theme: str) -> int:
+    """Bump the consecutive-relapse streak for `theme`. Resets to 1 if the theme
+    changed (a different rut) or was empty. Returns the new streak length.
+    Persisted in ideation_state so it survives restarts."""
+    state = _load_ideation_state() or {}
+    prev_theme = state.get("basin_theme", "")
+    streak = int(state.get("basin_relapse_streak", 0))
+    if theme and theme == prev_theme:
+        streak += 1
+    else:
+        streak = 1
+    state["basin_theme"] = theme
+    state["basin_relapse_streak"] = streak
+    _save_ideation_state(state)
+    return streak
+
+
+def _reset_basin_streak():
+    """Clear the streak after a non-relapse pick or once a yank has been issued."""
+    state = _load_ideation_state() or {}
+    if state.get("basin_relapse_streak") or state.get("basin_theme"):
+        state["basin_relapse_streak"] = 0
+        state["basin_theme"] = ""
+        _save_ideation_state(state)
+
+
+def _banned_theme_active() -> str:
+    """The currently cooling-down banned theme, '' if none / expired. Decrements
+    the remaining cooldown each call (called once per cycle from the redirect)."""
+    state = _load_ideation_state() or {}
+    theme = state.get("banned_theme", "")
+    left = int(state.get("banned_cooldown_left", 0))
+    if not theme or left <= 0:
+        if theme or left:
+            state["banned_theme"] = ""; state["banned_cooldown_left"] = 0
+            _save_ideation_state(state)
+        return ""
+    state["banned_cooldown_left"] = left - 1
+    _save_ideation_state(state)
+    return theme
+
+
+def _arm_theme_ban(theme: str):
+    """Record `theme` as banned for BASIN_COOLDOWN_CYCLES, and clear the streak
+    that triggered the yank."""
+    state = _load_ideation_state() or {}
+    state["banned_theme"] = theme
+    state["banned_cooldown_left"] = BASIN_COOLDOWN_CYCLES
+    state["basin_relapse_streak"] = 0
+    state["basin_theme"] = ""
+    _save_ideation_state(state)
+
+
+def _basin_yank_focus(theme: str, streak: int) -> str:
+    """The escalated, self-generated yank message. Stronger than the normal
+    per-pick redirect: names the confirmed rut explicitly and forbids the theme."""
+    return (
+        f"STOP. You have now proposed a '{theme}'-flavoured project {streak} times "
+        f"in a row, and each was redirected. This is a confirmed rut. Your cousin "
+        f"does not need another '{theme}' tool -- that whole area is covered and "
+        f"every attempt is wasted effort. For the next several cycles, do NOT "
+        f"build anything involving {theme}, dashboards, reports, summaries, or "
+        f"analytics of any kind. Instead build something in a DIFFERENT domain "
+        f"entirely: a tool that transforms or restructures data, solves a concrete "
+        f"problem end to end, automates a multi-step task, or gives the cousin a "
+        f"capability it genuinely lacks. Pick something you have never built and "
+        f"make it real."
+    )
+
 _last_pick = {"title": ""}  # last project the creature set (skip re-judging refinements)
 
 
@@ -1125,11 +1217,56 @@ async def _ensure_or_redirect(executed, keychain):
             if new_title and new_title == _last_pick["title"]:
                 return  # refinement of the same pick, already judged
             _last_pick["title"] = new_title
+            # HARD BAN during cooldown: if a rut was confirmed and its theme is
+            # still cooling down, any pick that trips that theme is rejected on
+            # sight and replaced -- the creature cannot crawl straight back in.
+            banned = _banned_theme_active()
+            if banned and banned in proposed.lower():
+                spec = await _oracle_next_spec(keychain)
+                category = spec.get("category", "composition") if spec and not spec.get("__rest__") else "composition"
+                _clear_project_state()
+                if spec and not spec.get("__rest__"):
+                    _install_gap(spec, category)
+                mem.store(VOLUME_MOUNT, "current_focus",
+                          f"'{banned}' is still off-limits (you were stuck on it). "
+                          f"That pick was rejected. Build something in a different "
+                          f"domain -- {spec.get('title','a new tool') if spec else 'a new tool'}. "
+                          f"A tool the cousin RUNS, not a {banned}/report/dashboard.")
+                journal.append(VOLUME_MOUNT, "novelty_block",
+                               f"Banned theme '{banned}' pick rejected during cooldown "
+                               f"-> replaced [{category}]")
+                print(f"[oracle] banned-theme '{banned}' rejected during cooldown "
+                      f"-> replaced with {category}")
+                return
             if await _is_basin_relapse(proposed, keychain):
+                # SYSTEMATIC RUT CHECK: count consecutive relapses on the same
+                # theme. Once confirmed (>= threshold), escalate from a gentle
+                # per-pick redirect to a hard, self-generated yank that names the
+                # rut and bans the theme for a cooldown window.
+                theme = _basin_theme_of(proposed) or "report"
+                streak = _record_basin_relapse(theme)
+                if streak >= BASIN_YANK_THRESHOLD:
+                    # CONFIRMED rut -> auto-yank. Arm the theme ban, install a
+                    # concrete non-basin gap, and lead working memory with the
+                    # escalated stop-message.
+                    _arm_theme_ban(theme)
+                    spec = await _oracle_next_spec(keychain)
+                    category = spec.get("category", "composition") if spec and not spec.get("__rest__") else "composition"
+                    _clear_project_state()
+                    if spec and not spec.get("__rest__"):
+                        _install_gap(spec, category)
+                    mem.store(VOLUME_MOUNT, "current_focus",
+                              _basin_yank_focus(theme, streak))
+                    journal.append(VOLUME_MOUNT, "novelty_block",
+                                   f"CONFIRMED RUT: '{theme}' x{streak} consecutive "
+                                   f"-> auto-yank issued, theme banned for "
+                                   f"{BASIN_COOLDOWN_CYCLES} cycles")
+                    print(f"[oracle] *** CONFIRMED RUT '{theme}' x{streak} -> "
+                          f"AUTO-YANK, theme banned {BASIN_COOLDOWN_CYCLES} cycles ***")
+                    return
+                # Not yet confirmed -> normal gentle per-pick redirect.
                 spec = await _oracle_next_spec(keychain)
                 if spec.get("__rest__"):
-                    # nothing genuinely new to redirect TO this cycle; just clear
-                    # the basin pick and let the creature breathe.
                     _clear_project_state()
                     print("[oracle] basin relapse cleared; resting (no new gap available)")
                     return
@@ -1139,9 +1276,14 @@ async def _ensure_or_redirect(executed, keychain):
                 journal.append(VOLUME_MOUNT, "novelty_block",
                                f"Redirected basin relapse "
                                f"'{_project_title(proposed)}' -> cousin-tool gap "
-                               f"[{category}]")
-                print(f"[oracle] redirected relapse -> category={category}")
+                               f"[{category}] (relapse {streak}/{BASIN_YANK_THRESHOLD})")
+                print(f"[oracle] redirected relapse -> category={category} "
+                      f"(streak {streak}/{BASIN_YANK_THRESHOLD})")
                 return
+            else:
+                # Non-basin pick -> the creature left the rut on its own; clear
+                # any accumulated streak so we don't yank on a stale count.
+                _reset_basin_streak()
             # Backlog guard: if the creature is starting a NEW tool while a pile of
             # unfinished stubs exists, redirect it to finish one first. This stops
             # the loop where the gate blocks each new completion but the creature
