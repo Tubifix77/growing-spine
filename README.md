@@ -50,7 +50,9 @@ See [`growing-spine-architecture.md`](growing-spine-architecture.md) for how thi
 
 ---
 
-## Current status (2026-07-03, v0.10.1)
+## Current status (2026-07-04, v0.10.1)
+
+**Update 2026-07-04:** repaired `memstore` — it stored its DB under the container-ephemeral `/var/memory` and never created the directory (dead since 25 June, with 26 tools depending on it); it now lives on the persistent `/mind` volume, round-trip verified. The root cause was closed by stating the persistence boundary *exclusively* in the protected prompt: only `/mind` and `/workspace` survive a container respawn, so any tool that keeps data must store it there. Three related 'runs-but-wrong' issues (an archive store/search path mismatch, a mock news-fetcher, and the absence of a behavior-probe guard) are logged in the architecture doc for a design pass.
 
 228 tools. The hollow-stub backlog is draining under the v0.9.4/5 cross-cycle gate — ~30 at its peak, 9 as of writing (the done-gate's own latest count) against a tolerance of 3 — with the oracle assigning "finish this stub" instead of new work until it clears. The container has run as the host user since v0.9.1: zero root-owned files, the recurring chown tax is gone for good. The quota tracker was deliberately dumbed down to timestamps only (v0.9.3): no token modelling, no reserve floors — just "when did it last work, when did it go dark, how long did the outage really last", which is what the observer now reports.
 
