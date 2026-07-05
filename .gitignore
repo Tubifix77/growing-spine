@@ -6,3 +6,6 @@ creature.pid
 observer.pid
 *.bak
 growing-spine.log
+
+# dev/assistant working reference — laptop-local, like config.yaml/quota_state.json
+DEV-LEDGER.md
