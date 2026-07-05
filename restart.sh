@@ -26,7 +26,7 @@ if systemctl --user list-unit-files "$SVC" >/dev/null 2>&1 && \
   if [ "$state" = "active" ] && [ -n "$pid" ] && [ "$pid" != "0" ]; then
     echo "$pid" > "$HOME/growing-spine/creature.pid"
     echo "[restart] RESTART OK (pid $pid, systemd-supervised)"
-    tail -3 "$HOME/growing-spine.log" 2>/dev/null | sed 's/^/    /'
+    journalctl --user -u growing-spine -n 3 --no-pager -o short-iso 2>/dev/null | sed 's/^/    /'
     exit 0
   fi
   echo "[restart] ABORT: service not active after restart (state=$state). status:"

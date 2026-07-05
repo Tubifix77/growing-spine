@@ -15,9 +15,11 @@ RestartSec=3
 # crash-loop (e.g. a bad self-edit) is caught by the boot-time rollback check
 # inside main.py (Layer 3), not by systemd giving up.
 StartLimitIntervalSec=0
-# Log to its own file AND the journal, so existing tooling keeps working.
-StandardOutput=append:%h/growing-spine.log
-StandardError=append:%h/growing-spine.log
+# Log to the journal: timestamped, auto-rotating, time-scopable via
+# `journalctl --user -u growing-spine --since "6 hours ago"`. The flat
+# ~/growing-spine.log is frozen as history (append: stripped timestamps).
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=default.target

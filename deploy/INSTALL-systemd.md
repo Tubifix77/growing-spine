@@ -24,4 +24,4 @@ sleep 8 && systemctl --user is-active growing-spine.service   # active again
 ## Notes
 - Do NOT also launch `python3 main.py` by hand or via the old desktop entry — that
   creates an unsupervised second brain. Use `./restart.sh` (delegates to systemd).
-- The unit logs to `~/growing-spine.log` and the journal (`journalctl --user -u growing-spine`).
+- The unit logs to the systemd journal. Read it with `journalctl --user -u growing-spine`, and scope by time with `--since "6 hours ago"` or by the current boot with `-b`. (Before 2026-07-05 it appended to `~/growing-spine.log`, which stripped per-line timestamps; that file is now frozen history.)
