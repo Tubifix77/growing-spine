@@ -38,6 +38,15 @@ COMPOSITION_THRESHOLD = 3
 # cycle pass, rather than burning effort rebuilding a tool that already exists.
 _REST_SENTINEL = {"__rest__": True}
 
+# idea_gate: conception-stage duplicate/extend gate (executive/idea_gate.py).
+# "shadow" = compute + LOG a verdict on each newly-conceived idea but NEVER act
+# (safe live observation); "active" = also redirect DUPLICATE/EXTEND ideas onto
+# the existing tool; "off" = disabled. Starts in shadow: observable live with
+# zero risk, flip to "active" is a one-line change once the shadow log shows it
+# judging correctly. Always fails open (any error -> idea proceeds ungated) and
+# only runs when a provider is available (never adds a probe during a wall).
+IDEA_GATE_MODE = "shadow"
+
 # v0.9 batch-ideation: the binding constraint is API CALLS, not tokens -- one
 # call returning N composition ideas costs the same as one returning 1. So in
 # depth mode the oracle generates a SMALL BATCH in a single call, caches it, and
@@ -1073,7 +1082,7 @@ def _finish_stub_spec() -> dict:
     }
 
 
-async def _oracle_next_spec(keychain) -> dict:
+async def _oracle_next_spec_raw(keychain) -> dict:
     """Top-level oracle entry: choose breadth or depth based on saturation.
 
     - seeds NOT saturated -> breadth: brief a gap in the least-covered category.
@@ -1125,6 +1134,58 @@ async def _oracle_next_spec(keychain) -> dict:
         return dict(_REST_SENTINEL)
     spec.setdefault("category", category)
     return spec
+
+
+async def _oracle_next_spec(keychain) -> dict:
+    """Mint a spec via _oracle_next_spec_raw, then run the idea gate (shadow by
+    default -- logs a duplicate/extend verdict but does not act). Fails open."""
+    spec = await _oracle_next_spec_raw(keychain)
+    try:
+        spec = await _idea_gate_check(spec, keychain)
+    except Exception as e:
+        print(f"[idea-gate] skipped (error: {type(e).__name__}) -- proceeding ungated")
+    return spec
+
+
+async def _idea_gate_check(spec: dict, keychain) -> dict:
+    """Compare a newly-conceived idea against existing tools; in 'active' mode
+    redirect duplicates/extensions onto the existing tool, in 'shadow' only log.
+    Skips non-ideas (finish-stub, rest) and skips during a wall (no slow probe)."""
+    if IDEA_GATE_MODE == "off" or not spec or spec.get("__rest__"):
+        return spec
+    if spec.get("category") in ("finish_stub", "reuse", "extend"):
+        return spec
+    title = str(spec.get("title", "")).strip()
+    brief = str(spec.get("brief", "")).strip()
+    if not title or not brief or not keychain.any_available():
+        return spec
+    from . import idea_gate
+    reg = idea_gate.build_registry(os.path.join(VOLUME_MOUNT, "tools", "own"))
+    verdict = await idea_gate.assess_idea(f"{title}: {brief}", reg, keychain)
+    v = verdict.get("verdict", "NEW")
+    tgt = verdict.get("target")
+    reason = verdict.get("reason", "")
+    disp = _project_title(title)
+    if v == "NEW" or not tgt:
+        print(f"[idea-gate] {IDEA_GATE_MODE}: NEW -- '{disp}'")
+        return spec
+    print(f"[idea-gate] {IDEA_GATE_MODE}: {v} of '{tgt}' -- '{disp}' :: {reason}")
+    try:
+        journal.append(VOLUME_MOUNT, "idea_gate", f"{v}:{tgt} for '{title}' -- {reason}")
+    except Exception:
+        pass
+    if IDEA_GATE_MODE != "active":
+        return spec
+    if v == "DUPLICATE":
+        return {"title": tgt, "category": "reuse",
+                "brief": (f"You already built '{tgt}' for this exact job. USE it -- do "
+                          f"not build a near-duplicate. If it falls short, IMPROVE '{tgt}'."),
+                "demonstration": f"Run '{tgt}' on real input and show it does the job."}
+    return {"title": tgt, "category": "extend",
+            "brief": (f"'{tgt}' already covers most of this idea. EXTEND '{tgt}' with the "
+                      f"missing part -- edit that tool, do NOT build a near-duplicate. "
+                      f"Delta to add: {brief}"),
+            "demonstration": f"Run '{tgt}' and show the newly-added capability works."}
 
 
 def _install_gap(spec: dict, category: str):
