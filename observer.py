@@ -423,5 +423,15 @@ if __name__ == "__main__":
     app.setWindowIcon(_make_spine_icon())
     app.setPalette(dark_palette())
     win = Dashboard()
-    win.showMaximized()
+
+    # Some window managers ignore showMaximized() issued before the window is
+    # mapped -- it can leave a 10x10 stub. Show at an explicit geometry first,
+    # then maximize on the next event-loop pass once the WM has the window.
+    scr = app.primaryScreen().availableGeometry()
+    win.setGeometry(scr.x() + 40, scr.y() + 40,
+                    min(1280, scr.width() - 80), min(800, scr.height() - 80))
+    win.show()
+    win.raise_()
+    win.activateWindow()
+    QTimer.singleShot(200, win.showMaximized)
     sys.exit(app.exec())
