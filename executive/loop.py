@@ -1161,7 +1161,7 @@ async def _idea_gate_check(spec: dict, keychain) -> dict:
         return spec
     from . import idea_gate
     reg = idea_gate.build_registry(os.path.join(VOLUME_MOUNT, "tools", "own"))
-    verdict = await idea_gate.assess_idea(f"{title}: {brief}", reg, keychain)
+    verdict = await idea_gate.assess_idea(f"{title}: {brief}", reg, keychain.complete)
     v = verdict.get("verdict", "NEW")
     tgt = verdict.get("target")
     reason = verdict.get("reason", "")
