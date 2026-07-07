@@ -1167,7 +1167,10 @@ async def _idea_gate_check(spec: dict, keychain) -> dict:
     reason = verdict.get("reason", "")
     disp = _project_title(title)
     if v == "NEW" or not tgt:
-        print(f"[idea-gate] {IDEA_GATE_MODE}: NEW -- '{disp}'")
+        if not verdict.get("parsed", True):
+            print(f"[idea-gate] parse-miss (fails open to NEW) -- '{disp}' :: {reason}")
+        else:
+            print(f"[idea-gate] {IDEA_GATE_MODE}: NEW -- '{disp}'")
         return spec
     print(f"[idea-gate] {IDEA_GATE_MODE}: {v} of '{tgt}' -- '{disp}' :: {reason}")
     try:

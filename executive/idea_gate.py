@@ -107,23 +107,58 @@ def _format_candidates(cands):
     return "\n".join(f"  {n}: {d}" for n, d in cands) if cands else "  (none related)"
 
 
+_MD_PREFIX = re.compile(r"^[\s#*\->`\u2022]+")
+_KIND_RE = re.compile(
+    r"\b(DUPLICATE|EXTEND)\b\s*(?:[:\-]|\bof\b)?\s*['\"`]?([A-Za-z0-9_\-.]{2,})?",
+    re.IGNORECASE)
+
+
+def _clean_line(ln):
+    return _MD_PREFIX.sub("", ln).strip().strip("*`").strip()
+
+
+def _find_verdict(s):
+    """DUPLICATE/EXTEND(+target) or NEW in a piece of text; None if absent."""
+    m = _KIND_RE.search(s)
+    if m:
+        tgt = m.group(2)
+        if tgt and tgt.lower() == "of":          # "EXTEND of tool_x" phrasing
+            m2 = re.search(r"\bof\b\s+['\"`]?([A-Za-z0-9_\-.]{2,})", s[m.start():], re.IGNORECASE)
+            tgt = m2.group(1) if m2 else None
+        return m.group(1).upper(), tgt
+    if re.search(r"\bNEW\b", s, re.IGNORECASE):
+        return "NEW", None
+    return None
+
+
 def parse_verdict(raw):
-    verdict, target, reason = "NEW", None, ""
-    for ln in (raw or "").splitlines():
-        s = ln.strip()
+    """Tolerant parse of the judge's reply. Accepts the strict two-line format,
+    markdown-wrapped labels (**VERDICT:** ...), or -- as a fallback -- the
+    verdict token anywhere in a non-menu line. parsed=False means no verdict
+    token was found at all (caller fails open to NEW, visibly)."""
+    verdict, target, reason, parsed = "NEW", None, "", False
+    lines = [_clean_line(ln) for ln in (raw or "").splitlines()]
+    for s in lines:
         u = s.upper()
-        if u.startswith("VERDICT:"):
-            v = s.split(":", 1)[1].strip()
-            vu = v.upper()
-            if vu.startswith("DUPLICATE"):
-                verdict = "DUPLICATE"; target = v.split(":", 1)[1].strip() if ":" in v else None
-            elif vu.startswith("EXTEND"):
-                verdict = "EXTEND"; target = v.split(":", 1)[1].strip() if ":" in v else None
-            else:
-                verdict = "NEW"
-        elif u.startswith("REASON:"):
-            reason = s.split(":", 1)[1].strip()
-    return {"verdict": verdict, "target": target, "reason": reason}
+        if u.startswith("VERDICT"):
+            got = _find_verdict(s)
+            if got:
+                verdict, target = got
+                parsed = True
+        elif u.startswith("REASON"):
+            reason = (s.split(":", 1)[1] if ":" in s else s[6:]).strip().strip("* ")
+    if not parsed:
+        for s in lines:
+            if not s or "<tool" in s.lower():     # skip echoed option menu
+                continue
+            got = _find_verdict(s)
+            if got:
+                verdict, target = got
+                parsed = True
+                if not reason:
+                    reason = s[:160]
+                break
+    return {"verdict": verdict, "target": target, "reason": reason, "parsed": parsed}
 
 
 async def assess_idea(new_desc, registry, complete, k=PREFILTER_K):
@@ -131,10 +166,12 @@ async def assess_idea(new_desc, registry, complete, k=PREFILTER_K):
     new_desc = (new_desc or "").strip()[:DESC_CAP]
     cands = prefilter(new_desc, registry, k)
     if not cands:
-        return {"verdict": "NEW", "target": None, "reason": "no related existing tool", "candidates": []}
+        return {"verdict": "NEW", "target": None, "reason": "no related existing tool", "parsed": True, "candidates": []}
     prompt = IDEA_GATE_PROMPT.format(new_desc=new_desc, candidates=_format_candidates(cands))
-    raw = (await complete(prompt, max_tokens=120)) or ""
+    raw = (await complete(prompt, max_tokens=200)) or ""
     out = parse_verdict(raw)
+    if not out.get("parsed"):
+        out["reason"] = f"UNPARSED reply: {raw[:140]!r}"
     if out["target"] and out["target"] not in registry:
         match = next((n for n in registry if out["target"] in n or n in out["target"]), None)
         out["target"] = match
