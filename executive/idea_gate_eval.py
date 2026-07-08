@@ -7,6 +7,9 @@ from keychain import Keychain
 from executive import idea_gate
 
 FIXTURES = [
+    ("rename-dup (deterministic, no LLM)",
+     "Wake Answer Generator: Generate an answer to a user question using fresh wake-up news",
+     ("DUPLICATE",)),
     ("exact-dup research pipeline",
      "Answer a research question by searching the archive, filling knowledge gaps, synthesizing, and archiving the result.",
      ("DUPLICATE", "EXTEND")),

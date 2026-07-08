@@ -84,6 +84,54 @@ def prefilter(new_desc, registry, k=PREFILTER_K):
     return [(n, d) for _, n, d in scored[:k]]
 
 
+def list_tool_names(tools_dir):
+    """Every tool filename (with or without a description) -- for name collision."""
+    try:
+        return [n for n in os.listdir(tools_dir)
+                if os.path.isfile(os.path.join(tools_dir, n)) and not n.startswith(".")]
+    except OSError:
+        return []
+
+
+def _norm_name(s):
+    return re.sub(r"[^a-z0-9]", "", (s or "").lower())
+
+
+# Deterministic thresholds, set empirically against the live registry 2026-07-08:
+# exact-dups scored J=0.73-1.0, the hardest judgment-call near-sibling 0.43,
+# genuinely-new ideas <=0.06. 0.55 sits in the empty band above every observed
+# judgment call and below every observed duplicate.
+JACCARD_DUP = 0.55
+NAME_MIN = 6          # normalized-name collisions shorter than this are noise
+
+
+def deterministic_verdict(new_text, title, registry, all_names):
+    """Stage-0 gate: catch what needs no judgment, with zero LLM calls.
+    Returns a verdict dict or None (= fall through to prefilter + LLM)."""
+    nt = _norm_name(title)
+    if len(nt) >= NAME_MIN:
+        for name in all_names or ():
+            if _norm_name(name) == nt:
+                return {"verdict": "DUPLICATE", "target": name,
+                        "reason": f"name collision: '{title}' normalizes to existing tool '{name}'",
+                        "parsed": True, "method": "deterministic:name"}
+    nk = _keywords(new_text)
+    if nk:
+        best, best_name = 0.0, None
+        for name, desc in registry.items():
+            dk = _keywords(f"{name} {desc}")
+            if not dk:
+                continue
+            j = len(nk & dk) / len(nk | dk)
+            if j > best:
+                best, best_name = j, name
+        if best >= JACCARD_DUP and best_name:
+            return {"verdict": "DUPLICATE", "target": best_name,
+                    "reason": f"deterministic overlap J={best:.2f} with '{best_name}'",
+                    "parsed": True, "method": "deterministic:overlap"}
+    return None
+
+
 IDEA_GATE_PROMPT = """You are the idea gate for a self-building agent. Before it builds a new tool, decide whether an existing tool already covers the intent.
 
 NEW IDEA (intent of the tool about to be built):
@@ -161,9 +209,17 @@ def parse_verdict(raw):
     return {"verdict": verdict, "target": target, "reason": reason, "parsed": parsed}
 
 
-async def assess_idea(new_desc, registry, complete, k=PREFILTER_K):
-    """Route a newly-conceived idea. `complete`: async (prompt, max_tokens=) -> str."""
+async def assess_idea(new_desc, registry, complete, k=PREFILTER_K,
+                      title=None, all_names=None):
+    """Route a newly-conceived idea. `complete`: async (prompt, max_tokens=) -> str.
+    Stage 0 is deterministic (name collision + high keyword overlap, no LLM);
+    only the genuine judgment band reaches the LLM."""
     new_desc = (new_desc or "").strip()[:DESC_CAP]
+    det = deterministic_verdict(new_desc, title or new_desc.split(":", 1)[0],
+                                registry, all_names)
+    if det is not None:
+        det["candidates"] = []
+        return det
     cands = prefilter(new_desc, registry, k)
     if not cands:
         return {"verdict": "NEW", "target": None, "reason": "no related existing tool", "parsed": True, "candidates": []}

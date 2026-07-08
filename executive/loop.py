@@ -1160,8 +1160,11 @@ async def _idea_gate_check(spec: dict, keychain) -> dict:
     if not title or not brief or not keychain.any_available():
         return spec
     from . import idea_gate
-    reg = idea_gate.build_registry(os.path.join(VOLUME_MOUNT, "tools", "own"))
-    verdict = await idea_gate.assess_idea(f"{title}: {brief}", reg, keychain.complete)
+    tools_dir = os.path.join(VOLUME_MOUNT, "tools", "own")
+    reg = idea_gate.build_registry(tools_dir)
+    names = idea_gate.list_tool_names(tools_dir)
+    verdict = await idea_gate.assess_idea(f"{title}: {brief}", reg, keychain.complete,
+                                          title=title, all_names=names)
     v = verdict.get("verdict", "NEW")
     tgt = verdict.get("target")
     reason = verdict.get("reason", "")
