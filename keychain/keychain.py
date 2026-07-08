@@ -27,9 +27,11 @@ class Keychain:
         """
         enabled = [p for p in self.providers if p.get("enabled", True)]
         # Put non-exhausted providers first; exhausted ones at the end as probes
+        exhausted_keys = {p["key"] for p in enabled
+                          if qs.is_exhausted(self.state, p["key"])}
         ordered = (
-            [p for p in enabled if not qs.is_exhausted(self.state, p["key"])] +
-            [p for p in enabled if qs.is_exhausted(self.state, p["key"])]
+            [p for p in enabled if p["key"] not in exhausted_keys] +
+            [p for p in enabled if p["key"] in exhausted_keys]
         )
 
         had_transient = False
@@ -43,6 +45,10 @@ class Keychain:
                 result = await prov.call(cfg, messages, max_tokens=max_tokens)
 
                 if result["error"] is None:
+                    if cfg["key"] in exhausted_keys:
+                        print(f"[keychain] {cfg['key']} window REOPENED "
+                              f"(probe of a believed-exhausted provider succeeded)")
+                    self.last_used = cfg["key"]
                     qs.record_success(self.state, cfg["key"])
                     return result["text"]
 

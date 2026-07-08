@@ -98,7 +98,12 @@ async def wake_entry(volume_mount: str, keychain):
         p["key"] for p in keychain.providers
         if p.get("enabled", True) and not qs.is_exhausted(keychain.state, p["key"])
     ]
-    msg = f"Resumed. Available providers: {available_names}."
+    if available_names:
+        msg = f"Resumed. Available providers: {available_names}."
+    else:
+        n = sum(1 for p in keychain.providers if p.get("enabled", True))
+        msg = (f"Resumed. No providers believed available -- "
+               f"will probe all {n} in case a window reopened.")
     journal.append(volume_mount, "wake", msg)
     print(f"[runtime] Wake: {msg}")
 
