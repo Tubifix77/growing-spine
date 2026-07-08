@@ -2287,7 +2287,7 @@ def _build_context(recent_journal: list, tue_message: str = None) -> str:
     workspace_block = ("\n\nYour workspace (/workspace/README.md):\n" + workspace_map) if workspace_map else ""
     chat_block = ""
     if tue_message:
-        chat_block = f"\n\nMessage from Tue: {tue_message}\nReply to this message using a <reply>...</reply> tag immediately before your bash blocks. Example: <reply>Got it, will fix llm_ask_helper to use Groq.</reply>"
+        chat_block = f"\n\nMessage from Tue: {tue_message}\nYou MUST include a <reply>...</reply> tag in THIS response, before any bash blocks, even if you are mid-task -- answer Tue first, then continue working. Example: <reply>Got it, will fix llm_ask_helper to use Groq.</reply>"
     active_project = _build_active_project_block()
     knowledge = _build_knowledge_block()
     loop_warning = _build_loop_warning()
@@ -2317,10 +2317,25 @@ async def run_cycle(keychain: Keychain, dockerfile_dir: str):
     # The think call succeeded, so the message has now genuinely been seen.
     # Mark it read and record any plain-text reply.
     if tue_message:
-        chatmod.mark_read(VOLUME_MOUNT, tue_ts)
         reply = chatmod.extract_text_reply(response)
         if reply:
+            chatmod.mark_read(VOLUME_MOUNT, tue_ts)
             chatmod.record_reply(VOLUME_MOUNT, reply)
+        else:
+            # No <reply> tag: the model steamrolled the message while deep in
+            # a task. Re-present it next cycle instead of consuming it; give
+            # up loudly after 3 attempts so Tue is never left guessing.
+            n = chatmod.bump_attempts(VOLUME_MOUNT, tue_ts)
+            if n >= 3:
+                chatmod.mark_read(VOLUME_MOUNT, tue_ts)
+                chatmod.record_reply(VOLUME_MOUNT,
+                    "(read three times but no <reply> was produced -- likely "
+                    "deep in a task; please re-send if it needs an answer)")
+                journal.append(VOLUME_MOUNT, "chat_retry",
+                               f"gave up waiting for <reply> after {n} cycles")
+            else:
+                journal.append(VOLUME_MOUNT, "chat_retry",
+                               f"no <reply> tag; message re-queued (attempt {n}/3)")
 
     bash_blocks = parser.parse_bash_blocks(response)
     if not bash_blocks:

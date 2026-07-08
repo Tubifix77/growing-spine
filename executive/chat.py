@@ -108,19 +108,30 @@ def all_messages(volume_mount: str) -> list:
 def extract_text_reply(response: str) -> str:
     """Extract the creature's reply to a Tue message.
 
-    Primary: looks for <reply>...</reply> — unambiguous regardless of what
-    else the creature writes around it.
-    Fallback: text before the first bash block (old behaviour, for any cycle
-    that predates this fix).
-    Returns empty string if neither yields anything.
+    Tag-only: <reply>...</reply>, unambiguous regardless of what else the
+    creature writes around it. Returns "" when absent; the caller re-queues
+    the message instead of recording task debris as a reply.
     """
     import re
     m = re.search(r"<reply>(.*?)</reply>", response, re.DOTALL | re.IGNORECASE)
     if m:
         return m.group(1).strip()
-    m2 = re.search(r"```bash", response, re.IGNORECASE)
-    if m2:
-        text = response[:m2.start()].strip()
-    else:
-        text = response.strip()
-    return text if text else ""
+    # No fallback: the old before-first-bash-block heuristic captured task
+    # cognition ("Okay, let's produce bash block:") as a chat reply when the
+    # model ignored the tag. Tag or nothing; the caller retries the message.
+    return ""
+
+
+def bump_attempts(volume_mount: str, ts) -> int:
+    """Increment the delivery-attempt counter on an unread Tue message.
+    Returns the new attempt count (0 if the message was not found)."""
+    entries = _read_all(volume_mount)
+    n = 0
+    for e in entries:
+        if e.get("kind") == "from_tue" and not e.get("read") and e.get("ts") == ts:
+            n = int(e.get("attempts", 0)) + 1
+            e["attempts"] = n
+            break
+    if n:
+        _write_all(volume_mount, entries)
+    return n
