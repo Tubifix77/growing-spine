@@ -2339,7 +2339,8 @@ async def run_cycle(keychain: Keychain, dockerfile_dir: str):
 
     bash_blocks = parser.parse_bash_blocks(response)
     if not bash_blocks:
-        journal.append(VOLUME_MOUNT, "exec_skip", "No bash blocks in response.")
+        journal.append(VOLUME_MOUNT, "exec_skip",
+                       "Thought, but proposed no commands (no ```bash block in the response) -- nothing to execute this cycle.")
         return False  # non-substantive: no bash executed this cycle
 
     cycle_start = time.time()

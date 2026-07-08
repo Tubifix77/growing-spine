@@ -43,7 +43,7 @@ KIND_COLORS = {
     "exec_start": "#FFB74D", "exec_end": "#A5D6A7", "exec_skip": "#78909C",
     "error": "#EF5350", "exec_timeout": "#FF8A65", "respawn": "#CE93D8",
     "birth": "#80CBC4", "savegame_preemptive": "#FFF176", "death": "#EF9A9A",
-    "idea_gate": "#BA68C8",
+    "idea_gate": "#BA68C8", "chat_retry": "#F48FB1",
 }
 DEFAULT_COLOR = "#E0E0E0"
 FONT_SIZE  = 13
@@ -341,31 +341,32 @@ class Dashboard(QMainWindow):
         self._tick_memory()
 
     def _tick_quota(self):
-        try:
-            st = os.stat(QUOTA)
-            sig = (st.st_size, st.st_mtime)
-        except OSError:
-            self.lbl_quota.setText("providers: no state file")
-            return
-        if sig == self._quota_sig:
-            return
-        self._quota_sig = sig
+        # No mtime gating: green/orange depend on the CLOCK, not just file
+        # changes -- a frozen label showed stale green through a wall once.
         try:
             with open(QUOTA) as f:
                 state = json.load(f)
+        except OSError:
+            self.lbl_quota.setText("providers: no state file")
+            return
         except Exception:
             return
         now, parts = time.time(), []
         for key, name in self._providers or [(k, k) for k in state]:
             ps = state.get(key, {})
-            ls, ex = ps.get("last_success_at"), ps.get("exhausted_at")
-            if ls and now - ls < 150:
-                parts.append(f'<span style="color:#4CAF50">{_esc(name)}</span>')
-            elif ex:
+            ls = ps.get("last_success_at") or 0
+            ex = ps.get("exhausted_at") or 0
+            rec = ps.get("last_recovery_secs")
+            if ex > ls:
+                # walled: exhaustion is the latest event
+                hint = f", recovers ~{_fmt_age(rec)}" if rec else ""
                 parts.append(f'<span style="color:#FFB74D">{_esc(name)} '
-                             f'({_fmt_age(now - ex)})</span>')
+                             f'(walled {_fmt_age(now - ex)}{hint})</span>')
+            elif ls:
+                parts.append(f'<span style="color:#4CAF50">{_esc(name)} '
+                             f'(ok {_fmt_age(now - ls)} ago)</span>')
             else:
-                parts.append(f'<span style="color:#9E9E9E">{_esc(name)}</span>')
+                parts.append(f'<span style="color:#9E9E9E">{_esc(name)} (unused)</span>')
         self.lbl_quota.setText("providers: " + "  ".join(parts))
 
     def _tick_memory(self):
