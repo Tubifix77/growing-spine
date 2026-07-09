@@ -1153,7 +1153,7 @@ async def _idea_gate_check(spec: dict, keychain) -> dict:
     Skips non-ideas (finish-stub, rest) and skips during a wall (no slow probe)."""
     if IDEA_GATE_MODE == "off" or not spec or spec.get("__rest__"):
         return spec
-    if spec.get("category") in ("finish_stub", "reuse", "extend"):
+    if spec.get("category") in ("finish_stub", "reuse", "extend", "gate_choice"):
         return spec
     title = str(spec.get("title", "")).strip()
     brief = str(spec.get("brief", "")).strip()
@@ -1187,16 +1187,27 @@ async def _idea_gate_check(spec: dict, keychain) -> dict:
         pass
     if IDEA_GATE_MODE != "active":
         return spec
+    # The gate's only authority is the FACT: this idea is not new. What to do
+    # with that fact stays the creature's choice -- upgrade the existing tool
+    # (with the delta named) or drop this and hunt for a genuinely new idea.
     if v == "DUPLICATE":
-        return {"title": tgt, "category": "reuse",
-                "brief": (f"You already built '{tgt}' for this exact job. USE it -- do "
-                          f"not build a near-duplicate. If it falls short, IMPROVE '{tgt}'."),
-                "demonstration": f"Run '{tgt}' on real input and show it does the job."}
-    return {"title": tgt, "category": "extend",
-            "brief": (f"'{tgt}' already covers most of this idea. EXTEND '{tgt}' with the "
-                      f"missing part -- edit that tool, do NOT build a near-duplicate. "
-                      f"Delta to add: {brief}"),
-            "demonstration": f"Run '{tgt}' and show the newly-added capability works."}
+        fact = (f"Gate fact: this idea already exists in your library as '{tgt}' -- "
+                f"a near-duplicate will not be built.")
+        options = (f"Your choice: (a) UPGRADE '{tgt}' -- run it, find where it falls "
+                   f"short of what you imagined, improve that; or (b) drop this idea "
+                   f"and find a GENUINELY NEW one, something none of your tools does.")
+    else:  # EXTEND
+        fact = (f"Gate fact: '{tgt}' already covers most of this idea; the part it "
+                f"does not cover is: {brief}")
+        options = (f"Your choice: (a) UPGRADE '{tgt}' by adding exactly that missing "
+                   f"part -- edit the tool, do not build a sibling; or (b) drop this "
+                   f"idea and find a GENUINELY NEW one, something none of your tools does.")
+    return {"title": f"choice: upgrade {tgt} or go new",
+            "category": "gate_choice",
+            "brief": f"{fact}\n{options}",
+            "demonstration": ("If you chose (a): run the upgraded tool and show the "
+                              "improvement working. If (b): name the new idea and why "
+                              "it is unlike anything in your library.")}
 
 
 def _install_gap(spec: dict, category: str):
@@ -1223,7 +1234,12 @@ def _install_gap(spec: dict, category: str):
         mem.forget(VOLUME_MOUNT, "current_focus")
     except Exception:
         pass
-    if category == "finish_stub":
+    if category == "gate_choice":
+        # A fork, not a build order: the gate states the fact (idea already
+        # covered) and the creature chooses -- upgrade the keeper or go new.
+        mem.store(VOLUME_MOUNT, "current_focus",
+                  f"[gate] {brief} {demo}")
+    elif category == "finish_stub":
         mem.store(VOLUME_MOUNT, "current_focus",
                   f"[assigned] FINISH the unfinished tool '{title}'. {brief} "
                   f"Prove it by running it for real ({demo}). Do not start a new "
