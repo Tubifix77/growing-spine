@@ -1161,10 +1161,15 @@ async def _idea_gate_check(spec: dict, keychain) -> dict:
         return spec
     from . import idea_gate
     tools_dir = os.path.join(VOLUME_MOUNT, "tools", "own")
+    attic_dir = os.path.join(VOLUME_MOUNT, "tools", "attic")
     reg = idea_gate.build_registry(tools_dir)
     names = idea_gate.list_tool_names(tools_dir)
+    attic_reg = idea_gate.build_registry(attic_dir)
+    attic_names = idea_gate.list_tool_names(attic_dir)
     verdict = await idea_gate.assess_idea(f"{title}: {brief}", reg, keychain.complete,
-                                          title=title, all_names=names)
+                                          title=title, all_names=names,
+                                          attic_registry=attic_reg,
+                                          attic_names=attic_names)
     v = verdict.get("verdict", "NEW")
     tgt = verdict.get("target")
     reason = verdict.get("reason", "")

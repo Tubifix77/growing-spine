@@ -27,10 +27,17 @@ async def main():
         print("NO-GO(cannot test): all providers walled. Re-run when quota returns.")
         return
     reg = idea_gate.build_registry(os.path.expanduser("~/growing-spine-mind/tools/own"))
-    print(f"registry: {len(reg)} tools\n")
+    attic_reg = idea_gate.build_registry(os.path.expanduser("~/growing-spine-mind/tools/attic"))
+    attic_names = idea_gate.list_tool_names(os.path.expanduser("~/growing-spine-mind/tools/attic"))
+    names = idea_gate.list_tool_names(os.path.expanduser("~/growing-spine-mind/tools/own"))
+    print(f"registry: {len(reg)} live + {len(attic_reg)} attic\n")
     passed = 0
     for label, desc, expected in FIXTURES:
-        r = await idea_gate.assess_idea(desc, reg, kc.complete)
+        r = await idea_gate.assess_idea(desc, reg, kc.complete,
+                                        title=desc.split(":", 1)[0],
+                                        all_names=names,
+                                        attic_registry=attic_reg,
+                                        attic_names=attic_names)
         ok = r["verdict"] in expected
         passed += ok
         print(f"[{'PASS' if ok else 'FAIL'}] {label}")

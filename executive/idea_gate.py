@@ -105,9 +105,24 @@ JACCARD_DUP = 0.55
 NAME_MIN = 6          # normalized-name collisions shorter than this are noise
 
 
-def deterministic_verdict(new_text, title, registry, all_names):
+def _best_jaccard(nk, registry):
+    best, best_name = 0.0, None
+    for name, desc in registry.items():
+        dk = _keywords(f"{name} {desc}")
+        if not dk:
+            continue
+        j = len(nk & dk) / len(nk | dk)
+        if j > best:
+            best, best_name = j, name
+    return best, best_name
+
+
+def deterministic_verdict(new_text, title, registry, all_names,
+                          attic_registry=None, attic_names=None):
     """Stage-0 gate: catch what needs no judgment, with zero LLM calls.
-    Returns a verdict dict or None (= fall through to prefilter + LLM)."""
+    The ATTIC (consolidated tools, out of the creature's view) serves as
+    dedup memory: a hit there redirects to the covering live keeper, never
+    to the unreachable attic tool. Returns a verdict dict or None."""
     nt = _norm_name(title)
     if len(nt) >= NAME_MIN:
         for name in all_names or ():
@@ -117,18 +132,31 @@ def deterministic_verdict(new_text, title, registry, all_names):
                         "parsed": True, "method": "deterministic:name"}
     nk = _keywords(new_text)
     if nk:
-        best, best_name = 0.0, None
-        for name, desc in registry.items():
-            dk = _keywords(f"{name} {desc}")
-            if not dk:
-                continue
-            j = len(nk & dk) / len(nk | dk)
-            if j > best:
-                best, best_name = j, name
+        best, best_name = _best_jaccard(nk, registry)
         if best >= JACCARD_DUP and best_name:
             return {"verdict": "DUPLICATE", "target": best_name,
                     "reason": f"deterministic overlap J={best:.2f} with '{best_name}'",
                     "parsed": True, "method": "deterministic:overlap"}
+    # --- attic memory: was this job already consolidated away? -----------
+    attic_hit = None
+    if nt and len(nt) >= NAME_MIN:
+        for name in attic_names or ():
+            if _norm_name(name) == nt:
+                attic_hit = ("name", name)
+                break
+    if attic_hit is None and nk and attic_registry:
+        aj, aname = _best_jaccard(nk, attic_registry)
+        if aj >= JACCARD_DUP and aname:
+            attic_hit = (f"overlap J={aj:.2f}", aname)
+    if attic_hit and registry:
+        how, aname = attic_hit
+        kj, keeper = _best_jaccard(nk or _keywords(title), registry)
+        if keeper:
+            v = "DUPLICATE" if kj >= JACCARD_DUP else "EXTEND"
+            return {"verdict": v, "target": keeper,
+                    "reason": (f"consolidated precedent: matches attic tool '{aname}' "
+                               f"({how}); live coverage is '{keeper}' (J={kj:.2f})"),
+                    "parsed": True, "method": "deterministic:attic"}
     return None
 
 
@@ -148,6 +176,8 @@ Judge by INTENT (the job done), not wording. Choose exactly one verdict:
 Reply on TWO lines, exactly:
 VERDICT: <NEW | DUPLICATE:tool-name | EXTEND:tool-name>
 REASON: <one sentence>
+
+Candidates marked [consolidated] are prior tools whose job is already covered by the live library: matching one of them means DUPLICATE, not NEW.
 """
 
 
@@ -210,17 +240,24 @@ def parse_verdict(raw):
 
 
 async def assess_idea(new_desc, registry, complete, k=PREFILTER_K,
-                      title=None, all_names=None):
+                      title=None, all_names=None,
+                      attic_registry=None, attic_names=None):
     """Route a newly-conceived idea. `complete`: async (prompt, max_tokens=) -> str.
     Stage 0 is deterministic (name collision + high keyword overlap, no LLM);
     only the genuine judgment band reaches the LLM."""
     new_desc = (new_desc or "").strip()[:DESC_CAP]
     det = deterministic_verdict(new_desc, title or new_desc.split(":", 1)[0],
-                                registry, all_names)
+                                registry, all_names,
+                                attic_registry=attic_registry,
+                                attic_names=attic_names)
     if det is not None:
         det["candidates"] = []
         return det
-    cands = prefilter(new_desc, registry, k)
+    pool = dict(registry)
+    attic_registry = attic_registry or {}
+    for an, ad in attic_registry.items():
+        pool.setdefault(f"{an} [consolidated]", ad)
+    cands = prefilter(new_desc, pool, k)
     if not cands:
         return {"verdict": "NEW", "target": None, "reason": "no related existing tool", "parsed": True, "candidates": []}
     prompt = IDEA_GATE_PROMPT.format(new_desc=new_desc, candidates=_format_candidates(cands))
@@ -228,11 +265,26 @@ async def assess_idea(new_desc, registry, complete, k=PREFILTER_K,
     out = parse_verdict(raw)
     if not out.get("parsed"):
         out["reason"] = f"UNPARSED reply: {raw[:140]!r}"
+    if out["target"]:
+        out["target"] = out["target"].replace("[consolidated]", "").strip()
     if out["target"] and out["target"] not in registry:
-        match = next((n for n in registry if out["target"] in n or n in out["target"]), None)
-        out["target"] = match
-        if not match:
-            out["verdict"] = "NEW"; out["reason"] += " (named target not found; treated as new)"
+        if out["target"] in attic_registry:
+            # precedent lives in the attic; redirect to the covering LIVE keeper
+            nk = _keywords(new_desc)
+            kj, keeper = _best_jaccard(nk, registry) if nk else (0.0, None)
+            if keeper:
+                out["reason"] = (f"matches consolidated tool '{out['target']}' (attic); "
+                                 f"live coverage '{keeper}' (J={kj:.2f}) -- " + out.get("reason", ""))
+                out["target"] = keeper
+            else:
+                out["verdict"] = "NEW"
+                out["reason"] += " (attic precedent but no live keeper matched; treated as new)"
+                out["target"] = None
+        else:
+            match = next((n for n in registry if out["target"] in n or n in out["target"]), None)
+            out["target"] = match
+            if not match:
+                out["verdict"] = "NEW"; out["reason"] += " (named target not found; treated as new)"
     out["candidates"] = cands
     return out
 
