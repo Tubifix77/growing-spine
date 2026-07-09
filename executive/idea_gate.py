@@ -58,13 +58,28 @@ def extract_description(path):
     return text[:DESC_CAP].strip()
 
 
+_JUNK_SUFFIXES = (".bak", ".tmp", ".swp")
+
+
+def _is_junk(name, desc=None):
+    if name.startswith(".") or name.endswith(_JUNK_SUFFIXES):
+        return True
+    if desc and desc.upper().startswith("DESCRIBE WHAT THIS TOOL DOES"):
+        return True
+    return False
+
+
 def build_registry(tools_dir):
     reg = {}
-    for name in sorted(os.listdir(tools_dir)):
+    try:
+        names = sorted(os.listdir(tools_dir))
+    except OSError:
+        return reg
+    for name in names:
         p = os.path.join(tools_dir, name)
         if os.path.isfile(p):
             d = extract_description(p)
-            if d:
+            if d and not _is_junk(name, d):
                 reg[name] = d
     return reg
 
@@ -88,7 +103,7 @@ def list_tool_names(tools_dir):
     """Every tool filename (with or without a description) -- for name collision."""
     try:
         return [n for n in os.listdir(tools_dir)
-                if os.path.isfile(os.path.join(tools_dir, n)) and not n.startswith(".")]
+                if os.path.isfile(os.path.join(tools_dir, n)) and not _is_junk(n)]
     except OSError:
         return []
 
@@ -151,8 +166,14 @@ def deterministic_verdict(new_text, title, registry, all_names,
     if attic_hit and registry:
         how, aname = attic_hit
         kj, keeper = _best_jaccard(nk or _keywords(title), registry)
+        adesc = (attic_registry or {}).get(aname, "")
+        akj, akeeper = _best_jaccard(_keywords(f"{aname} {adesc}"), registry)
+        if akj > kj:
+            kj, keeper = akj, akeeper
         if keeper:
-            v = "DUPLICATE" if kj >= JACCARD_DUP else "EXTEND"
+            # A name-identical attic hit IS a duplicate -- the verdict states
+            # the fact; only the redirect target depends on the mapping.
+            v = "DUPLICATE" if (how == "name" or kj >= JACCARD_DUP) else "EXTEND"
             return {"verdict": v, "target": keeper,
                     "reason": (f"consolidated precedent: matches attic tool '{aname}' "
                                f"({how}); live coverage is '{keeper}' (J={kj:.2f})"),
@@ -195,16 +216,22 @@ def _clean_line(ln):
     return _MD_PREFIX.sub("", ln).strip().strip("*`").strip()
 
 
-def _find_verdict(s):
-    """DUPLICATE/EXTEND(+target) or NEW in a piece of text; None if absent."""
+def _find_verdict(s, labeled=True):
+    """DUPLICATE/EXTEND(+target) or NEW in a piece of text; None if absent.
+    labeled=False (free-prose fallback) is stricter: NEW only counts in
+    UPPERCASE (narration says 'the new idea...' constantly), and
+    DUPLICATE/EXTEND only count WITH a target."""
     m = _KIND_RE.search(s)
     if m:
         tgt = m.group(2)
         if tgt and tgt.lower() == "of":          # "EXTEND of tool_x" phrasing
             m2 = re.search(r"\bof\b\s+['\"`]?([A-Za-z0-9_\-.]{2,})", s[m.start():], re.IGNORECASE)
             tgt = m2.group(1) if m2 else None
-        return m.group(1).upper(), tgt
-    if re.search(r"\bNEW\b", s, re.IGNORECASE):
+        if labeled or tgt:
+            return m.group(1).upper(), tgt
+    if labeled and re.search(r"\bNEW\b", s, re.IGNORECASE):
+        return "NEW", None
+    if not labeled and re.search(r"\bNEW\b", s):     # uppercase only in prose
         return "NEW", None
     return None
 
@@ -229,7 +256,7 @@ def parse_verdict(raw):
         for s in lines:
             if not s or "<tool" in s.lower():     # skip echoed option menu
                 continue
-            got = _find_verdict(s)
+            got = _find_verdict(s, labeled=False)
             if got:
                 verdict, target = got
                 parsed = True
@@ -261,7 +288,7 @@ async def assess_idea(new_desc, registry, complete, k=PREFILTER_K,
     if not cands:
         return {"verdict": "NEW", "target": None, "reason": "no related existing tool", "parsed": True, "candidates": []}
     prompt = IDEA_GATE_PROMPT.format(new_desc=new_desc, candidates=_format_candidates(cands))
-    raw = (await complete(prompt, max_tokens=200)) or ""
+    raw = (await complete(prompt, max_tokens=300)) or ""
     out = parse_verdict(raw)
     if not out.get("parsed"):
         out["reason"] = f"UNPARSED reply: {raw[:140]!r}"
