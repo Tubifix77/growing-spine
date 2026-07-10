@@ -194,11 +194,12 @@ Judge by INTENT (the job done), not wording. Choose exactly one verdict:
 - EXTEND:<tool>     an existing tool does MOST of this; the new idea is that tool plus a small delta. Prefer this over NEW whenever a close relative exists -- growing the existing tool beats spawning a near-twin.
 - NEW               genuinely not covered by any listed tool.
 
-Reply on TWO lines, exactly:
+Candidates marked [consolidated] are prior tools whose job is already covered by the live library: matching one of them means DUPLICATE, not NEW.
+
+CRITICAL OUTPUT RULE: the VERY FIRST characters of your reply must be "VERDICT:". No thinking out loud, no restating the idea, no preamble of any kind -- replies that do not start with VERDICT: are discarded unread. Reason comes AFTER, on the second line.
+
 VERDICT: <NEW | DUPLICATE:tool-name | EXTEND:tool-name>
 REASON: <one sentence>
-
-Candidates marked [consolidated] are prior tools whose job is already covered by the live library: matching one of them means DUPLICATE, not NEW.
 """
 
 
