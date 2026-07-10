@@ -340,3 +340,78 @@ if __name__ == "__main__":
         for n, d in c[:6]:
             print(f"    - {n}: {d[:64]}")
         print()
+
+
+BATCH_JUDGE_PROMPT = """You are the idea gate for a self-building agent. For EACH numbered idea below, decide whether an existing tool already covers its intent. Judge by INTENT (the job done), not wording. Tools marked [consolidated] are prior art: matching one means DUPLICATE, not NEW.
+
+{ideas_block}
+
+CRITICAL OUTPUT RULE: reply with ONE line per idea and NOTHING else -- no preamble, no reasoning. The very first character of your reply must be "1".
+Format, one line per idea:
+<number>: NEW | DUPLICATE:tool-name | EXTEND:tool-name
+"""
+
+
+def _resolve_batch_target(verdict, target, new_text, registry, attic_registry):
+    """Same target discipline as assess_idea: strip tags, remap attic names to
+    the covering live keeper, neutralise unknown targets to NEW."""
+    if target:
+        target = target.replace("[consolidated]", "").strip()
+    if not target:
+        return (verdict, None) if verdict == "NEW" else ("NEW", None)
+    if target in registry:
+        return verdict, target
+    if attic_registry and target in attic_registry:
+        nk = _keywords(new_text)
+        kj, keeper = _best_jaccard(nk, registry)
+        adesc = attic_registry.get(target, "")
+        akj, akeeper = _best_jaccard(_keywords(f"{target} {adesc}"), registry)
+        if akj > kj:
+            kj, keeper = akj, akeeper
+        if keeper:
+            return verdict, keeper
+        return "NEW", None
+    match = next((n for n in registry if target in n or n in target), None)
+    if match:
+        return verdict, match
+    return "NEW", None
+
+
+async def batch_judge(items, registry, complete, attic_registry=None, per_idea_k=3):
+    """ONE LLM call, verdicts for a whole ideation batch.
+    items: list of dicts with title+brief. Returns {index: (verdict, target)}
+    containing ONLY the ideas judged covered (DUPLICATE/EXTEND with a live
+    target). Anything unparsed, unmatched, or judged NEW is simply absent --
+    the caller treats absence as new (fail-open)."""
+    if not items:
+        return {}
+    attic_registry = attic_registry or {}
+    pool = dict(registry)
+    for an, ad in attic_registry.items():
+        pool.setdefault(f"{an} [consolidated]", ad)
+    blocks = []
+    for i, it in enumerate(items, 1):
+        text = f"{it.get('title', '')}: {it.get('brief', '')}"[:DESC_CAP]
+        cands = prefilter(text, pool, per_idea_k)
+        rel = "; ".join(f"{n}: {d[:70]}" for n, d in cands) or "(none related)"
+        blocks.append(f"IDEA {i}: {text}\n  RELATED: {rel}")
+    prompt = BATCH_JUDGE_PROMPT.format(ideas_block="\n".join(blocks))
+    raw = (await complete(prompt, max_tokens=30 * len(items) + 60)) or ""
+    out = {}
+    for ln in raw.splitlines():
+        m = re.match(r"\s*(\d+)\s*[:.\)]\s*(NEW|DUPLICATE|EXTEND)\s*[:\-]?\s*['\"`]?([A-Za-z0-9_\-.\[\] ]{2,})?",
+                     ln.strip(), re.IGNORECASE)
+        if not m:
+            continue
+        idx = int(m.group(1)) - 1
+        if not (0 <= idx < len(items)):
+            continue
+        v = m.group(2).upper()
+        if v == "NEW":
+            continue
+        text = f"{items[idx].get('title', '')}: {items[idx].get('brief', '')}"
+        v2, tgt = _resolve_batch_target(v, (m.group(3) or "").strip(), text,
+                                        registry, attic_registry)
+        if v2 != "NEW" and tgt:
+            out[idx] = (v2, tgt)
+    return out

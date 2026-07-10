@@ -846,6 +846,7 @@ async def _refill_composition_queue(keychain) -> list:
     except Exception as e:
         print(f"[oracle] batch composition call failed ({type(e).__name__}); seeding queue from fallbacks")
     batch = _parse_composition_batch(raw, COMPOSITION_BATCH_SIZE)
+    from_llm = bool(batch)
     if not batch:
         import random
         fbs = list(_COMPOSITION_FALLBACKS)
@@ -854,7 +855,82 @@ async def _refill_composition_queue(keychain) -> list:
         print(f"[oracle] composition queue seeded from {len(batch)} fallback(s)")
     else:
         print(f"[oracle] composition queue refilled with {len(batch)} fresh idea(s) in one call")
-    _save_composition_queue(batch)
+
+    # v0.11 batch-gate: judge the whole batch NOW (deterministic pass free,
+    # ONE LLM call for the rest), so covered ideas are known before any code.
+    batch = await _gate_composition_batch(batch, keychain)
+    new_items = [i for i in batch if not i.get("gate")]
+    covered = [i for i in batch if i.get("gate")]
+    if from_llm and len(new_items) < MIN_NEW_IDEAS:
+        # ONE regeneration round, fed the rejections -- then proceed with
+        # whatever exists (capped: the drive wall must never starve the queue).
+        avoid = "; ".join(f"'{i.get('title','')}' (job covered by {i['gate'][1]})"
+                          for i in covered[:8])
+        try:
+            raw2 = await keychain.complete(
+                _composition_batch_prompt(COMPOSITION_BATCH_SIZE)
+                + "\n\nALREADY REJECTED as covered by existing tools -- do not "
+                  "propose these jobs again, in any wording: " + avoid,
+                max_tokens=3000) or ""
+        except Exception:
+            raw2 = ""
+        batch2 = await _gate_composition_batch(
+            _parse_composition_batch(raw2, COMPOSITION_BATCH_SIZE), keychain)
+        seen = {_pt_norm(i.get("title", "")) for i in batch}
+        for it in batch2:
+            if _pt_norm(it.get("title", "")) in seen:
+                continue
+            seen.add(_pt_norm(it.get("title", "")))
+            (new_items if not it.get("gate") else covered).append(it)
+        print(f"[idea-gate] batch regen: now {len(new_items)} new / {len(covered)} covered")
+    queue = new_items + covered
+    print(f"[idea-gate] batch gated: {len(new_items)} new, {len(covered)} covered->fork")
+    _save_composition_queue(queue)
+    return queue
+
+
+MIN_NEW_IDEAS = 5
+
+
+def _pt_norm(s: str) -> str:
+    import re as _re
+    return _re.sub(r"[^a-z0-9]", "", (s or "").lower())
+
+
+async def _gate_composition_batch(batch: list, keychain) -> list:
+    """Annotate covered ideas in place: item['gate'] = (verdict, target).
+    Deterministic stage costs nothing; the judgment band is ONE LLM call for
+    the whole batch. Any failure fails open (items stay unannotated = new)."""
+    if not batch:
+        return batch
+    try:
+        from . import idea_gate
+        tools_dir = os.path.join(VOLUME_MOUNT, "tools", "own")
+        attic_dir = os.path.join(VOLUME_MOUNT, "tools", "attic")
+        reg = idea_gate.build_registry(tools_dir)
+        names = idea_gate.list_tool_names(tools_dir)
+        attic_reg = idea_gate.build_registry(attic_dir)
+        attic_names = idea_gate.list_tool_names(attic_dir)
+        band = []
+        for it in batch:
+            text = f"{it.get('title','')}: {it.get('brief','')}"
+            det = idea_gate.deterministic_verdict(
+                text, it.get("title", ""), reg, names,
+                attic_registry=attic_reg, attic_names=attic_names)
+            if det and det.get("target"):
+                it["gate"] = (det["verdict"], det["target"])
+            else:
+                band.append(it)
+        if band and keychain.any_available():
+            verdicts = await idea_gate.batch_judge(band, reg, keychain.complete,
+                                                   attic_registry=attic_reg)
+            for idx, (v, tgt) in verdicts.items():
+                band[idx]["gate"] = (v, tgt)
+        for it in batch:
+            if not it.get("gate"):
+                it["gate_checked"] = True
+    except Exception as e:
+        print(f"[idea-gate] batch gate skipped (error: {type(e).__name__}) -- queue ungated")
     return batch
 
 
@@ -1111,6 +1187,15 @@ async def _oracle_next_spec_raw(keychain) -> dict:
         if queue:
             spec = queue.pop(0)
             _save_composition_queue(queue)
+            g = spec.get("gate")
+            if g:
+                v, tgt = g[0], g[1]
+                print(f"[idea-gate] {IDEA_GATE_MODE}: queued idea "
+                      f"'{_project_title(str(spec.get('title','')))}' was batch-judged "
+                      f"{v} of '{tgt}'"
+                      + (" -- serving the choice fork" if IDEA_GATE_MODE == "active" else " (shadow: building anyway)"))
+                if IDEA_GATE_MODE == "active":
+                    return _gate_choice_spec(v, tgt, str(spec.get("brief", "")))
             spec.setdefault("category", "composition")
             print(f"[oracle] composition from queue ({len(queue)} left): "
                   f"{_project_title(str(spec.get('title','')))}")
@@ -1166,10 +1251,19 @@ async def _idea_gate_check(spec: dict, keychain) -> dict:
     names = idea_gate.list_tool_names(tools_dir)
     attic_reg = idea_gate.build_registry(attic_dir)
     attic_names = idea_gate.list_tool_names(attic_dir)
-    verdict = await idea_gate.assess_idea(f"{title}: {brief}", reg, keychain.complete,
-                                          title=title, all_names=names,
-                                          attic_registry=attic_reg,
-                                          attic_names=attic_names)
+    if spec.get("gate_checked"):
+        # already LLM-judged at batch time; re-check only the free stage
+        # against the CURRENT registry (tools may have appeared since)
+        det = idea_gate.deterministic_verdict(
+            f"{title}: {brief}", title, reg, names,
+            attic_registry=attic_reg, attic_names=attic_names)
+        verdict = det or {"verdict": "NEW", "target": None,
+                          "reason": "batch-cleared", "parsed": True}
+    else:
+        verdict = await idea_gate.assess_idea(f"{title}: {brief}", reg, keychain.complete,
+                                              title=title, all_names=names,
+                                              attic_registry=attic_reg,
+                                              attic_names=attic_names)
     v = verdict.get("verdict", "NEW")
     tgt = verdict.get("target")
     reason = verdict.get("reason", "")
@@ -1187,6 +1281,10 @@ async def _idea_gate_check(spec: dict, keychain) -> dict:
         pass
     if IDEA_GATE_MODE != "active":
         return spec
+    return _gate_choice_spec(v, tgt, brief)
+
+
+def _gate_choice_spec(v: str, tgt: str, brief: str) -> dict:
     # The gate's only authority is the FACT: this idea is not new. What to do
     # with that fact stays the creature's choice -- upgrade the existing tool
     # (with the delta named) or drop this and hunt for a genuinely new idea.
