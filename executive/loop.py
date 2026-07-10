@@ -679,7 +679,76 @@ def _cluster_summary() -> str:
     return "\n".join(lines)
 
 
-def _composition_batch_prompt(n: int) -> str:
+def _inspiration_block() -> str:
+    """A larger horizon for ideation (v0.11, Tue's design): the cousin's OWN
+    recent friction (inward) + live external sparks (outward). All sources
+    fail silent -- ideation must never break on a missing horizon."""
+    parts = []
+    # --- inward: mine the journal for felt friction (last 48h) -----------
+    try:
+        import time as _time
+        cutoff = _time.time() - 48 * 3600
+        own = set(_own_tool_names())
+        err_counts, timeouts = {}, 0
+        with open(os.path.join(VOLUME_MOUNT, "journal.jsonl"), encoding="utf-8") as f:
+            for line in f:
+                if '"error"' not in line and '"exec_timeout"' not in line:
+                    continue
+                try:
+                    e = json.loads(line)
+                except Exception:
+                    continue
+                if e.get("ts", 0) < cutoff:
+                    continue
+                if e.get("kind") == "exec_timeout":
+                    timeouts += 1
+                c = str(e.get("content", ""))
+                for name in own:
+                    if len(name) > 3 and name in c:
+                        err_counts[name] = err_counts.get(name, 0) + 1
+        top = sorted(err_counts.items(), key=lambda kv: -kv[1])[:3]
+        if top or timeouts:
+            fr = "; ".join(f"{n} failed {c}x" for n, c in top)
+            if timeouts:
+                fr += (f"; {timeouts} command timeout(s)" if fr else f"{timeouts} command timeout(s)")
+            parts.append("THE COUSIN'S OWN RECENT FRICTION (last 48h, from its "
+                         "journal): " + fr + ". Ideas that remove real, observed "
+                         "friction beat recombination for novelty's sake.")
+    except Exception:
+        pass
+    # --- outward: live sparks (host-side HTTP, tiny timeouts) ------------
+    try:
+        import urllib.request as _ur
+        sparks = []
+        try:
+            with _ur.urlopen("https://hacker-news.firebaseio.com/v0/topstories.json", timeout=5) as r:
+                ids = json.load(r)[:4]
+            for i in ids:
+                with _ur.urlopen(f"https://hacker-news.firebaseio.com/v0/item/{i}.json", timeout=4) as r:
+                    it = json.load(r)
+                if it and it.get("title"):
+                    sparks.append(it["title"][:90])
+        except Exception:
+            pass
+        try:
+            url = ("https://en.wikipedia.org/w/api.php?action=query&list=random"
+                   "&rnnamespace=0&rnlimit=3&format=json")
+            req = _ur.Request(url, headers={"User-Agent": "growing-spine/0.11"})
+            with _ur.urlopen(req, timeout=5) as r:
+                for it in json.load(r).get("query", {}).get("random", []):
+                    sparks.append("wiki: " + it.get("title", "")[:70])
+        except Exception:
+            pass
+        if sparks:
+            parts.append("LIVE SPARKS FROM THE WORLD RIGHT NOW (use freely as "
+                         "inspiration for what the cousin could fetch, track, "
+                         "digest, or react to): " + " | ".join(sparks))
+    except Exception:
+        pass
+    return ("\n\n" + "\n\n".join(parts)) if parts else ""
+
+
+def _composition_batch_prompt(n: int, inspiration: str = "") -> str:
     """Batch version of the composition brief: ask for N distinct composition
     ideas in ONE call (calls are the scarce resource, not tokens).
 
@@ -700,6 +769,7 @@ def _composition_batch_prompt(n: int) -> str:
         "so capability compounds instead of accumulating as a flat pile.\n\n"
         "The cousin's most-used existing tools (compose FROM these):\n" + tool_list + "\n\n"
         + (cluster_block + "\n\n" if cluster_block else "")
+        + (inspiration.strip() + "\n\n" if inspiration else "")
         + "Propose " + str(n) + " DISTINCT new tools. Each must:\n"
         "  1. CHAIN tools from TWO OR MORE different clusters listed above\n"
         "  2. Deliver a capability none of the individual clusters has alone\n"
@@ -840,8 +910,9 @@ async def _refill_composition_queue(keychain) -> list:
     so the creature still gets genuinely-new (tool-chaining) work."""
     raw = ""
     try:
+        _horizon = _inspiration_block()
         raw = await keychain.complete(
-            _composition_batch_prompt(COMPOSITION_BATCH_SIZE), max_tokens=3000
+            _composition_batch_prompt(COMPOSITION_BATCH_SIZE, _horizon), max_tokens=3000
         ) or ""
     except Exception as e:
         print(f"[oracle] batch composition call failed ({type(e).__name__}); seeding queue from fallbacks")
@@ -868,7 +939,7 @@ async def _refill_composition_queue(keychain) -> list:
                           for i in covered[:8])
         try:
             raw2 = await keychain.complete(
-                _composition_batch_prompt(COMPOSITION_BATCH_SIZE)
+                _composition_batch_prompt(COMPOSITION_BATCH_SIZE, _horizon)
                 + "\n\nALREADY REJECTED as covered by existing tools -- do not "
                   "propose these jobs again, in any wording: " + avoid,
                 max_tokens=3000) or ""
