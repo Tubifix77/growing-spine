@@ -1284,6 +1284,21 @@ async def _oracle_next_spec_raw(keychain) -> dict:
     # Detect "fell back to the static gap" by matching the fallback title.
     fb_title = (_FALLBACK_GAPS.get(category, {}) or {}).get("title", "")
     used_fallback = bool(fb_title) and _project_title(spec.get("title", "")) == fb_title
+    if used_fallback and not already_built:
+        # state-independent staleness check: does this fallback name a tool
+        # that already exists (live or attic)? ideation_state can drift; the
+        # filesystem cannot. Same disease as the composition fallbacks.
+        try:
+            from . import idea_gate as _ig
+            _n = _pt_norm(fb_title)
+            _built = {_pt_norm(x) for x in
+                      _ig.list_tool_names(os.path.join(VOLUME_MOUNT, "tools", "own"))
+                      + _ig.list_tool_names(os.path.join(VOLUME_MOUNT, "tools", "attic"))}
+            if _n in _built:
+                already_built = True
+                print(f"[oracle] breadth fallback '{fb_title}' already exists on disk -- treating as built")
+        except Exception:
+            pass
     if already_built and used_fallback:
         print(f"[oracle] category={category} already built and only a rebuild "
               f"fallback is available -- resting this cycle instead of rebuilding")

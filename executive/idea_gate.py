@@ -62,7 +62,7 @@ _JUNK_SUFFIXES = (".bak", ".tmp", ".swp")
 
 
 def _is_junk(name, desc=None):
-    if name.startswith(".") or name.endswith(_JUNK_SUFFIXES):
+    if name.startswith(".") or name.endswith(_JUNK_SUFFIXES) or ".broken" in name:
         return True
     if desc and desc.upper().startswith("DESCRIBE WHAT THIS TOOL DOES"):
         return True
