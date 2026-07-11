@@ -398,6 +398,7 @@ async def batch_judge(items, registry, complete, attic_registry=None, per_idea_k
     prompt = BATCH_JUDGE_PROMPT.format(ideas_block="\n".join(blocks))
     raw = (await complete(prompt, max_tokens=30 * len(items) + 60)) or ""
     out = {}
+    parsed_lines = 0
     for ln in raw.splitlines():
         m = re.match(r"\s*(\d+)\s*[:.\)]\s*(NEW|DUPLICATE|EXTEND)\s*[:\-]?\s*['\"`]?([A-Za-z0-9_\-.\[\] ]{2,})?",
                      ln.strip(), re.IGNORECASE)
@@ -406,6 +407,7 @@ async def batch_judge(items, registry, complete, attic_registry=None, per_idea_k
         idx = int(m.group(1)) - 1
         if not (0 <= idx < len(items)):
             continue
+        parsed_lines += 1
         v = m.group(2).upper()
         if v == "NEW":
             continue
@@ -414,4 +416,7 @@ async def batch_judge(items, registry, complete, attic_registry=None, per_idea_k
                                         registry, attic_registry)
         if v2 != "NEW" and tgt:
             out[idx] = (v2, tgt)
+    print(f"[idea-gate] batch judge: {parsed_lines}/{len(items)} verdict lines parsed, "
+          f"{len(out)} covered" + ("" if parsed_lines else
+          f" -- UNPARSED reply head: {raw[:120]!r}"))
     return out
