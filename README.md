@@ -102,7 +102,9 @@ python3 observer.py
 
 **Use `./restart.sh`, not `python3 main.py` by hand.** Since v0.7, `restart.sh` delegates to `systemctl --user restart growing-spine` — this is atomic, avoids the double-launch footgun of hand-crafting the stop/launch sequence, and keeps the systemd supervisor in control. (Before v0.7, the script managed the stop→verify-zero→launch→verify-one sequence itself; that logic is now in the service unit.) `main.py` does **not** fork, so after a clean launch there must be exactly one process. Code changes require a restart to load (Python does not hot-reload); prompt/markdown files are re-read every cycle and take effect without a restart. The creature must be running under systemd for `restart.sh` to work — if starting from scratch, run the one-time install in `deploy/INSTALL-systemd.md` first.
 
-**Observer tabs:** Journal (live activity), Memory (working / intermediate / archive), Container (`/workspace` file browser), Quota (per-provider timestamps — last success, dark-period start, and the measured "Last recovery took" outage length), Chat (send the creature a message; it replies on its next think cycle).
+**Observer (dashboard):** since the 2026-07-08 rewrite it is a single low-power window (~0.3% of a core, down from ~33%): a vitals strip (brain PID, disk, journal age, per-provider status with walled/recovers hints), the live journal tail, a memory focus panel (current project/phase + working memory), and a chat box (send the creature a message; it replies on its next think cycle via a `<reply>` tag). Launch on the laptop with the desktop icon (`deploy/start-growing-spine.sh`), which also ensures the brain service and the daily health timer are up.
+
+**Ops tooling (`scripts/`):** `spine_health.py` — daily behavioral-invariant probe + stub janitor (sensor-mock regression, stale-fallback census, age-out placeholder stubs), run via `spine-health.timer`; `replay_gate.py` — behavioral regression that replays recently-born tools through the current idea gate (add `--llm` to also run the batch judge). Both are host-side and quota-free by default.
 
 ---
 

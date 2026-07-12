@@ -1,0 +1,5 @@
+[Unit]
+Description=Growing Spine daily behavioral invariant probe + stub janitor
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /home/boas/growing-spine/scripts/spine_health.py
