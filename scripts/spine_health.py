@@ -81,9 +81,59 @@ def stub_janitor():
             continue
     return f"JANITOR:aged-out {len(moved)}" + (f"[{'; '.join(moved)}]" if moved else "")
 
+def journal_integrity():
+    """Detect + auto-repair torn/interleaved journal lines (abrupt-shutdown
+    damage). Recovers the last complete {...} object from a torn line; drops
+    only the unrecoverable fragment. Backs up before any rewrite."""
+    jpath = os.path.join(MIND, "journal.jsonl")
+    try:
+        lines = open(jpath, encoding="utf-8", errors="replace").readlines()
+    except OSError:
+        return "JOURNAL:no-file"
+    bad = []
+    for i, l in enumerate(lines):
+        if not l.strip():
+            continue
+        try:
+            json.loads(l)
+        except Exception:
+            bad.append(i)
+    if not bad:
+        return "JOURNAL:clean"
+    # repair
+    import shutil, time as _t
+    shutil.copy(jpath, jpath + ".bak-" + _t.strftime("%Y%m%d-%H%M%S"))
+    fixed, recovered, dropped = [], 0, 0
+    for l in lines:
+        s = l.strip()
+        if not s:
+            continue
+        try:
+            json.loads(s)
+            fixed.append(l if l.endswith("\n") else l + "\n")
+            continue
+        except Exception:
+            pass
+        ok = False
+        for start in [i for i, c in enumerate(s) if c == "{"]:
+            try:
+                obj = json.loads(s[start:])
+                fixed.append(json.dumps(obj) + "\n")
+                recovered += 1
+                ok = True
+                break
+            except Exception:
+                continue
+        if not ok:
+            dropped += 1
+    open(jpath, "w", encoding="utf-8").writelines(fixed)
+    return f"JOURNAL:REPAIRED {len(bad)} torn (recovered {recovered}, dropped {dropped})"
+
+
 if __name__ == "__main__":
     line = (time.strftime("%Y-%m-%d %H:%M") + "  "
-            + "  ".join([check_sensor(), check_fallbacks(), stub_janitor()]))
+            + "  ".join([check_sensor(), check_fallbacks(), stub_janitor(),
+                         journal_integrity()]))
     with open(LOG, "a") as f:
         f.write(line + "\n")
     print(line)

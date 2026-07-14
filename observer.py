@@ -15,10 +15,10 @@ of CPU baseline (a contributor to the 07-06 thermal trip). This version:
   - memory panel: control keys + layer-1 only (no full ranked render)
 Target: <1% CPU when idle.
 """
-import sys, os, json, time, html
+import sys, os, json, time, html, subprocess
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QLineEdit, QPushButton, QLabel, QTextEdit, QSplitter, QFrame
+    QLineEdit, QPushButton, QLabel, QTextEdit, QSplitter, QFrame, QMessageBox
 )
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import (QColor, QFont, QPalette, QIcon, QPixmap, QPainter,
@@ -167,6 +167,11 @@ class Dashboard(QMainWindow):
                             "border:1px solid #333; border-radius:4px;")
             vit.addWidget(l)
         vit.addStretch()
+        self.btn_brain = QPushButton("...")
+        self.btn_brain.setFixedWidth(150)
+        self.btn_brain.setFont(QFont("sans-serif", FONT_SIZE))
+        self.btn_brain.clicked.connect(self._toggle_brain)
+        vit.addWidget(self.btn_brain)
         outer.addLayout(vit)
 
         # -- main split: journal | memory ---------------------------------
@@ -337,6 +342,7 @@ class Dashboard(QMainWindow):
                 "color:#EF5350; padding:2px 10px; background:#1e1e2e;"
                 "border:1px solid #333; border-radius:4px;")
         self.lbl_disk.setText(f"disk: {_disk()}")
+        self._sync_brain_button()
         self._tick_quota()
         self._tick_memory()
 
@@ -400,6 +406,57 @@ class Dashboard(QMainWindow):
         if out != self._mem_html:
             self._mem_html = out
             self.mem.setHtml(out)
+
+    # -- brain control (systemd user service) --------------------------------
+    def _service_active(self) -> bool:
+        try:
+            r = subprocess.run(["systemctl", "--user", "is-active", "growing-spine"],
+                               capture_output=True, text=True, timeout=5)
+            return r.stdout.strip() == "active"
+        except Exception:
+            return self._brain is not None
+
+    def _sync_brain_button(self):
+        running = self._brain is not None
+        if running:
+            self.btn_brain.setText("Stop brain")
+            self.btn_brain.setStyleSheet(
+                "color:#EF9A9A; background:#2a1e1e; border:1px solid #663;"
+                "border-radius:4px; padding:4px 10px;")
+        else:
+            self.btn_brain.setText("Start brain")
+            self.btn_brain.setStyleSheet(
+                "color:#A5D6A7; background:#1e2a1e; border:1px solid #366;"
+                "border-radius:4px; padding:4px 10px;")
+
+    def _toggle_brain(self):
+        running = self._service_active()
+        if running:
+            ok = QMessageBox.question(
+                self, "Stop the brain?",
+                "Gracefully stop the creature (systemctl --user stop growing-spine)?\n\n"
+                "Its memory/journal are always saved to /mind, so this is safe. "
+                "The container keeps sleeping; the brain will not auto-restart "
+                "until you Start it (or reboot).",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No)
+            if ok != QMessageBox.StandardButton.Yes:
+                return
+            action, verb = "stop", "Stopping"
+        else:
+            action, verb = "start", "Starting"
+        self.btn_brain.setText(verb + "...")
+        self.btn_brain.setEnabled(False)
+        try:
+            subprocess.run(["systemctl", "--user", action, "growing-spine"],
+                           capture_output=True, text=True, timeout=95)
+            self.statusBar().showMessage(f"brain: {action} issued")
+        except Exception as e:
+            self.statusBar().showMessage(f"brain {action} error: {e}")
+        finally:
+            self.btn_brain.setEnabled(True)
+            self._brain = _brain_pid()
+            self._sync_brain_button()
 
     # -- chat send -------------------------------------------------------------
     def _send(self):
