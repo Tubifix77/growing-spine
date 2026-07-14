@@ -29,7 +29,11 @@ def materialize_framework(volume_mount: str):
         except OSError:
             pass
     for name in os.listdir(src):
+        if name.startswith((".", "__")) or name.endswith((".pyc", ".bak", ".tmp", ".swp")):
+            continue  # junk, never a framework tool
         s = os.path.join(src, name)
+        if not os.path.isfile(s):
+            continue  # a stray __pycache__ dir crashed the copy loop post-wipe (Jul 10-14)
         d = os.path.join(dst, name)
         try:
             with open(s) as _f:
