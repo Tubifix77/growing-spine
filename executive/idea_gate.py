@@ -20,6 +20,7 @@ Why this shape:
 """
 from __future__ import annotations
 import os, re
+from . import embed_gate
 from pathlib import Path
 
 # Compared-against-everything layer, so keep it short (Claude Code caps skill
@@ -132,6 +133,31 @@ def _best_jaccard(nk, registry):
     return best, best_name
 
 
+def _refresh_embed_index():
+    try:
+        mind = os.environ.get("VOLUME_MOUNT", os.path.expanduser("~/growing-spine-mind"))
+        embed_gate.refresh({"live": os.path.join(mind, "tools", "own"),
+                            "attic": os.path.join(mind, "tools", "attic")})
+    except Exception:
+        pass
+
+
+def _nearest_live(text, registry):
+    """Embedding-nearest LIVE tool name (for attic->keeper remap)."""
+    try:
+        for full, _s in embed_gate.top_matches(text, k=12, labels={"live"}):
+            n = full.split(":", 1)[1]
+            if n in registry:
+                return n
+    except Exception:
+        pass
+    nk = _keywords(text)
+    if nk:
+        _j, name = _best_jaccard(nk, registry)
+        return name
+    return None
+
+
 def deterministic_verdict(new_text, title, registry, all_names,
                           attic_registry=None, attic_names=None):
     """Stage-0 gate: catch what needs no judgment, with zero LLM calls.
@@ -145,6 +171,29 @@ def deterministic_verdict(new_text, title, registry, all_names,
                 return {"verdict": "DUPLICATE", "target": name,
                         "reason": f"name collision: '{title}' normalizes to existing tool '{name}'",
                         "parsed": True, "method": "deterministic:name"}
+    # --- semantic bands (v0.12): the layer lexical matching cannot be -------
+    if embed_gate.available():
+        _refresh_embed_index()
+        top = embed_gate.top_matches(new_text, k=1)
+        if top:
+            full, sim = top[0]
+            label, tname = full.split(":", 1)
+            if sim >= embed_gate.SIM_DUP:
+                if label == "attic" or tname not in registry:
+                    keeper = _nearest_live(new_text, registry) or tname
+                    return {"verdict": "DUPLICATE", "target": keeper,
+                            "reason": (f"semantic duplicate of {'attic ' if label=='attic' else ''}"
+                                       f"'{tname}' (cos={sim:.2f}); live coverage '{keeper}'"),
+                            "parsed": True, "method": "deterministic:embed"}
+                return {"verdict": "DUPLICATE", "target": tname,
+                        "reason": f"semantic duplicate of '{tname}' (cos={sim:.2f})",
+                        "parsed": True, "method": "deterministic:embed"}
+            if sim < embed_gate.SIM_FLOOR:
+                return {"verdict": "NEW", "target": None,
+                        "reason": f"semantically unlike everything (best cos={sim:.2f} vs '{tname}')",
+                        "parsed": True, "method": "deterministic:embed-floor"}
+        # in the band: fall through to the LLM with embedding-ranked candidates
+        return None
     nk = _keywords(new_text)
     if nk:
         best, best_name = _best_jaccard(nk, registry)
@@ -267,6 +316,27 @@ def parse_verdict(raw):
     return {"verdict": verdict, "target": target, "reason": reason, "parsed": parsed}
 
 
+def _rank_candidates(new_desc, pool, registry, attic_registry, k):
+    """Top-k candidates for the LLM judge: embedding-ranked when available
+    (the calibration showed top-1 embedding targets are exactly the right
+    family siblings), keyword-overlap otherwise."""
+    if embed_gate.available():
+        try:
+            _refresh_embed_index()
+            out = []
+            for full, _s in embed_gate.top_matches(new_desc, k=k):
+                label, name = full.split(":", 1)
+                if label == "attic" and name in (attic_registry or {}):
+                    out.append((f"{name} [consolidated]", attic_registry[name]))
+                elif name in registry:
+                    out.append((name, registry[name]))
+            if out:
+                return out
+        except Exception:
+            pass
+    return prefilter(new_desc, pool, k)
+
+
 async def assess_idea(new_desc, registry, complete, k=PREFILTER_K,
                       title=None, all_names=None,
                       attic_registry=None, attic_names=None):
@@ -285,7 +355,7 @@ async def assess_idea(new_desc, registry, complete, k=PREFILTER_K,
     attic_registry = attic_registry or {}
     for an, ad in attic_registry.items():
         pool.setdefault(f"{an} [consolidated]", ad)
-    cands = prefilter(new_desc, pool, k)
+    cands = _rank_candidates(new_desc, pool, registry, attic_registry, k)
     if not cands:
         return {"verdict": "NEW", "target": None, "reason": "no related existing tool", "parsed": True, "candidates": []}
     prompt = IDEA_GATE_PROMPT.format(new_desc=new_desc, candidates=_format_candidates(cands))
@@ -298,8 +368,11 @@ async def assess_idea(new_desc, registry, complete, k=PREFILTER_K,
     if out["target"] and out["target"] not in registry:
         if out["target"] in attic_registry:
             # precedent lives in the attic; redirect to the covering LIVE keeper
-            nk = _keywords(new_desc)
-            kj, keeper = _best_jaccard(nk, registry) if nk else (0.0, None)
+            keeper = _nearest_live(new_desc, registry)
+            kj = 0.0
+            if not keeper:
+                nk = _keywords(new_desc)
+                kj, keeper = _best_jaccard(nk, registry) if nk else (0.0, None)
             if keeper:
                 out["reason"] = (f"matches consolidated tool '{out['target']}' (attic); "
                                  f"live coverage '{keeper}' (J={kj:.2f}) -- " + out.get("reason", ""))
@@ -362,12 +435,14 @@ def _resolve_batch_target(verdict, target, new_text, registry, attic_registry):
     if target in registry:
         return verdict, target
     if attic_registry and target in attic_registry:
-        nk = _keywords(new_text)
-        kj, keeper = _best_jaccard(nk, registry)
-        adesc = attic_registry.get(target, "")
-        akj, akeeper = _best_jaccard(_keywords(f"{target} {adesc}"), registry)
-        if akj > kj:
-            kj, keeper = akj, akeeper
+        keeper = _nearest_live(new_text, registry)
+        if not keeper:
+            nk = _keywords(new_text)
+            kj, keeper = _best_jaccard(nk, registry)
+            adesc = attic_registry.get(target, "")
+            akj, akeeper = _best_jaccard(_keywords(f"{target} {adesc}"), registry)
+            if akj > kj:
+                keeper = akeeper
         if keeper:
             return verdict, keeper
         return "NEW", None
@@ -392,7 +467,7 @@ async def batch_judge(items, registry, complete, attic_registry=None, per_idea_k
     blocks = []
     for i, it in enumerate(items, 1):
         text = f"{it.get('title', '')}: {it.get('brief', '')}"[:DESC_CAP]
-        cands = prefilter(text, pool, per_idea_k)
+        cands = _rank_candidates(text, pool, registry, attic_registry, per_idea_k)
         rel = "; ".join(f"{n}: {d[:70]}" for n, d in cands) or "(none related)"
         blocks.append(f"IDEA {i}: {text}\n  RELATED: {rel}")
     prompt = BATCH_JUDGE_PROMPT.format(ideas_block="\n".join(blocks))

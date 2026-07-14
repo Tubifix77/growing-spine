@@ -62,3 +62,17 @@ systemctl --user start spine-observer.service      # start now
 Needs `DISPLAY=:0` (set in the unit). The launcher `start-growing-spine.sh`
 starts this service. Restart the GUI after an observer.py change with:
 `systemctl --user restart spine-observer.service`.
+
+## Embedding gate dependency (v0.12)
+
+The idea gate's semantic layer needs Model2Vec (numpy-only static
+embeddings, ~30MB model, no torch):
+
+```bash
+pip3 install --user --break-system-packages model2vec
+```
+
+The model (`minishlab/potion-base-8M`) downloads from HuggingFace on first
+use and is cached in `~/.cache/huggingface`. If the package or model is
+unavailable, the gate degrades automatically to the lexical fallback and
+prints one `[embed-gate] UNAVAILABLE` notice -- nothing breaks.
