@@ -18,20 +18,16 @@ fi
 # --- 2. Daily health probe timer (sensor/staleness/stub-janitor) ---
 systemctl --user start spine-health.timer 2>/dev/null && echo "Health timer armed."
 
-# --- 3. Observer GUI: single instance, reliable detach + window mapping ---
-# Bare 'nohup ... &' left an unmapped 10x10 window under xfwm4 once; the
-# reliable form is setsid + stdin from /dev/null + disown (observer.py itself
-# handles the deferred showMaximized since d8a131a).
-pkill -f "observer.py" 2>/dev/null
-sleep 1
-DISPLAY=:0 setsid python3 observer.py >> /home/boas/observer.log 2>&1 < /dev/null &
-disown 2>/dev/null
-echo $! > /home/boas/observer.pid
-sleep 3
+# --- 3. Observer GUI: systemd user service ---
+# The dashboard is a service (like the brain) so it survives SSH-session
+# teardown and reboots, and restarts on crash. Hand-launching with
+# setsid/nohup proved fragile (died when the launching shell returned).
+systemctl --user start spine-observer.service 2>/dev/null && echo "Observer service started."
+sleep 2
 
 # --- 4. Report ---
 BRAIN=$(pgrep -f "/home/boas/growing-spine/main.py" | grep -v pgrep | head -1)
-OBS=$(pgrep -f "python3 observer.py" | grep -v pgrep | head -1)
+OBS=$(pgrep -f "observer.py" | grep -v pgrep | head -1)
 echo "Growing Spine ready -- brain PID ${BRAIN:-none} (systemd), observer PID ${OBS:-none}"
 if [ -z "$OBS" ]; then
     echo "WARNING: observer did not come up -- check /home/boas/observer.log"

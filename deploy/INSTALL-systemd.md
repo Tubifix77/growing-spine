@@ -44,3 +44,21 @@ systemctl --user list-timers spine-health.timer   # verify next run
 Output is appended to `~/spine-health.log` (one line per run). The launcher
 `start-growing-spine.sh` also arms this timer, so a fresh install that has run
 the icon once will have it active.
+
+## Observer dashboard (spine-observer.service)
+
+The GUI dashboard runs as a user service too -- hand-launching it (setsid/
+nohup) proved fragile (it died when the launching shell returned) and
+sometimes left an unmapped window. As a service it survives SSH teardown and
+reboots and restarts on crash.
+
+```bash
+cp deploy/spine-observer.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user start spine-observer.service      # start now
+# optional: systemctl --user enable spine-observer.service  # also at login
+```
+
+Needs `DISPLAY=:0` (set in the unit). The launcher `start-growing-spine.sh`
+starts this service. Restart the GUI after an observer.py change with:
+`systemctl --user restart spine-observer.service`.

@@ -1,0 +1,10 @@
+[Unit]
+Description=Growing Spine observer dashboard (GUI)
+After=graphical-session.target
+[Service]
+Type=simple
+Environment=DISPLAY=:0
+WorkingDirectory=/home/boas/growing-spine
+ExecStart=/usr/bin/python3 /home/boas/growing-spine/observer.py
+Restart=on-failure
+RestartSec=3
