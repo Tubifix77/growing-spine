@@ -141,7 +141,7 @@ class Dashboard(QMainWindow):
         super().__init__()
         self.setWindowTitle("Growing Spine -- Dashboard")
         self.setWindowIcon(_make_spine_icon())
-        self.resize(1280, 800)
+        self.resize(1180, 720)
 
         self._tick_n   = 0
         self._jpos     = None      # journal read position (None = not opened yet)
@@ -162,14 +162,16 @@ class Dashboard(QMainWindow):
         self.lbl_last  = QLabel("journal: ?")
         self.lbl_quota = QLabel("providers: ?")
         for l in (self.lbl_brain, self.lbl_disk, self.lbl_last, self.lbl_quota):
-            l.setFont(QFont("monospace", FONT_SIZE))
-            l.setStyleSheet("color:#E0E0E0; padding:2px 10px; background:#1e1e2e;"
+            l.setFont(QFont("monospace", FONT_SIZE - 1))
+            l.setStyleSheet("color:#E0E0E0; padding:2px 6px; background:#1e1e2e;"
                             "border:1px solid #333; border-radius:4px;")
-            vit.addWidget(l)
+            l.setWordWrap(True)
+            l.setSizePolicy(l.sizePolicy().Policy.Ignored, l.sizePolicy().Policy.Preferred)
+            vit.addWidget(l, 1)
         vit.addStretch()
         self.btn_brain = QPushButton("...")
-        self.btn_brain.setFixedWidth(150)
-        self.btn_brain.setFont(QFont("sans-serif", FONT_SIZE))
+        self.btn_brain.setFixedWidth(110)
+        self.btn_brain.setFont(QFont("sans-serif", FONT_SIZE - 1))
         self.btn_brain.clicked.connect(self._toggle_brain)
         vit.addWidget(self.btn_brain)
         outer.addLayout(vit)
@@ -187,7 +189,8 @@ class Dashboard(QMainWindow):
         self.mem.setFont(QFont("monospace", FONT_SIZE - 1))
         self.mem.setStyleSheet("background:#141414; border:1px solid #333;")
         split.addWidget(self.mem)
-        split.setSizes([760, 460])
+        split.setStretchFactor(0, 62)
+        split.setStretchFactor(1, 38)
         outer.addWidget(split, stretch=3)
 
         # -- chat ----------------------------------------------------------
@@ -485,11 +488,20 @@ if __name__ == "__main__":
     # Some window managers ignore showMaximized() issued before the window is
     # mapped -- it can leave a 10x10 stub. Show at an explicit geometry first,
     # then maximize on the next event-loop pass once the WM has the window.
-    scr = app.primaryScreen().availableGeometry()
-    win.setGeometry(scr.x() + 40, scr.y() + 40,
-                    min(1280, scr.width() - 80), min(800, scr.height() - 80))
+    screens = app.screens()
+    scr_obj = max(screens, key=lambda s: s.availableGeometry().width()
+                  * s.availableGeometry().height()) if screens else app.primaryScreen()
+    scr = scr_obj.availableGeometry()
+    w = min(1180, scr.width() - 60)
+    h = min(720, scr.height() - 60)
+    win.setGeometry(scr.x() + (scr.width() - w) // 2,
+                    scr.y() + (scr.height() - h) // 2, w, h)
     win.show()
     win.raise_()
     win.activateWindow()
-    QTimer.singleShot(200, win.showMaximized)
+    def _max_on_screen():
+        win.windowHandle().setScreen(scr_obj)
+        win.setMaximumWidth(scr.width())
+        win.showMaximized()
+    QTimer.singleShot(200, _max_on_screen)
     sys.exit(app.exec())
