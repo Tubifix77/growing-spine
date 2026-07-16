@@ -24,6 +24,21 @@ PLACEHOLDER = "DESCRIBE WHAT THIS TOOL DOES"
 def norm(s): return re.sub(r"[^a-z0-9]", "", (s or "").lower())
 
 def check_sensor():
+    # At boot the Persistent timer fires while the network is still coming up
+    # AND before the brain's first ensure_body has respawned the container --
+    # both raced to SENSOR:fail(JSONDecodeError) on 2026-07-15/16. Four tries
+    # 20s apart cover ~1 min of boot settling; a mid-day run passes on try 1.
+    last = "SENSOR:fail(no-attempt)"
+    for attempt in range(4):
+        if attempt:
+            time.sleep(20)
+        last = _sensor_once()
+        if last.startswith("SENSOR:ok") or last == "SENSOR:MOCK(!!)":
+            return last  # ok, or a definitive non-transient verdict
+    return last
+
+
+def _sensor_once():
     try:
         out = subprocess.run(
             ["docker", "exec", "-e", "WAKE_CATCHUP_STATE=/tmp/health_probe_state.json",
