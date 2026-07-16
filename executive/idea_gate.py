@@ -422,6 +422,10 @@ BATCH_JUDGE_PROMPT = """You are the idea gate for a self-building agent. For EAC
 CRITICAL OUTPUT RULE: reply with ONE line per idea and NOTHING else -- no preamble, no reasoning. The very first character of your reply must be "1".
 Format, one line per idea:
 <number>: NEW | DUPLICATE:tool-name | EXTEND:tool-name
+Example reply for 3 ideas:
+1: NEW
+2: DUPLICATE:fetch_url
+3: EXTEND:memstore
 """
 
 
@@ -471,12 +475,21 @@ async def batch_judge(items, registry, complete, attic_registry=None, per_idea_k
         rel = "; ".join(f"{n}: {d[:70]}" for n, d in cands) or "(none related)"
         blocks.append(f"IDEA {i}: {text}\n  RELATED: {rel}")
     prompt = BATCH_JUDGE_PROMPT.format(ideas_block="\n".join(blocks))
-    raw = (await complete(prompt, max_tokens=30 * len(items) + 60)) or ""
+    # 30/idea starved chatty models: 4/4 live refills (Jul 15-16) burned the
+    # whole budget on prose deliberation and truncated before verdict line 1.
+    # A verdict line is ~12-18 tokens; 48/idea + 120 leaves ~3x slack so the
+    # verdicts survive a stray preamble written despite the no-preamble rule.
+    raw = (await complete(prompt, max_tokens=48 * len(items) + 120)) or ""
+    # reasoning models wrap deliberation in <think> tags; strip before parsing
+    raw = re.sub(r"<think>.*?</think>", "", raw, flags=re.S | re.I)
     out = {}
     parsed_lines = 0
     for ln in raw.splitlines():
-        m = re.match(r"\s*(\d+)\s*[:.\)]\s*(NEW|DUPLICATE|EXTEND)\s*[:\-]?\s*['\"`]?([A-Za-z0-9_\-.\[\] ]{2,})?",
-                     ln.strip(), re.IGNORECASE)
+        m = re.match(
+            r"[\s*#>\-]*(?:idea\s*)?(\d+)[\s*]*[:.\)\-][\s*]*"
+            r"(NEW|DUPLICATE|EXTEND)\s*(?:of\s+)?[:\-]?\s*['\"`]?"
+            r"([A-Za-z0-9_\-.\[\] ]{2,})?",
+            ln.strip(), re.IGNORECASE)
         if not m:
             continue
         idx = int(m.group(1)) - 1
@@ -493,5 +506,5 @@ async def batch_judge(items, registry, complete, attic_registry=None, per_idea_k
             out[idx] = (v2, tgt)
     print(f"[idea-gate] batch judge: {parsed_lines}/{len(items)} verdict lines parsed, "
           f"{len(out)} covered" + ("" if parsed_lines else
-          f" -- UNPARSED reply head: {raw[:120]!r}"))
+          f" -- UNPARSED reply head: {raw[:120]!r} tail: {raw[-120:]!r}"))
     return out

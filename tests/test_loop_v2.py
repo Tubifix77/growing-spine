@@ -331,6 +331,37 @@ async def main():
     loop._reset_basin_streak()
     loop._clear_project_state()
 
+    # ---- batch_judge parser resilience (the 4/4 0/N live refills, Jul 15-16) ----
+    from executive import idea_gate
+    bj_reg = {"fetch_url": "fetch a url and print it",
+              "research_task_planner": "plan research tasks from questions",
+              "memstore": "store a memory"}
+    bj_items = [{"title": "A", "brief": "a"},
+                {"title": "B", "brief": "b"},
+                {"title": "C", "brief": "c"}]
+    styled = ("We need to decide for each idea whether an existing tool covers "
+              "its intent. Tools marked [consolidated] are prior art. I will "
+              "answer now.\n"
+              "**1.** DUPLICATE of research_task_planner\n"
+              "IDEA 2: NEW\n"
+              "3 - EXTEND:fetch_url\n")
+    async def _bj_styled(prompt, max_tokens=None):
+        return styled
+    bj_out = await idea_gate.batch_judge(bj_items, bj_reg, _bj_styled)
+    check("batch_judge parses styled verdicts under a prose preamble",
+          bj_out.get(0) == ("DUPLICATE", "research_task_planner")
+          and 1 not in bj_out and bj_out.get(2) == ("EXTEND", "fetch_url"))
+    async def _bj_prose(prompt, max_tokens=None):
+        return "We need to decide if each idea is covered. Considering the intents..."
+    check("batch_judge fails open (empty) on prose-only reply",
+          await idea_gate.batch_judge(bj_items, bj_reg, _bj_prose) == {})
+    async def _bj_think(prompt, max_tokens=None):
+        return ("<think>deliberation that once ate the whole budget</think>"
+                "1: DUPLICATE:fetch_url\n2: NEW\n3: NEW")
+    bj_out = await idea_gate.batch_judge(bj_items, bj_reg, _bj_think)
+    check("batch_judge strips <think> blocks before parsing",
+          bj_out.get(0) == ("DUPLICATE", "fetch_url"))
+
     print()
     if fails:
         print("FAILURES: " + ", ".join(fails))
