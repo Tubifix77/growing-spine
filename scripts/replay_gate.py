@@ -50,7 +50,8 @@ async def main():
         names = [n for n in names_full if n != t and n not in bornset]
         text = f"{t}: {desc(os.path.join(OWN, t))}"
         v = g.deterministic_verdict(text, t, reg, names,
-                                    attic_registry=areg, attic_names=anames)
+                                    attic_registry=areg, attic_names=anames,
+                                    exclude_names=bornset)
         (caught if v else band).append((t, v))
     print(f"born last {a.days}d: {len(born)}   deterministic catches: {len(caught)}   to judgment band: {len(band)}")
     for t, v in caught:

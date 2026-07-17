@@ -149,8 +149,12 @@ def refresh(dirs):
     _log(f"index: {len(names)} tools ({len(embed_keys)} embedded, {len(removed)} dropped)")
 
 
-def top_matches(text, k=8, labels=None):
-    """[(label:name, similarity)] best-first, or [] when unavailable."""
+def top_matches(text, k=8, labels=None, exclude=None):
+    """[(label:name, similarity)] best-first, or [] when unavailable.
+    exclude: set of bare tool names to skip -- replay judges already-built
+    tools against an index that CONTAINS them, so without exclusion the
+    top hit is the tool itself (cos~1.0) and the verdict is corrupt
+    (score from self, target from the nearest allowed name; 2026-07-17)."""
     if not available():
         return []
     _load_index()
@@ -168,6 +172,8 @@ def top_matches(text, k=8, labels=None):
     for i in order:
         name = _index["names"][i]
         if labels and name.split(":", 1)[0] not in labels:
+            continue
+        if exclude and name.split(":", 1)[1] in exclude:
             continue
         out.append((name, float(sims[i])))
         if len(out) >= k:

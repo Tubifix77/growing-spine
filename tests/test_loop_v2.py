@@ -392,6 +392,21 @@ async def main():
     check("classify: unknown -> hard",
           classify_error("something exploded weirdly") == "hard")
 
+    # ---- embed top_matches exclusion (the replay self-match corruption) ----
+    from executive import embed_gate as eg
+    if eg.available():
+        q = "plan_from_question: turn a question into an actionable plan"
+        r1 = eg.top_matches(q, k=3)
+        if r1:
+            top_name = r1[0][0].split(":", 1)[1]
+            r2 = [n.split(":", 1)[1] for n, _ in eg.top_matches(q, k=3, exclude={top_name})]
+            check("embed exclude: excluded top-1 vanishes, results remain",
+                  top_name not in r2 and len(r2) > 0)
+        else:
+            print("SKIP embed exclude test (empty index)")
+    else:
+        print("SKIP embed exclude tests (embed unavailable)")
+
     print()
     if fails:
         print("FAILURES: " + ", ".join(fails))

@@ -159,7 +159,8 @@ def _nearest_live(text, registry):
 
 
 def deterministic_verdict(new_text, title, registry, all_names,
-                          attic_registry=None, attic_names=None):
+                          attic_registry=None, attic_names=None,
+                          exclude_names=None):
     """Stage-0 gate: catch what needs no judgment, with zero LLM calls.
     The ATTIC (consolidated tools, out of the creature's view) serves as
     dedup memory: a hit there redirects to the covering live keeper, never
@@ -174,7 +175,7 @@ def deterministic_verdict(new_text, title, registry, all_names,
     # --- semantic bands (v0.12): the layer lexical matching cannot be -------
     if embed_gate.available():
         _refresh_embed_index()
-        top = embed_gate.top_matches(new_text, k=1)
+        top = embed_gate.top_matches(new_text, k=1, exclude=exclude_names)
         if top:
             full, sim = top[0]
             label, tname = full.split(":", 1)
