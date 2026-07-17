@@ -397,6 +397,17 @@ async def main():
     check("classify: model_not_found -> quota",
           classify_error("model_not_found: that model id does not exist") == "quota")
 
+    # ---- openrouter tier-check diff (weekly rotating-shelf sensor) ----
+    import importlib.util as _ilu
+    _spec = _ilu.spec_from_file_location("otc", "scripts/openrouter_tier_check.py")
+    _otc = _ilu.module_from_spec(_spec); _spec.loader.exec_module(_otc)
+    _lines = _otc.diff_report(["a:free", "b:free"], ["b:free", "c:free"],
+                              {"a:free": "openrouter_coder"})
+    check("tier diff: new model detected", any("c:free" in l and l.startswith("NEW") for l in _lines))
+    check("tier diff: gone model detected", any("a:free" in l and l.startswith("GONE") for l in _lines))
+    check("tier diff: vanished configured rung flagged loudly",
+          any("VANISHED" in l and "openrouter_coder" in l for l in _lines))
+
     # ---- embed top_matches exclusion (the replay self-match corruption) ----
     from executive import embed_gate as eg
     if eg.available():
