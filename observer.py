@@ -162,7 +162,8 @@ class Dashboard(QMainWindow):
         self.lbl_brain = QLabel("brain: ?")
         self.lbl_disk  = QLabel("disk: ?")
         self.lbl_last  = QLabel("journal: ?")
-        for l in (self.lbl_brain, self.lbl_disk, self.lbl_last):
+        self.lbl_tier  = QLabel("tier: ?")
+        for l in (self.lbl_brain, self.lbl_disk, self.lbl_last, self.lbl_tier):
             l.setFont(QFont("monospace", FONT_SIZE - 1))
             l.setStyleSheet(box_css)
             l.setWordWrap(True)
@@ -260,6 +261,7 @@ class Dashboard(QMainWindow):
             self._tick_chat(first)
             if slow:
                 self._tick_slow()
+                self._tick_tier()
             self.statusBar().showMessage(
                 f"tick {self._tick_n}  |  {time.strftime('%H:%M:%S')}")
         except Exception as e:
@@ -368,6 +370,47 @@ class Dashboard(QMainWindow):
         self._sync_brain_button()
         self._tick_quota()
         self._tick_memory()
+
+    def _tick_tier(self):
+        """Surface the weekly openrouter tier-check log on the vitals row.
+        Gray ok / orange when a configured rung vanished, the timer went
+        stale (>8d), or the last fetch failed. The log is the sensor's
+        only output -- without this chip it reports to nobody (2026-07-17)."""
+        import os, re
+        path = os.path.expanduser("~/openrouter-tier.log")
+        try:
+            with open(path) as f:
+                lines = f.read().splitlines()
+        except OSError:
+            self.lbl_tier.setText('<span style="color:#9E9E9E">tier: never ran</span>')
+            return
+        idx = max((i for i, l in enumerate(lines)
+                   if l[:2] == "20" and " UTC" in l), default=None)
+        if idx is None:
+            self.lbl_tier.setText('<span style="color:#9E9E9E">tier: no runs</span>')
+            return
+        stamp, block = lines[idx][:16], "\n".join(lines[idx:])
+        try:
+            age_d = (time.time() - time.mktime(
+                time.strptime(stamp, "%Y-%m-%d %H:%M"))) / 86400
+        except Exception:
+            age_d = 0
+        day = stamp[5:10]
+        if "!!" in block:
+            self.lbl_tier.setText(
+                f'<span style="color:#FF7043">tier: RUNG VANISHED {day}</span>')
+        elif "SKIPPED" in lines[idx]:
+            self.lbl_tier.setText(
+                f'<span style="color:#FFB74D">tier: fetch failed {day}</span>')
+        elif age_d > 8:
+            self.lbl_tier.setText(
+                f'<span style="color:#FFB74D">tier: stale {int(age_d)}d</span>')
+        else:
+            m = re.search(r"NEW\((\d+)\)", block)
+            n = int(m.group(1)) if m else 0
+            extra = f", +{n} new" if n else ""
+            self.lbl_tier.setText(
+                f'<span style="color:#9E9E9E">tier: ok {day}{extra}</span>')
 
     def _tick_quota(self):
         # No mtime gating: green/orange depend on the CLOCK, not just file
