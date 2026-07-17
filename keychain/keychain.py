@@ -29,6 +29,11 @@ def classify_error(err: str) -> str:
             and ("per minute" in err_l or "per-minute" in err_l
                  or "per_minute" in err_l or "rpm" in err_l)):
         return "retryable"
+    if ("404" in err or "not found" in err_l or "no endpoints" in err_l
+            or "model_not_found" in err_l):
+        # dead/unknown model id (e.g. the 2026-07-19 openrouter purge):
+        # mark exhausted so it stays walled -- must never hard-raise
+        return "quota"
     if ("quota" in err_l or "rate_limit_exceeded" in err_l or "exceeded" in err_l
             or "billing" in err_l or "429" in err):
         return "quota"

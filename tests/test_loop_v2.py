@@ -391,6 +391,11 @@ async def main():
           classify_error("rate_limit hit: 30 requests per minute") == "retryable")
     check("classify: unknown -> hard",
           classify_error("something exploded weirdly") == "hard")
+    check("classify: dead model 404 -> quota (walls, never hard-raises)",
+          classify_error('HTTP 404: {"error":{"message":"No endpoints found for '
+                         'qwen/qwen3-coder:free"}}') == "quota")
+    check("classify: model_not_found -> quota",
+          classify_error("model_not_found: that model id does not exist") == "quota")
 
     # ---- embed top_matches exclusion (the replay self-match corruption) ----
     from executive import embed_gate as eg
