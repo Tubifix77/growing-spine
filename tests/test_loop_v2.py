@@ -376,6 +376,22 @@ async def main():
     check("provider extract: both null -> empty text, no len(None)",
           pt == "" and pn == 0)
 
+    # ---- keychain error taxonomy (tonight's real strings, 2026-07-17) ----
+    from keychain.keychain import classify_error
+    check("classify: empty completion -> flaky (next provider, not abort)",
+          classify_error("empty completion (content and reasoning both null)") == "flaky")
+    check("classify: read timeout -> flaky",
+          classify_error("The read operation timed out") == "flaky")
+    check("classify: openrouter upstream 429 -> quota (probe machinery heals)",
+          classify_error('HTTP 429: {"error":{"message":"Provider returned error"'
+                         ',"code":429}} temporarily rate-limited upstream') == "quota")
+    check("classify: groq 413 TPM -> too_large",
+          classify_error("HTTP 413: Request too large ... TPM Limit 12000") == "too_large")
+    check("classify: per-minute rate limit -> retryable",
+          classify_error("rate_limit hit: 30 requests per minute") == "retryable")
+    check("classify: unknown -> hard",
+          classify_error("something exploded weirdly") == "hard")
+
     print()
     if fails:
         print("FAILURES: " + ", ".join(fails))

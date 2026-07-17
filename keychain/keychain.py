@@ -10,6 +10,38 @@ def _load_config() -> list:
         return yaml.safe_load(f)["providers"]
 
 
+def classify_error(err: str) -> str:
+    """Sort a provider error string into an action class.
+    too_large / quota -> mark exhausted, next provider
+    retryable         -> backoff-retry same provider (per-minute, 5xx, traffic)
+    flaky             -> next provider immediately (degenerate free-pool
+                         responses: empty completions, timeouts, conn resets --
+                         2026-07-17: these used to hard-raise and abort the
+                         WHOLE chain, losing the cycle even with open windows)
+    hard              -> raise
+    """
+    err_l = err.lower()
+    if ("413" in err or "request too large" in err_l or "request_too_large" in err_l
+            or "too large for model" in err_l or "context length" in err_l
+            or "maximum context" in err_l or "reduce the length" in err_l):
+        return "too_large"
+    if (("rate_limit" in err_l or "too_many_requests" in err_l)
+            and ("per minute" in err_l or "per-minute" in err_l
+                 or "per_minute" in err_l or "rpm" in err_l)):
+        return "retryable"
+    if ("quota" in err_l or "rate_limit_exceeded" in err_l or "exceeded" in err_l
+            or "billing" in err_l or "429" in err):
+        return "quota"
+    if ("500" in err or "502" in err or "503" in err or "504" in err
+            or "high traffic" in err_l):
+        return "retryable"
+    if ("empty completion" in err_l or "timed out" in err_l or "timeout" in err_l
+            or "connection refused" in err_l or "connection reset" in err_l
+            or "temporary failure" in err_l):
+        return "flaky"
+    return "hard"
+
+
 class Keychain:
     def __init__(self):
         self.providers = _load_config()
@@ -53,43 +85,18 @@ class Keychain:
                     return result["text"]
 
                 err = str(result["error"])
-                err_l = err.lower()
+                kind = classify_error(err)
 
-                # STRUCTURAL: request too big for this provider (e.g. Groq 413
-                # "Request too large ... TPM Limit 12000"). Retrying the identical
-                # oversized request always fails; the message says "per minute" so
-                # it must be caught BEFORE the per-minute check. Mark & move on.
-                is_too_large = (
-                    "413" in err or
-                    "request too large" in err_l or
-                    "request_too_large" in err_l or
-                    "too large for model" in err_l or
-                    "context length" in err_l or
-                    "maximum context" in err_l or
-                    "reduce the length" in err_l
-                )
-
-                # Per-minute rate limit — transient, retry with backoff
-                is_per_minute = (not is_too_large) and (
-                    ("rate_limit" in err_l or "too_many_requests" in err_l) and
-                    ("per minute" in err_l or "per-minute" in err_l or
-                     "per_minute" in err_l or "rpm" in err_l)
-                )
-
-                # Quota exhaustion — mark provider and move on
-                is_quota = (not is_per_minute) and (not is_too_large) and (
-                    "quota" in err_l or
-                    "rate_limit_exceeded" in err_l or
-                    "exceeded" in err_l or
-                    "billing" in err_l or
-                    "429" in err
-                )
-
-                if is_too_large or is_quota:
+                if kind in ("too_large", "quota"):
                     qs.record_exhaustion(self.state, cfg["key"])
-                    break  # try next provider — retrying won't help
+                    break  # try next provider -- retrying won't help
 
-                if is_per_minute or "500" in err or "502" in err or                         "503" in err or "504" in err or                         "high traffic" in err_l:
+                if kind == "flaky":
+                    had_transient = True
+                    print(f"[keychain] {cfg['key']} flaky ({err[:70]}) -- next provider")
+                    break  # degenerate response; another window may serve it
+
+                if kind == "retryable":
                     had_transient = True
                     if attempt < 2:
                         await asyncio.sleep(3 * (2 ** attempt))  # 3s, 6s
