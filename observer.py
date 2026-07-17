@@ -157,14 +157,14 @@ class Dashboard(QMainWindow):
 
         # -- vitals strip ------------------------------------------------
         vit = QHBoxLayout()
+        box_css = ("color:#E0E0E0; padding:2px 6px; background:#1e1e2e;"
+                   "border:1px solid #333; border-radius:4px;")
         self.lbl_brain = QLabel("brain: ?")
         self.lbl_disk  = QLabel("disk: ?")
         self.lbl_last  = QLabel("journal: ?")
-        self.lbl_quota = QLabel("providers: ?")
-        for l in (self.lbl_brain, self.lbl_disk, self.lbl_last, self.lbl_quota):
+        for l in (self.lbl_brain, self.lbl_disk, self.lbl_last):
             l.setFont(QFont("monospace", FONT_SIZE - 1))
-            l.setStyleSheet("color:#E0E0E0; padding:2px 6px; background:#1e1e2e;"
-                            "border:1px solid #333; border-radius:4px;")
+            l.setStyleSheet(box_css)
             l.setWordWrap(True)
             l.setSizePolicy(l.sizePolicy().Policy.Ignored, l.sizePolicy().Policy.Preferred)
             vit.addWidget(l, 1)
@@ -175,6 +175,26 @@ class Dashboard(QMainWindow):
         self.btn_brain.clicked.connect(self._toggle_brain)
         vit.addWidget(self.btn_brain)
         outer.addLayout(vit)
+
+        # -- provider strip: one chip per provider (4 since openrouter) ----
+        prov = QHBoxLayout()
+        self.chips = {}
+        def _chip(text):
+            c = QLabel(text)
+            c.setFont(QFont("monospace", FONT_SIZE - 1))
+            c.setStyleSheet(box_css)
+            c.setWordWrap(True)
+            c.setSizePolicy(c.sizePolicy().Policy.Ignored, c.sizePolicy().Policy.Preferred)
+            return c
+        if self._providers:
+            for key, name in self._providers:
+                c = _chip(f"{name}: ?")
+                prov.addWidget(c, 1)
+                self.chips[key] = c
+        else:
+            self.lbl_quota = _chip("providers: ?")
+            prov.addWidget(self.lbl_quota, 1)
+        outer.addLayout(prov)
 
         # -- main split: journal | memory ---------------------------------
         split = QSplitter(Qt.Orientation.Horizontal)
@@ -356,27 +376,37 @@ class Dashboard(QMainWindow):
             with open(QUOTA) as f:
                 state = json.load(f)
         except OSError:
-            self.lbl_quota.setText("providers: no state file")
-            return
+            state = None
         except Exception:
             return
-        now, parts = time.time(), []
-        for key, name in self._providers or [(k, k) for k in state]:
+        now = time.time()
+
+        def render(key, name):
+            if state is None:
+                return f'<span style="color:#9E9E9E">{_esc(name)}<br>no state file</span>'
             ps = state.get(key, {})
             ls = ps.get("last_success_at") or 0
             ex = ps.get("exhausted_at") or 0
             rec = ps.get("last_recovery_secs")
             if ex > ls:
                 # walled: exhaustion is the latest event
-                hint = f", recovers ~{_fmt_age(rec)}" if rec else ""
-                parts.append(f'<span style="color:#FFB74D">{_esc(name)} '
-                             f'(walled {_fmt_age(now - ex)}{hint})</span>')
-            elif ls:
-                parts.append(f'<span style="color:#4CAF50">{_esc(name)} '
-                             f'(ok {_fmt_age(now - ls)} ago)</span>')
-            else:
-                parts.append(f'<span style="color:#9E9E9E">{_esc(name)} (unused)</span>')
-        self.lbl_quota.setText("providers: " + "  ".join(parts))
+                hint = f", rec ~{_fmt_age(rec)}" if rec else ""
+                return (f'<span style="color:#FFB74D">{_esc(name)}<br>'
+                        f'walled {_fmt_age(now - ex)}{hint}</span>')
+            if ls:
+                return (f'<span style="color:#4CAF50">{_esc(name)}<br>'
+                        f'ok {_fmt_age(now - ls)} ago</span>')
+            return f'<span style="color:#9E9E9E">{_esc(name)}<br>unused</span>'
+
+        if self.chips:
+            for key, name in self._providers:
+                self.chips[key].setText(render(key, name))
+        elif state is None:
+            self.lbl_quota.setText("providers: no state file")
+        else:
+            parts = [render(k, n).replace("<br>", " ")
+                     for k, n in (self._providers or [(k, k) for k in state])]
+            self.lbl_quota.setText("providers: " + "  ".join(parts))
 
     def _tick_memory(self):
         try:
