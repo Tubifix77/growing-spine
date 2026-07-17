@@ -3,6 +3,21 @@ import asyncio, json
 import urllib.request, urllib.error
 
 
+def _extract_text_tokens(data: dict):
+    """None-safe extraction. Reasoning models (gpt-oss via OpenRouter) can
+    return content=null -- and even reasoning=null -- e.g. when
+    finish_reason=length lands mid-reasoning; usage can be null too.
+    dict.get's default is evaluated EAGERLY, so len(text)//4 as a .get
+    default raised len(None) and killed the cycle (2026-07-17 02:00)."""
+    msg = (data.get("choices") or [{}])[0].get("message") or {}
+    text = msg.get("content") or msg.get("reasoning") or ""
+    usage = data.get("usage") or {}
+    tokens = usage.get("total_tokens")
+    if tokens is None:
+        tokens = len(text) // 4
+    return text, tokens
+
+
 async def call(cfg: dict, messages: list, max_tokens: int = 2048) -> dict:
     """
     POST to an OpenAI-compatible endpoint.
@@ -27,9 +42,10 @@ async def call(cfg: dict, messages: list, max_tokens: int = 2048) -> dict:
             with urllib.request.urlopen(req, timeout=120) as r:
                 return json.loads(r.read())
         data = await loop.run_in_executor(None, _do)
-        msg = data["choices"][0]["message"]
-        text = msg.get("content") or msg.get("reasoning", "")
-        tokens = data.get("usage", {}).get("total_tokens", len(text) // 4)
+        text, tokens = _extract_text_tokens(data)
+        if not text:
+            return {"text": "", "tokens_used": tokens,
+                    "error": "empty completion (content and reasoning both null)"}
         return {"text": text, "tokens_used": tokens, "error": None}
     except urllib.error.HTTPError as e:
         body = e.read().decode(errors="replace")

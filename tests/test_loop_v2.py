@@ -362,6 +362,20 @@ async def main():
     check("batch_judge strips <think> blocks before parsing",
           bj_out.get(0) == ("DUPLICATE", "fetch_url"))
 
+    # ---- provider extraction None-safety (the 02:00 len(None) cycle-killer) ----
+    from keychain import provider as kc_provider
+    pt, pn = kc_provider._extract_text_tokens(
+        {"choices": [{"message": {"content": "hi"}}], "usage": {"total_tokens": 7}})
+    check("provider extract: normal content + usage", pt == "hi" and pn == 7)
+    pt, pn = kc_provider._extract_text_tokens(
+        {"choices": [{"message": {"content": None, "reasoning": "thought"}}], "usage": None})
+    check("provider extract: null content falls to reasoning, null usage safe",
+          pt == "thought" and pn == len("thought") // 4)
+    pt, pn = kc_provider._extract_text_tokens(
+        {"choices": [{"message": {"content": None, "reasoning": None}}]})
+    check("provider extract: both null -> empty text, no len(None)",
+          pt == "" and pn == 0)
+
     print()
     if fails:
         print("FAILURES: " + ", ".join(fails))
