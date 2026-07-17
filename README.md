@@ -50,6 +50,10 @@ See [`growing-spine-architecture.md`](growing-spine-architecture.md) for how thi
 
 ---
 
+## Current status (2026-07-17, v0.12)
+
+180 own tools (plus 270 archived to the attic in the consented consolidation of 2026-07-08 — the attic doubles as the dedup gate's precedent memory). The embedding idea-gate runs in shadow: deterministic bands catch name collisions and paraphrase-duplicates for zero tokens (replay acceptance 39/48; live catches at cos 0.75–0.85), an LLM judge takes the thin middle band, and the flip to active mode waits on a clean read of that band now that the judge's parser is hardened. The creature's window on the world is real news plus journal-mined friction — a twelve-tool news-processing family grew within days of the fetcher going real. Cognition flows through a four-provider free-tier keychain (Gemini, Groq, Cerebras, OpenRouter) whose tested error taxonomy skips flaky free-pool responses to the next open window. The container has run as the host user since v0.9.1; the quota tracker remains timestamps-only.
+
 ## Current status (2026-07-04, v0.10.1)
 
 **Update 2026-07-04:** repaired `memstore` — it stored its DB under the container-ephemeral `/var/memory` and never created the directory (dead since 25 June, with 26 tools depending on it); it now lives on the persistent `/mind` volume, round-trip verified. The root cause was closed by stating the persistence boundary *exclusively* in the protected prompt: only `/mind` and `/workspace` survive a container respawn, so any tool that keeps data must store it there. Three related 'runs-but-wrong' issues (an archive store/search path mismatch, a mock news-fetcher, and the absence of a behavior-probe guard) are logged in the architecture doc for a design pass.
