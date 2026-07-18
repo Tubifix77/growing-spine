@@ -1,5 +1,6 @@
 """keychain.py — one function: give it a prompt, get a response."""
-import asyncio, os, yaml
+import asyncio
+import time, os, yaml
 from . import quota_state as qs
 from . import provider as prov
 
@@ -8,6 +9,28 @@ def _load_config() -> list:
     cfg_path = os.path.join(os.path.dirname(__file__), "..", "config.yaml")
     with open(cfg_path) as f:
         return yaml.safe_load(f)["providers"]
+
+
+# A saturated upstream usually clears in minutes; 10 min balances "retry
+# the smart rung soon" against burning RPM on probes. Each failed upward
+# probe refreshes exhausted_at, self-throttling to one attempt per window.
+UPWARD_REPROBE_SECS = 600
+
+
+def order_providers(enabled, state, now, cooldown=UPWARD_REPROBE_SECS):
+    """Priority-aware provider order with upward re-probe (2026-07-18).
+
+    A lower rung serving must not lock out smarter rungs whose saturation
+    may have cleared: exhausted providers past the cooldown compete at
+    their config priority again; still-cooling ones sit at the tail as
+    last-resort probes (unchanged all-walled behaviour)."""
+    def exhausted(p):
+        ps = state.get(p["key"], {})
+        return (ps.get("exhausted_at") or 0) > (ps.get("last_success_at") or 0)
+    def cooled(p):
+        return (now - (state.get(p["key"], {}).get("exhausted_at") or 0)) >= cooldown
+    return ([p for p in enabled if not exhausted(p) or cooled(p)] +
+            [p for p in enabled if exhausted(p) and not cooled(p)])
 
 
 def classify_error(err: str) -> str:
@@ -63,13 +86,10 @@ class Keychain:
         **_kwargs swallows any legacy keyword arguments — ignored.
         """
         enabled = [p for p in self.providers if p.get("enabled", True)]
-        # Put non-exhausted providers first; exhausted ones at the end as probes
         exhausted_keys = {p["key"] for p in enabled
                           if qs.is_exhausted(self.state, p["key"])}
-        ordered = (
-            [p for p in enabled if p["key"] not in exhausted_keys] +
-            [p for p in enabled if p["key"] in exhausted_keys]
-        )
+        # Priority-aware order incl. upward re-probe of cooled smart rungs.
+        ordered = order_providers(enabled, self.state, time.time())
 
         had_transient = False
         for cfg in ordered:

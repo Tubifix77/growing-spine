@@ -397,6 +397,21 @@ async def main():
     check("classify: model_not_found -> quota",
           classify_error("model_not_found: that model id does not exist") == "quota")
 
+    # ---- upward re-probe ordering (the nemotron-monopoly fix) ----
+    from keychain.keychain import order_providers
+    provs = [{"key": "coder"}, {"key": "nemotron"}]
+    now = 1000000.0
+    st_cooled  = {"coder": {"exhausted_at": now - 700, "last_success_at": 0},
+                  "nemotron": {"exhausted_at": 0, "last_success_at": now - 60}}
+    st_cooling = {"coder": {"exhausted_at": now - 60, "last_success_at": 0},
+                  "nemotron": {"exhausted_at": 0, "last_success_at": now - 60}}
+    check("upward reprobe: cooled higher rung outranks open lower rung",
+          [p["key"] for p in order_providers(provs, st_cooled, now)] == ["coder", "nemotron"])
+    check("upward reprobe: still-cooling higher rung stays at the tail",
+          [p["key"] for p in order_providers(provs, st_cooling, now)] == ["nemotron", "coder"])
+    check("upward reprobe: all-open keeps config order",
+          [p["key"] for p in order_providers(provs, {}, now)] == ["coder", "nemotron"])
+
     # ---- openrouter tier-check diff (weekly rotating-shelf sensor) ----
     import importlib.util as _ilu
     _spec = _ilu.spec_from_file_location("otc", "scripts/openrouter_tier_check.py")
