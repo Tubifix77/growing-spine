@@ -415,21 +415,19 @@ async def main():
     # ---- batch judge: reasoning-model reply with terminal VERDICTS block ----
     # (the exact live failure shape from 2026-07-19 02:34: prose deliberation
     # incl. "Choose EXTEND:X", verdicts only in a final block)
-    import asyncio as _aio
-    from executive import idea_gate as _ig
+    from executive.idea_gate import _scan_verdict_lines
     _reply = ("We need to decide for each idea whether an existing tool already "
               "covers its intent. Use intent, not wording. Idea one seems novel. "
               "Idea two: tracker not present. Might be EXTEND of alpha_tool. "
               "Choose EXTEND:alpha_tool.\n\nVERDICTS:\n1: NEW\n2: EXTEND:alpha_tool\n"
               "3: DUPLICATE:beta_tool\n")
-    async def _fake_complete(prompt, **kw): return _reply
-    _items = [{"title": f"i{n}", "brief": "b"} for n in range(3)]
-    _reg = {"alpha_tool": "does a", "beta_tool": "does b"}
-    _verdicts = _aio.get_event_loop().run_until_complete(
-        _ig.batch_judge(_items, _reg, _fake_complete))
-    check("batch judge: terminal VERDICTS block parses after prose deliberation",
-          _verdicts.get(1) == ("EXTEND", "alpha_tool")
-          and _verdicts.get(2) == ("DUPLICATE", "beta_tool") and 0 not in _verdicts)
+    _n, _hits = _scan_verdict_lines(_reply, 3)
+    check("batch judge scan: terminal VERDICTS block parses after prose (3/3)",
+          _n == 3 and _hits[0][0] == "NEW"
+          and _hits[1] == ("EXTEND", "alpha_tool")
+          and _hits[2] == ("DUPLICATE", "beta_tool"))
+    check("batch judge scan: prose-only reply still parses zero (fail-open)",
+          _scan_verdict_lines("We should pick EXTEND for the tracker idea.", 3)[0] == 0)
 
     # ---- openrouter tier-check diff (weekly rotating-shelf sensor) ----
     import importlib.util as _ilu

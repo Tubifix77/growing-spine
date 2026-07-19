@@ -420,13 +420,14 @@ BATCH_JUDGE_PROMPT = """You are the idea gate for a self-building agent. For EAC
 
 {ideas_block}
 
-CRITICAL OUTPUT RULE: reply with ONE line per idea and NOTHING else -- no preamble, no reasoning. The very first character of your reply must be "1".
-Format, one line per idea:
-<number>: NEW | DUPLICATE:tool-name | EXTEND:tool-name
-Example reply for 3 ideas:
+You may think through the ideas first if you need to. Then you MUST end your reply with a final verdict block in EXACTLY this format -- one line per idea, every idea number exactly once, nothing after the block:
+
+VERDICTS:
 1: NEW
 2: DUPLICATE:fetch_url
 3: EXTEND:memstore
+
+Allowed verdicts: NEW | DUPLICATE:tool-name | EXTEND:tool-name. A reply without the final VERDICTS block is invalid.
 """
 
 
@@ -457,6 +458,27 @@ def _resolve_batch_target(verdict, target, new_text, registry, attic_registry):
     return "NEW", None
 
 
+def _scan_verdict_lines(raw, n_items):
+    """Pure line-scan: (parsed_count, {idx: (VERDICT, raw_target)}).
+    Tolerant of markdown junk, IDEA prefixes, and any amount of prose
+    around the lines -- reasoning models put the block at the very end."""
+    parsed, hits = 0, {}
+    for ln in raw.splitlines():
+        m = re.match(
+            r"[\s*#>\-]*(?:idea\s*)?(\d+)[\s*]*[:.\)\-][\s*]*"
+            r"(NEW|DUPLICATE|EXTEND)\s*(?:of\s+)?[:\-]?\s*['\"`]?"
+            r"([A-Za-z0-9_\-.\[\] ]{2,})?",
+            ln.strip(), re.IGNORECASE)
+        if not m:
+            continue
+        idx = int(m.group(1)) - 1
+        if not (0 <= idx < n_items):
+            continue
+        parsed += 1
+        hits[idx] = (m.group(2).upper(), (m.group(3) or "").strip())
+    return parsed, hits
+
+
 async def batch_judge(items, registry, complete, attic_registry=None, per_idea_k=3):
     """ONE LLM call, verdicts for a whole ideation batch.
     items: list of dicts with title+brief. Returns {index: (verdict, target)}
@@ -480,28 +502,22 @@ async def batch_judge(items, registry, complete, attic_registry=None, per_idea_k
     # whole budget on prose deliberation and truncated before verdict line 1.
     # A verdict line is ~12-18 tokens; 48/idea + 120 leaves ~3x slack so the
     # verdicts survive a stray preamble written despite the no-preamble rule.
-    raw = (await complete(prompt, max_tokens=48 * len(items) + 120)) or ""
+    # Failure history: 30/idea starved chatty models (4/4 refills Jul 15-16).
+    # 48/idea with a verdict-first, no-reasoning rule still parsed 0/8 live
+    # (Jul 19): the reasoning model deliberated in prose and even CHOSE
+    # verdicts, but never wrote IDEA-numbered lines -- verdict-first fights
+    # how reasoning models generate. The contract now embraces deliberation
+    # and requires a terminal VERDICTS block; 160/idea + 400 funds the musing.
+    raw = (await complete(prompt, max_tokens=160 * len(items) + 400)) or ""
     # reasoning models wrap deliberation in <think> tags; strip before parsing
     raw = re.sub(r"<think>.*?</think>", "", raw, flags=re.S | re.I)
+    parsed_lines, hits = _scan_verdict_lines(raw, len(items))
     out = {}
-    parsed_lines = 0
-    for ln in raw.splitlines():
-        m = re.match(
-            r"[\s*#>\-]*(?:idea\s*)?(\d+)[\s*]*[:.\)\-][\s*]*"
-            r"(NEW|DUPLICATE|EXTEND)\s*(?:of\s+)?[:\-]?\s*['\"`]?"
-            r"([A-Za-z0-9_\-.\[\] ]{2,})?",
-            ln.strip(), re.IGNORECASE)
-        if not m:
-            continue
-        idx = int(m.group(1)) - 1
-        if not (0 <= idx < len(items)):
-            continue
-        parsed_lines += 1
-        v = m.group(2).upper()
+    for idx, (v, raw_target) in hits.items():
         if v == "NEW":
             continue
         text = f"{items[idx].get('title', '')}: {items[idx].get('brief', '')}"
-        v2, tgt = _resolve_batch_target(v, (m.group(3) or "").strip(), text,
+        v2, tgt = _resolve_batch_target(v, raw_target, text,
                                         registry, attic_registry)
         if v2 != "NEW" and tgt:
             out[idx] = (v2, tgt)
