@@ -2,7 +2,7 @@
 
 A self-improvement creature in a box. Descended from [Spine Reborn](https://github.com/Tubifix77/spine-reborn).
 
-**Status:** Live. First boot 2026-06-03. Re-architected to the *toolsmith* design 2026-06-21 (v0.6). Self-restart capability added 2026-06-21 (v0.7). Composition/depth mode added 2026-06-23 (v0.8). Batched ideation + pipeline hygiene 2026-06-25 → 07-02 (v0.9.x). Systematic rut detection 2026-07-03 (v0.10). Planning-level batch idea-gate + a real news horizon 2026-07-10 (v0.11). Embedding idea-gate — paraphrase-proof dedup — 2026-07-14 (v0.12). Four-provider keychain (OpenRouter joined 2026-07-17 ahead of Cerebras's free-tier retirement) with per-provider dashboard chips. Running on a dedicated Debian laptop under a systemd supervisor, thinking via a free-tier API keychain, never touching the operator's main PC.
+**Status:** Live. First boot 2026-06-03. Re-architected to the *toolsmith* design 2026-06-21 (v0.6). Self-restart capability added 2026-06-21 (v0.7). Composition/depth mode added 2026-06-23 (v0.8). Batched ideation + pipeline hygiene 2026-06-25 → 07-02 (v0.9.x). Systematic rut detection 2026-07-03 (v0.10). Planning-level batch idea-gate + a real news horizon 2026-07-10 (v0.11). Embedding idea-gate — paraphrase-proof dedup — 2026-07-14 (v0.12). Four-provider keychain (OpenRouter joined 2026-07-17 ahead of Cerebras's free-tier retirement) with per-provider dashboard chips. The idea gate went ACTIVE 2026-07-30 after 16 shadow days — covered ideas now serve an upgrade-or-go-new choice — on a nine-window keychain across five model families. Running on a dedicated Debian laptop under a systemd supervisor, thinking via a free-tier API keychain, never touching the operator's main PC.
 
 ---
 
@@ -49,6 +49,10 @@ See [`growing-spine-architecture.md`](growing-spine-architecture.md) for how thi
 - **Not running on the operator's main PC.** It lives on a dedicated laptop, in a Docker container. Containment protects the operator's systems, not the open internet — the creature has real, monitored, rate-limited network reach.
 
 ---
+
+## Current status (2026-07-30, v0.13)
+
+274 own tools. The embedding idea-gate is ACTIVE: name collisions and paraphrase-duplicates are caught deterministically for zero tokens, the middle band goes to an LLM judge under a terminal-VERDICTS contract (first clean live parses 2026-07-19 and -30; failures fail open), and a covered idea serves the creature a choice — upgrade the existing tool, or find something genuinely new — announced on its chat channel and acknowledged in its own words. Cognition flows through nine free windows across five model families (Gemini, two Groq buckets, Cerebras until 2026-08-17, Gemma-4-31B direct at 14,400/day, and an OpenRouter ladder ranked by measured intelligence with 10-minute upward re-probe), watched by a weekly free-tier diff sensor whose first catch was the July 19 purge. The container has run as the host user since v0.9.1; the quota tracker remains timestamps-only.
 
 ## Current status (2026-07-17, v0.12)
 
