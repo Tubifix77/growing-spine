@@ -510,7 +510,8 @@ async def batch_judge(items, registry, complete, attic_registry=None, per_idea_k
     # and requires a terminal VERDICTS block; 160/idea + 400 funds the musing.
     raw = (await complete(prompt, max_tokens=160 * len(items) + 400)) or ""
     # reasoning models wrap deliberation in <think> tags; strip before parsing
-    raw = re.sub(r"<think>.*?</think>", "", raw, flags=re.S | re.I)
+    # gemma-4 emits <thought>, others <think>/<thinking> -- strip all
+    raw = re.sub(r"<(think|thinking|thought)>.*?</\1>", "", raw, flags=re.S | re.I)
     parsed_lines, hits = _scan_verdict_lines(raw, len(items))
     out = {}
     for idx, (v, raw_target) in hits.items():

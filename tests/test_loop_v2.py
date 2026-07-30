@@ -428,6 +428,8 @@ async def main():
           and _hits[2] == ("DUPLICATE", "beta_tool"))
     check("batch judge scan: prose-only reply still parses zero (fail-open)",
           _scan_verdict_lines("We should pick EXTEND for the tracker idea.", 3)[0] == 0)
+    check("batch judge scan: gemma <thought> preamble does not block the block",
+          _scan_verdict_lines("<thought>musing</thought>\nVERDICTS:\n1: NEW\n2: NEW\n3: NEW", 3)[0] == 3)
 
     # ---- openrouter tier-check diff (weekly rotating-shelf sensor) ----
     import importlib.util as _ilu
