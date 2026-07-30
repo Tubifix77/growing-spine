@@ -177,25 +177,15 @@ class Dashboard(QMainWindow):
         vit.addWidget(self.btn_brain)
         outer.addLayout(vit)
 
-        # -- provider strip: one chip per provider (4 since openrouter) ----
-        prov = QHBoxLayout()
-        self.chips = {}
-        def _chip(text):
-            c = QLabel(text)
-            c.setFont(QFont("monospace", FONT_SIZE - 1))
-            c.setStyleSheet(box_css)
-            c.setWordWrap(True)
-            c.setSizePolicy(c.sizePolicy().Policy.Ignored, c.sizePolicy().Policy.Preferred)
-            return c
-        if self._providers:
-            for key, name in self._providers:
-                c = _chip(f"{name}: ?")
-                prov.addWidget(c, 1)
-                self.chips[key] = c
-        else:
-            self.lbl_quota = _chip("providers: ?")
-            prov.addWidget(self.lbl_quota, 1)
-        outer.addLayout(prov)
+        # -- provider strip: one chip per provider, rebuilt on config change --
+        self._box_css = box_css
+        self._prov_layout = QHBoxLayout()
+        try:
+            self._config_mtime = os.path.getmtime(CONFIG)
+        except OSError:
+            self._config_mtime = 0
+        self._build_provider_row()
+        outer.addLayout(self._prov_layout)
 
         # -- main split: journal | memory ---------------------------------
         split = QSplitter(Qt.Orientation.Horizontal)
@@ -354,7 +344,45 @@ class Dashboard(QMainWindow):
             sb.setValue(sb.maximum())
 
     # -- slow lane: /proc, disk, quota, memory panel --------------------------
+    def _make_chip(self, text):
+        c = QLabel(text)
+        c.setFont(QFont("monospace", FONT_SIZE - 1))
+        c.setStyleSheet(self._box_css)
+        c.setWordWrap(True)
+        c.setSizePolicy(c.sizePolicy().Policy.Ignored, c.sizePolicy().Policy.Preferred)
+        return c
+
+    def _build_provider_row(self):
+        """(Re)fill the chip row from self._providers. Called at init and
+        whenever config.yaml changes -- a config edit used to need a manual
+        observer restart to show new windows (bitten 2026-07-30)."""
+        while self._prov_layout.count():
+            item = self._prov_layout.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
+        self.chips = {}
+        if self._providers:
+            for key, name in self._providers:
+                c = self._make_chip(f"{name}: ?")
+                self._prov_layout.addWidget(c, 1)
+                self.chips[key] = c
+        else:
+            self.lbl_quota = self._make_chip("providers: ?")
+            self._prov_layout.addWidget(self.lbl_quota, 1)
+
     def _tick_slow(self):
+        # hot-reload the provider chips when config.yaml changes
+        try:
+            m = os.path.getmtime(CONFIG)
+        except OSError:
+            m = self._config_mtime
+        if m != self._config_mtime:
+            self._config_mtime = m
+            fresh = self._load_providers()
+            if fresh and fresh != self._providers:
+                self._providers = fresh
+                self._build_provider_row()
         self._brain = _brain_pid()
         if self._brain:
             self.lbl_brain.setText(f"brain: pid {self._brain}")
