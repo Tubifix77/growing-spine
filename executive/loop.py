@@ -45,7 +45,7 @@ _REST_SENTINEL = {"__rest__": True}
 # zero risk, flip to "active" is a one-line change once the shadow log shows it
 # judging correctly. Always fails open (any error -> idea proceeds ungated) and
 # only runs when a provider is available (never adds a probe during a wall).
-IDEA_GATE_MODE = "shadow"
+IDEA_GATE_MODE = "active"  # flipped 2026-07-30 after 16 days of shadow (Tue: "lets go")
 
 # v0.9 batch-ideation: the binding constraint is API CALLS, not tokens -- one
 # call returning N composition ideas costs the same as one returning 1. So in
