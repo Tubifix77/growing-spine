@@ -739,6 +739,14 @@ def _inspiration_block() -> str:
                     sparks.append("wiki: " + it.get("title", "")[:70])
         except Exception:
             pass
+        try:
+            with open(os.path.join(VOLUME_MOUNT, "state",
+                                   "architect_wanted.json"),
+                      encoding="utf-8") as f:
+                for _w in json.load(f)[:3]:
+                    sparks.append("wanted by the architect: " + str(_w)[:80])
+        except Exception:
+            pass
         if sparks:
             parts.append("LIVE SPARKS FROM THE WORLD RIGHT NOW (use freely as "
                          "inspiration for what the cousin could fetch, track, "
@@ -956,6 +964,28 @@ async def _refill_composition_queue(keychain) -> list:
         print(f"[idea-gate] batch regen: now {len(new_items)} new / {len(covered)} covered")
     queue = new_items + covered
     print(f"[idea-gate] batch gated: {len(new_items)} new, {len(covered)} covered->fork")
+    # Meta-Architect v1 (2026-08-01, Tue's design): one ruling call over the
+    # gated batch, evidence-fed; fail-open. Its directive speaks through the
+    # Reviewer slot; its wanted-list feeds the next ideation prompt's sparks.
+    try:
+        from . import architect
+        _ev = architect.gather_evidence(
+            os.path.join(VOLUME_MOUNT, "tools", "own"),
+            os.path.join(VOLUME_MOUNT, "journal.jsonl"))
+        queue, _dropped, _directive, _wanted = await architect.run_architect(
+            queue, _ev, keychain.complete)
+        if _directive:
+            _st = _load_retro_state()
+            _st["directive"] = "[architect] " + _directive
+            _st["directive_cycles_left"] = 25
+            _save_retro_state(_st)
+        if _wanted:
+            with open(os.path.join(VOLUME_MOUNT, "state",
+                                   "architect_wanted.json"), "w",
+                      encoding="utf-8") as f:
+                json.dump(_wanted, f)
+    except Exception as _e:
+        print(f"[architect] skipped ({type(_e).__name__})")
     _save_composition_queue(queue)
     return queue
 
@@ -1377,17 +1407,28 @@ def _gate_choice_spec(v: str, tgt: str, brief: str) -> dict:
     if v == "DUPLICATE":
         fact = (f"Gate fact: this idea already exists in your library as '{tgt}' -- "
                 f"a near-duplicate will not be built.")
-        options = (f"Your choice: (a) UPGRADE '{tgt}' -- run it, find where it falls "
-                   f"short of what you imagined, improve that; or (b) drop this idea "
-                   f"and find a GENUINELY NEW one, something none of your tools does.")
+        options = (f"Your choice: (a) UPGRADE '{tgt}' -- edit the file "
+                   f"/mind/tools/own/{tgt} ITSELF, in place: run it, find where it "
+                   f"falls short, improve THAT FILE. A new file next to it is a "
+                   f"near-duplicate and will NOT count as done; or (b) drop this "
+                   f"idea and find a GENUINELY NEW one, something none of your "
+                   f"tools does.")
     else:  # EXTEND
         fact = (f"Gate fact: '{tgt}' already covers most of this idea; the part it "
                 f"does not cover is: {brief}")
         options = (f"Your choice: (a) UPGRADE '{tgt}' by adding exactly that missing "
-                   f"part -- edit the tool, do not build a sibling; or (b) drop this "
-                   f"idea and find a GENUINELY NEW one, something none of your tools does.")
+                   f"part -- edit /mind/tools/own/{tgt} ITSELF; a new file will NOT "
+                   f"count as done; or (b) drop this idea and find a GENUINELY NEW "
+                   f"one, something none of your tools does.")
+    _tpath = os.path.join(VOLUME_MOUNT, "tools", "own", tgt)
+    try:
+        _tmtime = os.path.getmtime(_tpath)
+    except OSError:
+        _tmtime = 0
     return {"title": f"choice: upgrade {tgt} or go new",
             "category": "gate_choice",
+            "gate_target": tgt,
+            "gate_target_mtime": _tmtime,
             "brief": f"{fact}\n{options}",
             "demonstration": ("If you chose (a): run the upgraded tool and show the "
                               "improvement working. If (b): name the new idea and why "
@@ -1400,6 +1441,17 @@ def _install_gap(spec: dict, category: str):
     (the gap brief IS the explore/plan). No starter code is written -- the
     creature builds the tool itself."""
     title = _project_title(str(spec.get("title", "")).strip()) or f"{category} tool"
+    # Gate-choice upgrade enforcement bookkeeping (2026-08-01): the done-gate
+    # verifies the chosen target actually changed. State lives executive-side.
+    try:
+        if category == "gate_choice" and spec.get("gate_target"):
+            with open(GATE_CHOICE_STATE_PATH, "w", encoding="utf-8") as f:
+                json.dump({"target": spec["gate_target"],
+                           "mtime": spec.get("gate_target_mtime", 0)}, f)
+        elif os.path.exists(GATE_CHOICE_STATE_PATH):
+            os.remove(GATE_CHOICE_STATE_PATH)
+    except OSError:
+        pass
     brief = str(spec.get("brief", "")).strip()
     demo = str(spec.get("demonstration", "")).strip()
     for k in ("project-plan", "current-plan", "testing", "refinement",
@@ -1960,6 +2012,46 @@ def _enforce_done_gate(executed):
                            "Done-gate blocked an empty (placeholder) completion: " + reason)
             return False
 
+        # Gate-choice UPGRADE enforcement (2026-08-01): "a near-duplicate will
+        # not be built" is law, not advice. If the active project is a
+        # gate_choice and the chosen target file is unchanged, the done does
+        # not count -- unless choice (b) go-new was recorded THIS cycle via
+        # `remember gate-choice-new "<idea>"`.
+        try:
+            with open(GATE_CHOICE_STATE_PATH, encoding="utf-8") as f:
+                gcs = json.load(f)
+        except Exception:
+            gcs = None
+        if gcs and not failures:
+            chose_new = any("gate-choice-new" in c for (c, _) in executed)
+            tpath = os.path.join(VOLUME_MOUNT, "tools", "own",
+                                 str(gcs.get("target", "")))
+            try:
+                cur = os.path.getmtime(tpath)
+            except OSError:
+                cur = 0
+            if not chose_new and cur <= float(gcs.get("mtime", 0) or 0):
+                mem.store(VOLUME_MOUNT, "current-phase", "code")
+                tgt = gcs.get("target", "")
+                reason = (f"You chose to UPGRADE '{tgt}', but the file "
+                          f"/mind/tools/own/{tgt} is unchanged. Upgrading means "
+                          f"editing that file itself; a new file next to it is a "
+                          f"near-duplicate and does not count. Edit '{tgt}' and "
+                          f"run it to show the improvement, then mark done. If "
+                          f"you are instead choosing (b) go-new, record it in "
+                          f"the same cycle as your done: remember "
+                          f"gate-choice-new \"<your new idea>\".")
+                with open(DONE_BLOCK_PATH, "w", encoding="utf-8") as f:
+                    f.write(reason)
+                journal.append(VOLUME_MOUNT, "error",
+                               "Done-gate blocked an upgrade that changed "
+                               "nothing: " + reason)
+                return False
+            try:
+                os.remove(GATE_CHOICE_STATE_PATH)
+            except OSError:
+                pass
+
         # Cross-cycle guard: even if nothing hollow was touched THIS cycle, a
         # backlog of abandoned stubs from earlier cycles means "finish what you
         # started" is the real work -- not another completion on top of a pile of
@@ -2063,6 +2155,9 @@ def _stamp_gage(cycle_start: float):
 # (STUCK). Trajectory-level counterpart to the per-decision spin trap:
 # deep spin is caught by the trap, family-churn is caught here.
 # ---------------------------------------------------------------------------
+
+GATE_CHOICE_STATE_PATH = os.path.join(VOLUME_MOUNT, "state", "gate_choice.json")
+
 
 def _load_retro_state() -> dict:
     try:

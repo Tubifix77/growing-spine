@@ -428,6 +428,31 @@ async def main():
           and _hits[2] == ("DUPLICATE", "beta_tool"))
     check("batch judge scan: prose-only reply still parses zero (fail-open)",
           _scan_verdict_lines("We should pick EXTEND for the tracker idea.", 3)[0] == 0)
+
+    # ---- Meta-Architect v1 (2026-08-01) ----
+    from executive import architect as arch
+    _r = ("<thought>Let me weigh these.</thought>\nThe library is bloated.\n"
+          "ARCHITECT:\nIDEA 1: KEEP | chain fetch_gap_plan into it, edit in place\n"
+          "IDEA 2: DROP | duplicate of archive_backed_query\n"
+          "IDEA 3: RESHAPE | a tool that verifies archived claims against sources\n"
+          "DIRECTIVE: edit files in place; no _v2 siblings\nWANTED: truth audit; diff view; nothing\n")
+    _n, _d, _dir, _w = arch.parse_architect(_r, 3)
+    check("architect parse: 3/3 verbs through thought-preamble and prose",
+          _n == 3 and _d[0][0] == "KEEP" and _d[1][0] == "DROP" and _d[2][0] == "RESHAPE")
+    check("architect parse: directive and wanted-list extracted",
+          "in place" in _dir and _w[:2] == ["truth audit", "diff view"])
+    check("architect parse: prose-only reply fails open (0 ruled)",
+          arch.parse_architect("These all look fine to me, carry on.", 3)[0] == 0)
+    _items = [{"title": "a", "brief": "ba"}, {"title": "b", "brief": "bb", "gate": ("DUPLICATE", "x")},
+              {"title": "c", "brief": "bc", "gate": ("EXTEND", "y")}]
+    _kept, _drp = arch.apply_architect(_items, _d)
+    check("architect apply: drop removes, reshape sheds gate, keep annotates",
+          _drp == 1 and len(_kept) == 2 and "[architect]" in _kept[0]["brief"]
+          and _kept[1]["brief"].startswith("a tool that verifies") and "gate" not in _kept[1])
+    check("architect lineage census: suffix drift detected",
+          bool(arch.LINEAGE_RE.search("subagent_summarize_archive_upgraded"))
+          and bool(arch.LINEAGE_RE.search("catchup_x_v2.py"))
+          and not arch.LINEAGE_RE.search("plan_from_question"))
     check("batch judge scan: gemma <thought> preamble does not block the block",
           _scan_verdict_lines("<thought>musing</thought>\nVERDICTS:\n1: NEW\n2: NEW\n3: NEW", 3)[0] == 3)
 
