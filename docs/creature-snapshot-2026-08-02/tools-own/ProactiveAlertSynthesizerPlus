@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# does: Chain wake_catchup_fetcher → knowledge_gap_filler → subagent_ask_helper → step-planner-tracker,
+#       archive the generated alert, and schedule a follow‑up action.
+
+# Usage: ProactiveAlertSynthesizerPlus "<topic>"
+# Example: ProactiveAlertSynthesizerPlus "AI model releases"
+
+TOPIC="${1:?Missing topic argument}"
+
+# 1️⃣ Fetch fresh items for the topic
+FETCHED_JSON=$(wake_catchup_fetcher "$TOPIC")
+if [[ -z "$FETCHED_JSON" ]]; then
+  echo "No new items for topic: $TOPIC" >&2
+  exit 0
+fi
+
+# 2️⃣ For each fetched item, run the knowledge_gap_filler (expects JSON on stdin)
+#    It will enrich the item with any missing context and output enriched JSON.
+ENRICHED_JSON=$(echo "$FETCHED_JSON" | jq -c '.[]' | while read -r ITEM; do
+  echo "$ITEM" | knowledge_gap_filler
+done | jq -s '.')
+
+# 3️⃣ Generate an alert message for each enriched item via subagent_ask_helper.
+#    We ask the LLM: “Summarize the news item and flag why it matters for $TOPIC.”
+ALERTS=$(echo "$ENRICHED_JSON" | jq -c '.[]' | while read -r ITEM; do
+  TITLE=$(echo "$ITEM" | jq -r '.title')
+  URL=$(echo "$ITEM" | jq -r '.url')
+  PROMPT="Summarize the news item titled \"$TITLE\" ($URL) and explain why it matters for the topic \"$TOPIC\"."
+  ANSWER=$(echo "$PROMPT" | subagent_ask_helper)
+  # Build a tiny JSON record with the alert text and a reference to the source URL.
+  jq -n --arg txt "$ANSWER" --arg src "$URL" '{alert:$txt, source:$src}'
+done | jq -s '.')
+
+# 4️⃣ Archive each alert so it can be recalled later.
+echo "$ALERTS" | jq -c '.[]' | while read -r ALERT; do
+  ALERT_TXT=$(echo "$ALERT" | jq -r '.alert')
+  SOURCE_URL=$(echo "$ALERT" | jq -r '.source')
+  # Store under a keyword that groups alerts by topic.
+  keyword="alert-${TOPIC// /_}"
+  echo "$ALERT_TXT" | keyword-archive-store "$keyword" --tags "source:$SOURCE_URL"
+done
+
+# 5️⃣ For each alert, create a follow‑up task in the persistent planner.
+#    The task will be a simple reminder to “review the alert” later.
+echo "$ALERTS" | jq -c '.[]' | while read -r ALERT; do
+  ALERT_TXT=$(echo "$ALERT" | jq -r '.alert')
+  PLAN_GOAL="Review alert for \"$TOPIC\": ${ALERT_TXT:0:80}…"
+  # Create a plan with a single step: manually inspect the archived alert.
+  step-planner-tracker add "$PLAN_GOAL" "Open the keyword‑archive entry for $TOPIC and decide on any action."
+done
+
+# 6️⃣ Emit the alerts to stdout for immediate visibility (optional)
+echo "$ALERTS" | jq -r '.[] | "\(.alert)\nSource: \(.source)\n---"'

@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Tool: fallback_plan_from_question
+# does: Generate a fallback step‑by‑step plan from a natural‑language goal using plan_from_question,
+#       returning the created plan ID. Intended as a safe wrapper when the primary planner fails.
+
+# Usage: fallback_plan_from_question "<goal description>"
+# The goal can also be passed via stdin if no argument is given.
+
+set -euo pipefail
+
+# Get the goal text
+if [ $# -ge 1 ]; then
+  GOAL="$*"
+else
+  # read from stdin
+  GOAL=$(cat)
+fi
+
+# Trim whitespace
+GOAL=$(echo "$GOAL" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+
+# If empty, abort with a helpful message
+if [ -z "$GOAL" ]; then
+  echo "Error: No goal provided." >&2
+  exit 1
+fi
+
+# Call the existing robust planner
+# plan_from_question prints the new plan ID on stdout
+PLAN_ID=$(plan_from_question "$GOAL" 2>/dev/null | tail -n1)
+
+# Verify a plan ID was produced
+if [ -z "$PLAN_ID" ]; then
+  echo "Error: plan_from_question failed to produce a plan ID." >&2
+  exit 1
+fi
+
+# Output the plan ID for downstream tools
+echo "$PLAN_ID"

@@ -1,6 +1,6 @@
 # Creature tool snapshot — 2026-08-02
 
-**350 tools**, written autonomously by the Growing Spine creature
+**346 tool files**, written autonomously by the Growing Spine creature
 over two months of free-tier LLM cycles (born 2026-06-03). A further 270
 retired tools live in its attic — including the 270 moved there in the
 consented consolidation of 2026-07-08, when it agreed to shrink its library
@@ -8,7 +8,9 @@ from 302 to 32 keepers and regrew from there.
 
 Published unmodified by Tue as evidence of what the framework produces —
 including the warts: `.bak` files are the creature's own pre-edit backups
-(a habit nobody taught it), and strays like `--show` are birth accidents.
+(a habit nobody taught it), strays like `--show` are birth accidents, and
+the live directory even contains a `.git` the creature initialised itself
+(stripped from this copy so the snapshot stays plain files).
 Usage counts are invocations in the creature's journal over the last 14 days.
 See the [framework map](../framework-map.html) for the machinery that shaped
 all of this. No credentials or personal data are present (scanned).
@@ -181,7 +183,6 @@ all of this. No credentials or personal data are present (scanned).
 | 1 | `subagent_summarize_archive_upgraded` | Summarizes archived notes for <keyword> using subagent_ask_helper, handles empty archives gracefully, |
 | 1 | `url_insight_plan` | Fetch a URL, fill knowledge gaps, synthesize a concise insight, archive it, |
 | 0 | `--show` | step-planner-tracker |
-| 0 | `.git` |  |
 | 0 | `.wake_catchup_state` |  |
 | 0 | `AlertedResearchTracker` | Merge wake_orient_digest, knowledge_gap_filler, and step-planner-tracker. |
 | 0 | `ArchiveGapFiller` |  |
@@ -232,7 +233,6 @@ all of this. No credentials or personal data are present (scanned).
 | 0 | `TaskInsightGenerator` | Generate a persistent task plan for a high‑level goal, fill any knowledge gaps, synthesize a ready‑to‑use answ |
 | 0 | `TaskProgressReporter` |  |
 | 0 | `WakeCatchupDigest` |  |
-| 0 | `__pycache__` |  |
 | 0 | `alert_synthesizer_from_change` | Detect changes at a URL, generate a concise alert via LLM, and store it in the keyword archive. |
 | 0 | `amiga_title_collector` | python /mind/tools/own/amiga_title_collector.py  Collects Amiga title URLs from the keyword‑archive, fetches t |
 | 0 | `amiga_title_collector.py` |  |
@@ -259,7 +259,6 @@ all of this. No credentials or personal data are present (scanned).
 | 0 | `continuous_news_to_memory` |  |
 | 0 | `cross_cluster_alert_synth.py` |  |
 | 0 | `cross_cluster_alert_synthesizer` | Pull fresh items via wake_catchup_fetcher, evaluate each with knowledge_gap_filler, |
-| 0 | `cross_cluster_signal_router` |  |
 | 0 | `cross_cluster_signal_router.py` |  |
 | 0 | `cross_domain_insight_synth` | Fetches Wikipedia summaries for two domains, asks a sub‑agent LLM to synthesize a cross‑domain insight, |
 | 0 | `cross_source_alert` |  |
@@ -287,7 +286,6 @@ all of this. No credentials or personal data are present (scanned).
 | 0 | `keyword_planner` |  |
 | 0 | `keyword_planner.py` |  |
 | 0 | `knowledge-synthesis-scheduler` | Synthesizes archive knowledge, fills immediate gaps, archives a knowledge map, and schedules a research plan f |
-| 0 | `knowledge_gap_alert_planner` |  |
 | 0 | `knowledge_gap_resolver` | Resolve a knowledge gap by searching the keyword‑archive, fetching fresh info if missing, |
 | 0 | `knowledge_gap_resolver.py` |  |
 | 0 | `knowledge_graph_fetcher.py` |  |

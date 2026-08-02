@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# does: Fetch a URL, fill knowledge gaps, and create a persistent research plan.
+
+set -euo pipefail
+
+# ---------- Helper functions ----------
+log() {
+    echo "[fetch_and_gap_fill] $*"
+}
+
+die() {
+    echo "[fetch_and_gap_fill] ERROR: $*" >&2
+    exit 1
+}
+
+# ---------- Parse arguments ----------
+URL=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --url)
+            URL="${2:-}"
+            shift 2
+            ;;
+        *)
+            die "Unknown argument: $1"
+            ;;
+    esac
+done
+
+[[ -n "$URL" ]] || die "Missing required --url argument."
+
+# ---------- Step 1: Fetch the content ----------
+log "Fetching URL: $URL"
+FETCH_OUTPUT=$(web-fetch "$URL") || die "Failed to fetch $URL"
+
+# ---------- Step 2: Identify knowledge gaps ----------
+log "Running knowledge_gap_filler"
+GAPS_JSON=$(echo "$FETCH_OUTPUT" | knowledge_gap_filler --input-format text) || die "knowledge_gap_filler failed"
+
+# If no gaps were reported, we still create a trivial plan.
+if [[ -z "$GAPS_JSON" ]]; then
+    log "No gaps reported; creating a generic plan."
+    QUESTION="Summarize the content at $URL"
+else
+    # Extract a concise question summarising the gaps.
+    # The filler returns a JSON list of gap statements; we join them.
+    GAP_TEXT=$(echo "$GAPS_JSON" | jq -r '.gaps[]?')
+    QUESTION="${GAP_TEXT:-Summarize the content at $URL}"
+fi
+
+# ---------- Step 3: Generate a plan ----------
+log "Generating plan from question: $QUESTION"
+PLAN_ID=$(plan_from_question --question "$QUESTION") || die "plan_from_question failed"
+
+# ---------- Step 4: Record the plan in the tracker ----------
+log "Recording plan ID $PLAN_ID in step-planner-tracker"
+step-planner-tracker --add-plan "$PLAN_ID" || die "Failed to add plan to tracker"
+
+log "Success! Created plan $PLAN_ID for URL $URL"
+exit 0

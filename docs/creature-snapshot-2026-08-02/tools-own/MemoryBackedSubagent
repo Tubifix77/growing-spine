@@ -1,0 +1,64 @@
+#!/usr/bin/env python3
+# tool: MemoryBackedSubagent
+# does: Answers a question by gathering relevant memstore entries and keyword‑archive notes,
+#       feeding the combined context to a sub‑agent LLM, storing the answer back in the archive.
+
+import sys
+import subprocess
+import json
+import shlex
+
+def run_tool(cmd):
+    """Run a tool and return its stdout (decoded). Raise on error."""
+    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"Tool {' '.join(cmd)} failed: {result.stderr.strip()}")
+    return result.stdout.strip()
+
+def main():
+    if len(sys.argv) < 2:
+        print("Usage: MemoryBackedSubagent <question>")
+        sys.exit(1)
+
+    question = " ".join(sys.argv[1:])
+
+    # 1️⃣ Retrieve relevant memstore entries
+    try:
+        mem_output = run_tool(["memsearch", question])
+    except Exception as e:
+        mem_output = f"(memsearch error: {e})"
+
+    # 2️⃣ Retrieve relevant archived notes
+    try:
+        archive_output = run_tool(["keyword-archive-search", question])
+    except Exception as e:
+        archive_output = f"(keyword‑archive‑search error: {e})"
+
+    # 3️⃣ Build a prompt for the sub‑agent LLM
+    prompt = (
+        f"Context from memstore:\n{mem_output}\n\n"
+        f"Context from keyword archive:\n{archive_output}\n\n"
+        f"Question: {question}\nAnswer:"
+    )
+
+    # 4️⃣ Ask the sub‑agent LLM
+    try:
+        answer = run_tool(["subagent_ask_helper", prompt])
+    except Exception as e:
+        answer = f"(subagent_ask_helper error: {e})"
+
+    # 5️⃣ Store the answer in the keyword‑archive under the original question as keyword
+    try:
+        # Use the first 50 chars of the question as a concise keyword (slugified)
+        kw = "_".join(question.lower().split()[:8])
+        run_tool(["keyword-archive-store", kw, answer])
+        stored_msg = f"Answer stored in keyword‑archive under keyword '{kw}'."
+    except Exception as e:
+        stored_msg = f"(keyword‑archive‑store error: {e})"
+
+    # 6️⃣ Output the answer (and a short note about storage)
+    print(answer)
+    print("\n---\n" + stored_msg)
+
+if __name__ == "__main__":
+    main()

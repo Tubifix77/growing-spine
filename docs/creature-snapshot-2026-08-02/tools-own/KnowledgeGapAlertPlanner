@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# does: Detect missing knowledge for a topic, generate an LLM‑crafted alert,
+#       store it in the keyword archive, and schedule a reminder plan.
+
+# Ensure a topic argument is provided
+if [ -z "$1" ]; then
+  echo "Usage: KnowledgeGapAlertPlanner <topic>"
+  exit 1
+fi
+
+TOPIC="$1"
+
+# 1️⃣ Generate a knowledge‑gap alert via the sub‑agent LLM
+# Prompt the LLM to list key missing pieces of knowledge about the topic.
+ALERT_PROMPT="You are a knowledge‑gap analyst. List up to three critical pieces of information that are commonly missing or misunderstood about \"${TOPIC}\". Provide each item as a short sentence."
+ALERT_TEXT=$(subagent_ask_helper "$ALERT_PROMPT")
+
+# If the LLM call failed, bail out
+if [ -z "$ALERT_TEXT" ]; then
+  echo "Error: subagent_ask_helper returned no output."
+  exit 1
+fi
+
+# 2️⃣ Archive the alert under the keyword 'knowledge_gap_alerts'
+# The archive tool expects: keyword note
+ALERT_ID=$(keyword-archive-store "knowledge_gap_alerts" "$ALERT_TEXT")
+if [ -z "$ALERT_ID" ]; then
+  echo "Error: Failed to store alert in keyword archive."
+  exit 1
+fi
+
+# 3️⃣ Create a reminder plan via step-planner-tracker
+# First, build a temporary plan description JSON (the planner expects JSON on stdin)
+PLAN_JSON=$(cat <<PLAN
+{
+  "title": "Review knowledge‑gap alert for ${TOPIC}",
+  "steps": [
+    {"description": "Review the alert stored under ID ${ALERT_ID}"},
+    {"description": "Research the missing information identified"}
+  ],
+  "tags": ["knowledge_gap","${TOPIC}"]
+}
+PLAN
+)
+
+# Feed the JSON to step-planner-tracker and capture the new plan ID
+PLAN_ID=$(echo "$PLAN_JSON" | step-planner-tracker add-plan)
+if [ -z "$PLAN_ID" ]; then
+  echo "Error: step-planner-tracker failed to create a plan."
+  exit 1
+fi
+
+# Output results for verification
+echo "✅ Alert generated and stored under keyword \"knowledge_gap_alerts\" with ID: ${ALERT_ID}"
+echo "🔔 Reminder plan created (ID: ${PLAN_ID}) with steps:"
+echo "   1. Review alert"
+echo "   2. Research missing information"
+
+exit 0

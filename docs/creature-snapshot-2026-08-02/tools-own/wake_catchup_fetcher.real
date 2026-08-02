@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# does: Fixed fetcher that stores its state in /mind/state/wake_catchup_state.json (writable)
+# Uses the original wake_catchup_fetcher script but forces a safe state path.
+
+STATE_FILE="/mind/state/wake_catchup_state.json"
+
+# Export the variable that the original script expects (if any)
+export WAKE_CATCHUP_STATE="$STATE_FILE"
+
+# Run the original fetcher (its path is /mind/tools/own/wake_catchup_fetcher)
+# It will read/write $WAKE_CATCHUP_STATE instead of /var/memory/…
+exec /mind/tools/own/wake_catchup_fetcher "$@"

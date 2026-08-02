@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# does: Compose knowledge_gap_filler, subagent_ask_helper, and step-planner-tracker to detect missing info for a query,
+#      fetch it via LLM, archive the answer, and create a persistent research plan.
+set -euo pipefail
+
+# ----------------------------------------------------------------------
+# Usage check
+# ----------------------------------------------------------------------
+if [[ $# -lt 1 ]]; then
+  echo "Usage: $0 <query>"
+  exit 1
+fi
+
+query="$1"
+
+# ----------------------------------------------------------------------
+# 1. Get an answer from the LLM via subagent_ask_helper
+# ----------------------------------------------------------------------
+# subagent_ask_helper returns only the answer text.
+answer="$(subagent_ask_helper "$query")"
+
+# ----------------------------------------------------------------------
+# 2. Archive the answer under the query keyword
+# ----------------------------------------------------------------------
+# keyword-archive-store <keyword> <text> [--tags tag1,tag2,...]
+# Store with a tag so we can locate it later if needed.
+keyword-archive-store "$query" "$answer" --tags research,gap-aware
+
+# ----------------------------------------------------------------------
+# 3. Create a persistent research plan
+# ----------------------------------------------------------------------
+# step-planner-tracker add "<title>" "<optional description>"
+# The tool prints the generated plan ID; capture it.
+plan_id="$(step-planner-tracker add "Research: $query" "Answer: $answer")"
+
+# ----------------------------------------------------------------------
+# 4. Output a concise summary for the caller
+# ----------------------------------------------------------------------
+echo "Created research plan ID: $plan_id"
+echo "Query: $query"
+echo "Answer summary: $answer"

@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# does: Fill a missing fact from memstore by calling knowledge_gap_filler, then cache it.
+# Usage: memory_gap_filler "<query>"
+# Example: memory_gap_filler "state of nature wiki"
+
+set -euo pipefail
+
+QUERY="${1:-}"
+if [[ -z "$QUERY" ]]; then
+  echo "Error: No query supplied." >&2
+  exit 1
+fi
+
+# 1️⃣ Try to retrieve from memstore
+# `memstore` prints JSON lines; we use jq to extract the most recent value for the key
+if command -v memstore >/dev/null; then
+  CACHED=$(memstore get "$QUERY" | jq -r '.value // empty')
+else
+  echo "memstore command not found" >&2
+  exit 1
+fi
+
+if [[ -n "$CACHED" ]]; then
+  # Cache hit – return it
+  echo "$CACHED"
+  exit 0
+fi
+
+# 2️⃣ Cache miss – invoke knowledge_gap_filler
+if ! command -v knowledge_gap_filler >/dev/null; then
+  echo "knowledge_gap_filler tool missing" >&2
+  exit 1
+fi
+
+# knowledge_gap_filler expects a query and returns the fetched text on stdout
+FRESH=$(knowledge_gap_filler "$QUERY")
+if [[ -z "$FRESH" ]]; then
+  echo "knowledge_gap_filler returned empty result" >&2
+  exit 1
+fi
+
+# 3️⃣ Store the fresh result in memstore for future queries
+# `memstore set <key> <value>`
+memstore set "$QUERY" "$FRESH"
+
+# 4️⃣ Return the freshly fetched value
+echo "$FRESH"

@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# does: Answer a question by composing semantic memory search, archive recall, and dynamic gap-filling for a high-fidelity response.
+# Usage: contextual_memory_recall_assistant "<question>"
+
+set -euo pipefail
+
+QUESTION="$1"
+
+if [ -z "$QUESTION" ]; then
+    echo "Usage: contextual_memory_recall_assistant \"<question>\""
+    exit 1
+fi
+
+echo "[1/5] Gathering internal context..."
+# 1. Retrieve from semantic memory
+MEM_CONTEXT=$(memsearch "$QUESTION" || echo "No semantic memories found.")
+
+# 2. Retrieve from keyword archive
+ARC_CONTEXT=$(keyword-archive-search "$QUESTION" || echo "No archive notes found.")
+
+COMBINED_CONTEXT="MEMORIES:
+$MEM_CONTEXT
+
+ARCHIVE:
+$ARC_CONTEXT"
+
+echo "[2/5] Triaging context sufficiency..."
+# 3. Use LLM to decide if we have enough info or need a gap fill
+TRIAGE_PROMPT="I have the following context to answer the question: '$QUESTION'
+
+$COMBINED_CONTEXT
+
+Does this context provide a complete and accurate answer? 
+If YES, start your response with 'SUFFICIENT' and provide the final answer.
+If NO, start your response with 'INSUFFICIENT' and list exactly what information is missing."
+
+TRIAGE_RESULT=$(subagent_ask_helper "$TRIAGE_PROMPT")
+
+if [[ "$TRIAGE_RESULT" == SUFFICIENT* ]]; then
+    echo "Context sufficient. Synthesizing answer..."
+    FINAL_ANSWER="${TRIAGE_RESULT#SUFFICIENT}"
+else
+    echo "Context insufficient. Triggering gap filler..."
+    # 4. Fill the gaps
+    GAP_CONTEXT=$(knowledge_gap_filler "$QUESTION")
+    
+    echo "[4/5] Performing final high-fidelity synthesis..."
+    FINAL_PROMPT="Answer the question: '$QUESTION'
+    
+    Using all available sources:
+    --- INTERNAL MEMORIES ---
+    $MEM_CONTEXT
+    
+    --- ARCHIVE NOTES ---
+    $ARC_CONTEXT
+    
+    --- FRESH RESEARCH ---
+    $GAP_CONTEXT
+    
+    Provide a comprehensive, high-fidelity answer."
+    
+    FINAL_ANSWER=$(subagent_ask_helper "$FINAL_PROMPT")
+fi
+
+echo "[5/5] Archiving result for future recall..."
+# 5. Store the synthesized answer back into the archive under a 'composite-recall' keyword
+# We use a tag to mark it as a high-fidelity synthesized result.
+keyword-archive-store "composite-recall" "Question: $QUESTION\nAnswer: $FINAL_ANSWER" --tags "synthesized,high-fidelity" > /dev/null
+
+echo "--------------------------------------------------"
+echo "$FINAL_ANSWER"
+echo "--------------------------------------------------"

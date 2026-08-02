@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# tool: subagent_gap_summary
+# call: subagent_gap_summary <query>
+# does: Analyze the keyword-archive for <query>, identify specific missing information via LLM, and archive the gap summary.
+
+set -eu
+
+if [ "$#" -ne 1 ]; then
+    echo "Usage: subagent_gap_summary <query>"
+    exit 1
+fi
+
+QUERY="$1"
+
+# 1. Gather existing knowledge from the archive
+echo "Analyzing existing archive for: $QUERY..."
+EXISTING_KNOWLEDGE=$(keyword-archive-search "$QUERY" 10 || echo "No existing records found.")
+
+# 2. Construct a prompt to identify gaps
+# We want the LLM to be a "Knowledge Auditor"
+PROMPT="You are a Knowledge Auditor. Below is the current archived knowledge regarding '$QUERY'. 
+Your task is to identify specific, high-value gaps in this information. 
+Do not just summarize what is there; tell me what is MISSING that would be required for a professional-grade, comprehensive understanding of the topic.
+
+Current Knowledge:
+---
+$EXISTING_KNOWLEDGE
+---
+
+Provide a concise list of specific missing facts, unexplored angles, or unresolved contradictions. If the knowledge is already comprehensive, state 'No significant gaps found'."
+
+# 3. Call the subagent helper (which has internal fallbacks)
+GAP_SUMMARY=$(subagent_ask_helper "$PROMPT")
+
+if [ -z "$GAP_SUMMARY" ]; then
+    echo "Error: Failed to generate gap summary from LLM."
+    exit 1
+fi
+
+# 4. Archive the gap summary so it can be used by planners
+# We store it under 'gap_summary:<query>' to keep it distinct from general notes
+STORE_KEY="gap_summary:$QUERY"
+keyword-archive-store "$STORE_KEY" "$GAP_SUMMARY" "gap_analysis"
+
+echo "--- Gap Summary for $QUERY ---"
+echo "$GAP_SUMMARY"
+echo "----------------------------"
+echo "Summary archived under keyword: $STORE_KEY"

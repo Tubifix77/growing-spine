@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# llm_ask_helper – query Groq's Llama 3.3 model via OpenAI-compatible API.
+# Usage: llm_ask_helper "<prompt>"
+# Returns only the answer text (no JSON wrapper).
+
+set -euo pipefail
+
+if [ $# -eq 0 ]; then
+    echo "Usage: $0 \"<prompt>\"" >&2
+    exit 1
+fi
+
+PROMPT="$*"
+
+# Groq API details – environment must contain GROQ_API_KEY
+API_URL="https://api.groq.com/openai/v1/chat/completions"
+MODEL="llama-3.3-70b-versatile"
+
+# Build JSON payload
+read -r -d '' PAYLOAD <<JSON
+{
+  "model": "$MODEL",
+  "messages": [
+    {"role": "user", "content": "$PROMPT"}
+  ],
+  "temperature": 0.7,
+  "max_tokens": 4096,
+  "stream": false
+}
+JSON
+
+# Perform request
+RESPONSE=$(curl -sS -X POST "$API_URL" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $GROQ_API_KEY" \
+  -d "$PAYLOAD")
+
+# Extract the assistant's reply using jq (install if missing)
+if command -v jq >/dev/null 2>&1; then
+    ANSWER=$(echo "$RESPONSE" | jq -r '.choices[0].message.content')
+else
+    # Fallback: simple grep/awk extraction
+    ANSWER=$(echo "$RESPONSE" | grep -o '"content":"[^"]*"' | head -n1 | cut -d':' -f2- | tr -d '"')
+fi
+
+# Print only the answer
+echo "$ANSWER"

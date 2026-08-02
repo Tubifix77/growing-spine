@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# does: Orchestrates proactive learning: fetches fresh items, fills knowledge gaps, generates plans, and tracks progress.
+
+set -euo pipefail
+
+# 1. Fetch fresh Hacker News items (only new ones) using the existing fetcher.
+# The fetcher prints a JSON array of objects with at least `title` and `url`.
+fresh_items_json=$(wake_catchup_fetcher.real)
+
+# If no items were returned, nothing to do.
+[[ -z "$fresh_items_json" ]] && echo "No new items." && exit 0
+
+# 2. Iterate over each item.
+# We'll use jq (already available) to parse the JSON.
+echo "$fresh_items_json" | jq -c '.[]' | while read -r item; do
+    title=$(echo "$item" | jq -r '.title')
+    url=$(echo "$item" | jq -r '.url')
+
+    echo "Processing: $title ($url)"
+
+    # 3. Ensure contextual knowledge exists.
+    # knowledge_gap_filler expects a query; we give it the title.
+    # It will search the keyword‑archive, fetch missing info (e.g., Wikipedia), and store it.
+    knowledge_gap_filler "$title" || echo "knowledge_gap_filler failed for '$title'"
+
+    # 4. Create a persistent plan for the item.
+    # Use plan_from_question (already creates a plan via subagent_ask_helper and stores steps).
+    plan_id=$(plan_from_question "$title" | tail -n1 | grep -o '[0-9]\+')
+    if [[ -z "$plan_id" ]]; then
+        echo "Failed to create plan for '$title'"
+        continue
+    fi
+    echo "Created plan ID $plan_id for '$title'"
+
+    # 5. Record the plan in the step‑planner‑tracker for later execution.
+    # The tracker already stores the plan; we just add a tag for provenance.
+    step-planner-tracker add-tag "$plan_id" "source:hackernews"
+
+    # 6. Archive a short summary of the item for future recall.
+    # We reuse the existing subagent_ask_helper to summarise the URL.
+    summary=$(subagent_ask_helper "Summarize the following article in two sentences: $url")
+    keyword-archive-store "$title" "$summary" --tags news,summary
+done
+
+echo "Proactive learning cycle completed."

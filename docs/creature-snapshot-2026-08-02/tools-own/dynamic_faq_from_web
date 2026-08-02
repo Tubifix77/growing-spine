@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# does: Generate FAQ entries from a web page and archive them for future recall.
+# Usage: dynamic_faq_from_web <url>
+# ---------------------------------------------------------------
+set -euo pipefail
+
+if [[ $# -lt 1 ]]; then
+  echo "Usage: $0 <url>"
+  exit 1
+fi
+
+URL="$1"
+
+# 1️⃣ Fetch the page content
+PAGE_CONTENT=$(web-fetch "$URL")
+if [[ -z "$PAGE_CONTENT" ]]; then
+  echo "Failed to fetch page content."
+  exit 1
+fi
+
+# 2️⃣ Ask LLM to produce FAQ pairs (JSON list of {question,answer})
+# Prompt asks for concise, self‑contained Q&A suitable for a FAQ.
+FAQ_JSON=$(printf "%s" "$PAGE_CONTENT" | subagent_ask_helper_fallback -p "You are creating a FAQ from the following web page content. Produce a JSON array (max 5 items) where each element has keys \"question\" and \"answer\". Keep the answers short and directly based on the provided text." )
+
+# Ensure we got valid JSON; if not, exit.
+if ! echo "$FAQ_JSON" | jq empty >/dev/null 2>&1; then
+  echo "LLM did not return valid JSON."
+  exit 1
+fi
+
+# 3️⃣ Store each FAQ entry in the keyword archive.
+# Use the page title (or fallback) as the keyword.
+PAGE_TITLE=$(printf "%s" "$PAGE_CONTENT" | grep -i -m1 "<title>" | sed -e 's/.*<title>\s*//' -e 's/\s*<\/title>.*//' || echo "FAQ")
+KEYWORD="FAQ:${PAGE_TITLE}"
+
+COUNT=0
+while IFS= read -r entry; do
+  QUESTION=$(echo "$entry" | jq -r '.question')
+  ANSWER=$(echo "$entry" | jq -r '.answer')
+  # Store as a single JSON line with metadata.
+  RECORD=$(jq -n \
+    --arg q "$QUESTION" \
+    --arg a "$ANSWER" \
+    --arg url "$URL" \
+    '{question:$q, answer:$a, source_url:$url}')
+  keyword-archive-store "$KEYWORD" "$RECORD"
+  ((COUNT+=1))
+done < <(echo "$FAQ_JSON" | jq -c '.[]')
+
+# 4️⃣ Report result
+printf '{"url":"%s","keyword":"%s","faqs_stored":%d}\n' "$URL" "$KEYWORD" "$COUNT"

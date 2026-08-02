@@ -1,0 +1,85 @@
+tool: wake_to_plan
+call: wake_to_plan
+does: Turn fresh wake‑up items into persistent actionable plans (fetch → archive → LLM summary → plan creation)
+# ----------------------------------------------------------------------
+# Dependencies:
+#   wake_catchup_fetcher.real   – fetches fresh items (JSON lines)
+#   keyword-archive-store       – stores a note under a keyword
+#   subagent_ask_helper         – asks a sub‑agent LLM a prompt
+#   plan_from_question          – creates a persistent step plan
+# ----------------------------------------------------------------------
+# The script reads each JSON line from wake_catchup_fetcher.real, extracts the
+# "title" field, archives it, asks the LLM for an actionable sentence, then
+# creates a plan from that sentence.  All created plan IDs are printed as a JSON
+# array.
+# ----------------------------------------------------------------------
+set -euo pipefail
+
+# Log file for diagnostics (persisted across restarts)
+LOG=/mind/state/wake_to_plan.log
+exec > >(tee -a "$LOG") 2>&1
+
+echo "=== wake_to_plan run $(date -u +"%Y-%m-%dT%H:%M:%SZ") ==="
+
+# Fetch fresh items – the fetcher prints one JSON object per line
+# Example output: {"title":"New AI model released","url":"https://..."}
+fetcher_output=$(wake_catchup_fetcher.real || true)
+
+if [[ -z "$fetcher_output" ]]; then
+    echo "No items fetched."
+    exit 0
+fi
+
+plan_ids=()
+
+# Process each line (JSON object)
+while IFS= read -r line; do
+    # Skip empty lines
+    [[ -z "$line" ]] && continue
+
+    # Extract the title (fallback to empty string if missing)
+    title=$(echo "$line" | jq -r '.title // empty')
+    if [[ -z "$title" ]]; then
+        echo "Skipping item without title: $line"
+        continue
+    fi
+
+    echo "Processing item: $title"
+
+    # 1️⃣ Store raw title in keyword archive (keyword: wake-item)
+    # The note will contain the whole JSON payload for later reference
+    keyword-archive-store "wake-item" "$(echo "$line" | jq -c .)" || true
+
+    # 2️⃣ Ask sub‑agent LLM for a concise actionable summary.
+    # Prompt is designed to be short and actionable.
+    prompt="Summarize the following news headline in one short actionable sentence suitable for a personal task:\n\n\"$title\""
+    actionable=$(subagent_ask_helper "$prompt" || true)
+
+    if [[ -z "$actionable" ]]; then
+        echo "LLM returned empty actionable text, using title as fallback."
+        actionable="$title"
+    fi
+
+    echo "LLM actionable: $actionable"
+
+    # 3️⃣ Create a plan from the actionable sentence.
+    # plan_from_question prints the created plan ID on stdout.
+    plan_id=$(plan_from_question "$actionable" || true)
+
+    if [[ -z "$plan_id" ]]; then
+        echo "Failed to create plan for actionable: $actionable"
+        continue
+    fi
+
+    echo "Created plan ID: $plan_id"
+    plan_ids+=("$plan_id")
+done <<< "$fetcher_output"
+
+# Output the list of generated plan IDs as JSON
+if (( ${#plan_ids[@]} )); then
+    printf '%s\n' "${plan_ids[@]}" | jq -R . | jq -s .
+else
+    echo "No plans were created."
+fi
+
+exit 0

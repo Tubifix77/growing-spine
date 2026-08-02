@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# does: Identify knowledge gaps for a query, store the summary in the keyword archive, and return the summary.
+# Usage: enhanced_subagent_gap_summary "<query>"
+
+set -euo pipefail
+
+QUERY="$1"
+if [[ -z "$QUERY" ]]; then
+  echo "Error: no query supplied"
+  exit 1
+fi
+
+# ---- Step A: run the existing subagent_gap_summary tool ----
+# It returns a plain‑text list of missing facts / concepts.
+GAP_SUMMARY="$(subagent_gap_summary "$QUERY")"
+
+# ---- Step B: persist the result in the keyword‑archive ----
+# Use a deterministic keyword so we can retrieve it later.
+ARCHIVE_KEY="gap_summary:$(echo "$QUERY" | tr '[:upper:]' '[:lower:]' | tr -cs '[:alnum:]' '_')"
+keyword-archive-store "$ARCHIVE_KEY" "$GAP_SUMMARY" --tags "gap_summary"
+
+# ---- Step C: output the summary for immediate use ----
+echo "$GAP_SUMMARY"

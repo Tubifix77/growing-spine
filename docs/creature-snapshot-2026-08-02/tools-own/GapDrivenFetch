@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# does: Fill knowledge gaps for a query, fetch missing info, and store it in the keyword‑archive.
+# Usage: GapDrivenFetch "<query>"
+# Example: GapDrivenFetch "John Tayler biography"
+
+set -euo pipefail
+
+QUERY="$1"
+
+# 1️⃣ Run knowledge_gap_filler to see if the archive already has the needed info.
+#    It expects JSON on stdin; we give it the query wrapped in a simple object.
+#    The tool returns a JSON list of missing keywords (empty if everything is present).
+MISSING=$(echo "{\"query\":\"$QUERY\"}" | knowledge_gap_filler | jq -r '.missing[]?' || true)
+
+# If nothing is missing, we are done.
+if [[ -z "$MISSING" ]]; then
+    echo "✅ All required knowledge already present for: $QUERY"
+    exit 0
+fi
+
+echo "🔎 Knowledge gaps detected for: $QUERY → $MISSING"
+
+# 2️⃣ For each missing piece, use wake_catchup_fetcher (which returns fresh items as JSON)
+#    and pull the first relevant URL that looks like a Wikipedia page or biography source.
+for GAP in $MISSING; do
+    # wake_catchup_fetcher can accept a search term via the environment variable FETCH_QUERY
+    export FETCH_QUERY="$GAP"
+    # The fetcher returns an array of items; we pick the first that contains the term in its title.
+    ITEM_JSON=$(wake_catchup_fetcher | jq -c '.[] | select(.title|ascii_downcase|contains("'"${GAP,,}"'"))' | head -n1 || true)
+
+    if [[ -z "$ITEM_JSON" ]]; then
+        echo "⚠️ No fresh item found for gap: $GAP – skipping."
+        continue
+    fi
+
+    URL=$(echo "$ITEM_JSON" | jq -r '.url')
+    TITLE=$(echo "$ITEM_JSON" | jq -r '.title')
+
+    # 3️⃣ Fetch the page content (plain text) using web-fetch.
+    CONTENT=$(web-fetch "$URL")
+
+    # 4️⃣ Store the fetched content in the keyword‑archive under the original query.
+    #    We tag it with the detected gap so later recall can find it.
+    echo "$CONTENT" | keyword-archive-store "$QUERY" --tags "$GAP"
+    echo "✅ Stored [$TITLE] → $URL under keyword \"$QUERY\" (tag: $GAP)"
+done
+
+echo "✅ GapDrivenFetch completed for \"$QUERY\"."

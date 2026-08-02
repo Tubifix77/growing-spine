@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+# does: Continuously fetch fresh research items, run knowledge_gap_filler on each,
+#       and auto‑create a high‑priority task in step‑planner‑tracker for every new gap.
+
+# Configuration
+DOMAIN="${1:-AI}"            # default research domain
+SLEEP_INTERVAL=30            # seconds between fetch cycles
+STATE_FILE="/mind/state/realtime_research_state.json"
+
+# Ensure a state file exists
+if [[ ! -f "$STATE_FILE" ]]; then
+    echo '{"last_timestamp":0}' > "$STATE_FILE"
+fi
+
+# Helper: fetch fresh items for the given domain
+fetch_items() {
+    # Using wake_catchup_fetcher with a domain filter (the fetcher already returns fresh HN items;
+    # we treat titles containing the domain as “research items”. Adjust filter as needed.)
+    wake_catchup_fetcher.real --domain "$DOMAIN" --since "$(jq -r .last_timestamp "$STATE_FILE")"
+}
+
+# Helper: update last processed timestamp
+update_timestamp() {
+    local newest_ts=$1
+    jq ".last_timestamp = $newest_ts" "$STATE_FILE" > "${STATE_FILE}.tmp" && mv "${STATE_FILE}.tmp" "$STATE_FILE"
+}
+
+# Main loop
+while true; do
+    # 1. Pull fresh items
+    NEW_ITEMS=$(fetch_items)
+
+    # If no new items, just sleep
+    if [[ -z "$NEW_ITEMS" || "$NEW_ITEMS" == "null" ]]; then
+        sleep "$SLEEP_INTERVAL"
+        continue
+    fi
+
+    # 2. Process each JSON object (title,url,timestamp)
+    echo "$NEW_ITEMS" | jq -c '.[]' | while read -r ITEM; do
+        # Extract fields
+        TITLE=$(echo "$ITEM" | jq -r '.title')
+        URL=$(echo "$ITEM" | jq -r '.url')
+        TS=$(echo "$ITEM" | jq -r '.timestamp')
+
+        # 2a. Run knowledge_gap_filler (expects JSON on stdin)
+        echo "$ITEM" | knowledge_gap_filler > /dev/null 2>&1
+        GAP_STATUS=$?
+
+        # 2b. If a gap was detected (non‑zero exit), create a planner task
+        if [[ $GAP_STATUS -ne 0 ]]; then
+            # Build a concise task description
+            TASK_DESC="Investigate research gap: $TITLE – $URL"
+            # Create a high‑priority step‑planner‑tracker entry
+            step-planner-tracker add \
+                --title "$TASK_DESC" \
+                --priority high \
+                --tags "research,$DOMAIN" \
+                --source "$URL"
+        fi
+
+        # 2c. Keep the latest timestamp for state tracking
+        if [[ $TS -gt $(jq -r .last_timestamp "$STATE_FILE") ]]; then
+            LATEST_TS=$TS
+        fi
+    done
+
+    # Update state with the newest timestamp we saw
+    if [[ -n "$LATEST_TS" ]]; then
+        update_timestamp "$LATEST_TS"
+    fi
+
+    # Pause before next fetch cycle
+    sleep "$SLEEP_INTERVAL"
+done

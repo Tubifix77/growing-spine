@@ -1,0 +1,3 @@
+tool: cross_source_alert
+call: python3 /mind/tools/own/cross_source_alert.py "$@"
+does: Generate a proactive alert for a topic by fetching fresh items, detecting knowledge gaps, composing an alert via LLM, and storing it in the keyword‑archive.

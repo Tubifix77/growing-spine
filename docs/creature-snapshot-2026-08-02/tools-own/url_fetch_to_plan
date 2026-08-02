@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# tool: url_fetch_to_plan
+# call: url_fetch_to_plan <url>
+# does: Fetch a URL, summarise its content via LLM, archive the summary, and create a persistent plan from the summary.
+
+set -euo pipefail
+
+# ----------------------------------------------------------------
+# Validate arguments
+# ----------------------------------------------------------------
+if [ "$#" -lt 1 ]; then
+  echo "Usage: url_fetch_to_plan <url>" >&2
+  exit 1
+fi
+
+URL="$1"
+
+# ----------------------------------------------------------------
+# Step 1 – Fetch the raw content of the URL
+# ----------------------------------------------------------------
+# web-fetch prints the body to stdout; capture it in a variable.
+# If the fetch fails, the script will abort because of `set -e`.
+CONTENT=$(web-fetch "$URL")
+
+# ----------------------------------------------------------------
+# Step 2 – Summarise the fetched content using the LLM sub‑agent
+# ----------------------------------------------------------------
+# We ask the sub‑agent to produce a concise paragraph summary.
+# The prompt is kept short to stay within token limits.
+PROMPT="Summarize the following content in a short paragraph (no more than 200 words):\n\n$CONTENT"
+SUMMARY=$(subagent_ask_helper "$PROMPT")
+
+# ----------------------------------------------------------------
+# Step 3 – Archive the summary in the keyword‑archive
+# ----------------------------------------------------------------
+# Use the domain name of the URL as the keyword for easy lookup.
+# Fallback to "url" if the domain cannot be extracted.
+KEYWORD=$(python3 -c "import sys, urllib.parse as u; print(u.urlparse(sys.argv[1]).netloc or 'url')" "$URL")
+keyword-archive-store "$KEYWORD" "$SUMMARY"
+
+# ----------------------------------------------------------------
+# Step 4 – Create a persistent plan from the summary
+# ----------------------------------------------------------------
+# The plan‑from‑question tool expects a natural‑language goal.
+# We feed it the summary; the tool will return the newly created plan ID.
+PLAN_ID=$(plan_from_question_onecall "$SUMMARY")
+
+# ----------------------------------------------------------------
+# Output – give the user a concise confirmation
+# ----------------------------------------------------------------
+echo "✅ URL fetched and summarised."
+echo "📁 Summary archived under keyword: $KEYWORD"
+echo "🗒️ Persistent plan created with ID: $PLAN_ID"

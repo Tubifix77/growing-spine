@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# tool: wake_catchup_entity_graph
+# call: wake_catchup_entity_graph "<TOPIC>"
+# does: Fetch fresh Hacker News items, filter by <TOPIC>, update a persistent
+#       entity‑relationship graph with the filtered items, and store the
+#       updated graph in the keyword‑archive for later recall.
+
+set -euo pipefail
+
+die() { echo "ERROR: $*" >&2; exit 1; }
+
+if [[ $# -ne 1 ]]; then
+  die "Usage: $0 \"<TOPIC>\""
+fi
+TOPIC="${1,,}"   # lower‑case for case‑insensitive matching
+
+# Fetch fresh Hacker News items (JSON array)
+FETCHED_JSON=$(wake_catchup_fetcher.real)
+if [[ -z "$FETCHED_JSON" ]]; then
+  die "wake_catchup_fetcher.real returned no data"
+fi
+
+# Filter items whose title contains the topic (case‑insensitive)
+FILTERED=$(echo "$FETCHED_JSON" | jq -c "[.[] | select(.title | ascii_downcase | contains(\"$TOPIC\"))]")
+COUNT=$(echo "$FILTERED" | jq 'length')
+if [[ "$COUNT" -eq 0 ]]; then
+  echo "No fresh items match topic \"$1\"."
+  exit 0
+fi
+echo "Found $COUNT item(s) matching topic \"$1\"."
+
+# Ensure the persistent graph file exists
+GRAPH_PATH="/mind/data/entity_graph.json"
+[[ -f "$GRAPH_PATH" ]] || echo "{}" > "$GRAPH_PATH"
+
+# Process each matching item
+for ROW in $(echo "$FILTERED" | jq -c '.[]'); do
+  TITLE=$(echo "$ROW" | jq -r '.title')
+  URL=$(echo "$ROW" | jq -r '.url')
+  echo "Processing: $TITLE"
+
+  if [[ -n "$URL" && "$URL" != "null" ]]; then
+    entity_graph_updater -u "$URL"
+  else
+    entity_graph_updater -t "$TITLE"
+  fi
+done
+
+# Archive a snapshot of the graph
+ARCHIVE_KEY="entity-graph-${TOPIC// /-}"
+keyword-archive-store "$ARCHIVE_KEY" "$(cat "$GRAPH_PATH")"
+
+echo "Entity‑graph updated and archived under keyword \"$ARCHIVE_KEY\"."
+echo "Graph file: $GRAPH_PATH"

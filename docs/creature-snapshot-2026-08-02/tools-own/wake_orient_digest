@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# does: Pull fresh Hacker News items, ask a sub‑agent LLM to summarise what changed, and archive the digest.
+set -euo pipefail
+
+FETCHER="/mind/tools/own/wake_catchup_fetcher.real"
+STATE_DIR="/mind/state"
+# Ensure state dir exists
+mkdir -p "$STATE_DIR"
+
+# Run fetcher, capture output
+items_json="$("$FETCHER")"
+# If no new items, exit quietly
+if [[ -z "$items_json" ]] || [[ "$items_json" == "null" ]] || [[ "$items_json" == "[]" ]]; then
+  echo "No new items – nothing to digest."
+  exit 0
+fi
+
+# Prepare prompt for sub‑agent
+read -r -d '' PROMPT <<PROMPT_EOF
+You are summarising the latest Hacker News items. Provide a concise paragraph describing what changed or the main themes across these items.
+
+Items (JSON):
+$items_json
+PROMPT_EOF
+
+# Ask sub‑agent; capture answer; tolerate errors
+summary=""
+if summary=$(printf "%s" "$PROMPT" | subagent_ask_helper); then
+  :
+else
+  # Fallback: simple count‑based summary
+  count=$(printf "%s" "$items_json" | jq 'length')
+  summary="Fetched $count new Hacker News items."
+fi
+
+# Archive the digest
+archive_key="wake-digest"
+# Store as JSON with fields: timestamp, summary, items
+timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+payload=$(printf '{"timestamp":"%s","summary":%s,"items":%s}' "$timestamp" "$(printf "%s" "$summary" | jq -R .)" "$items_json")
+keyword-archive-store "$archive_key" "$payload" --tags "wake,summary"
+
+echo "Digest archived under key $archive_key."

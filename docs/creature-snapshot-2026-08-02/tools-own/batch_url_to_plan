@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+# does: Create a persistent step‑by‑step plan from a goal and a list of URLs.
+# Usage:
+#   batch_url_to_plan "<goal description>" [url1 url2 ...]
+#   echo -e "<goal description>\nurl1\nurl2" | batch_url_to_plan
+#
+# The tool:
+#   1. Fetches each URL (using `web-fetch`).
+#   2. Summarizes the fetched content via `subagent_ask_helper`.
+#   3. Builds a combined context from all summaries.
+#   4. Calls `plan_from_question` with the goal + context, which creates a
+#      persistent plan and prints the new plan ID.
+#
+# Dependencies:
+#   - web-fetch
+#   - subagent_ask_helper
+#   - plan_from_question
+#
+# Output:
+#   The plan ID of the newly created plan, printed to stdout.
+set -euo pipefail
+
+# ---------- Helper functions ----------
+error() {
+  echo "batch_url_to_plan: $*" >&2
+  exit 1
+}
+
+# ---------- Parse arguments ----------
+if [[ $# -eq 0 ]]; then
+  error "No arguments supplied. Provide a goal and optionally URLs."
+fi
+
+GOAL="$1"
+shift
+
+# If no URLs on the command line, read from stdin (one URL per line)
+if [[ $# -eq 0 ]]; then
+  mapfile -t URLS < <(awk 'NR>1 && NF' )   # skip first line (the goal)
+else
+  URLS=("$@")
+fi
+
+if [[ ${#URLS[@]} -eq 0 ]]; then
+  error "No URLs provided."
+fi
+
+# ---------- Main processing ----------
+TMPDIR=$(mktemp -d)
+SUMMARIES=()
+
+for url in "${URLS[@]}"; do
+  # Fetch the raw content
+  CONTENT=$(web-fetch "$url") || error "Failed to fetch $url"
+  # Summarize via LLM sub‑agent
+  SUMMARY=$(subagent_ask_helper "Summarize the main point of the following text, keeping it under 200 words:
+
+$CONTENT") || error "LLM summarisation failed for $url"
+  SUMMARIES+=("$SUMMARY")
+done
+
+# Build a combined context (limit total size to avoid token overflow)
+COMBINED_CONTEXT=$(printf "%s\n---\n" "${SUMMARIES[@]}" | head -c 30000)
+
+# Create a prompt for plan generation
+PLAN_PROMPT="Goal: $GOAL
+
+Context (summaries of provided URLs):
+$COMBINED_CONTEXT
+
+Based on the goal and the above context, generate a concise, ordered step‑by‑step plan that can be persisted as a long‑running task. Return only the plan description; the tool will store it."
+
+# Generate the plan (persisted) and capture the plan ID
+PLAN_ID=$(plan_from_question "$PLAN_PROMPT") || error "Failed to create plan"
+
+# Clean up
+rm -rf "$TMPDIR"
+
+# Output the plan ID
+echo "$PLAN_ID"

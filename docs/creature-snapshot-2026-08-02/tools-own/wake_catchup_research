@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+# tool: wake_catchup_research
+# call: wake_catchup_research [rss_url]
+# does: Creates a research plan from a news RSS feed by fetching items,
+#       filling knowledge gaps, and adding each item as a step in a persistent plan.
+#
+# Usage:
+#   wake_catchup_research               # uses BBC World News RSS (default)
+#   wake_catchup_research https://example.com/feed.xml
+#
+# The tool:
+#   1. Determines the RSS URL (argument or default).
+#   2. Invokes wake_catchup_fetcher.real with that URL – it emits one JSON object per line.
+#   3. For each JSON object, runs knowledge_gap_filler (expects JSON on stdin).
+#   4. Collects the enriched JSON objects and builds a plan description.
+#   5. Calls step-planner-tracker to add a new plan with the enriched items as steps.
+#   6. Prints the created plan ID(s).
+#
+# Exit codes:
+#   0 – success (at least one plan created)
+#   1 – fetcher failed or produced no items
+#   2 – planner failed
+
+# ---- Step 1: Choose RSS feed -------------------------------------------------
+DEFAULT_RSS="http://feeds.bbci.co.uk/news/world/rss.xml"
+RSS_URL="${1:-$DEFAULT_RSS}"
+
+# ---- Step 2: Fetch fresh items ------------------------------------------------
+# The fetcher can accept a URL argument; if not, it falls back to its built‑in source.
+FETCHED_JSON=$(wake_catchup_fetcher.real "$RSS_URL")
+if [[ -z "$FETCHED_JSON" ]]; then
+  echo "Error: wake_catchup_fetcher.real returned no data." >&2
+  exit 1
+fi
+
+# ---- Step 3: Process each item ------------------------------------------------
+# We'll read line‑by‑line JSON objects, fill gaps, and accumulate them.
+ENRICHED_ITEMS=()
+while IFS= read -r line; do
+  # Pass the raw item to knowledge_gap_filler; it outputs enriched JSON.
+  enriched=$(echo "$line" | knowledge_gap_filler)
+  if [[ -n "$enriched" ]]; then
+    ENRICHED_ITEMS+=("$enriched")
+  else
+    # If filler fails, keep the original item.
+    ENRICHED_ITEMS+=("$line")
+  fi
+done <<< "$FETCHED_JSON"
+
+if [[ ${#ENRICHED_ITEMS[@]} -eq 0 ]]; then
+  echo "Error: No items after processing." >&2
+  exit 1
+fi
+
+# ---- Step 4: Build a plan description ----------------------------------------
+# Create a simple textual representation of each enriched item for the plan steps.
+PLAN_STEPS=""
+for item_json in "${ENRICHED_ITEMS[@]}"; do
+  # Extract a readable title; fallback to the whole JSON if missing.
+  title=$(echo "$item_json" | jq -r '.title // empty')
+  if [[ -z "$title" || "$title" == "null" ]]; then
+    title="Untitled Item"
+  fi
+  PLAN_STEPS+="${title};"
+done
+# Remove trailing semicolon
+PLAN_STEPS="${PLAN_STEPS%?}"
+
+# ---- Step 5: Create the persistent plan ---------------------------------------
+# Use step-planner-tracker to add a new plan; it returns the plan ID on stdout.
+PLAN_ID=$(step-planner-tracker add "Research from RSS: $RSS_URL" "$PLAN_STEPS")
+if [[ -z "$PLAN_ID" ]]; then
+  echo "Error: step-planner-tracker failed to create a plan." >&2
+  exit 2
+fi
+
+# ---- Step 6: Output ------------------------------------------------------------
+echo "$PLAN_ID"
+exit 0

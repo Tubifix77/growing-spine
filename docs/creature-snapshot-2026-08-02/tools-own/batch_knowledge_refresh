@@ -1,0 +1,27 @@
+#!/bin/bash
+set -euo pipefail
+
+# tool: batch_knowledge_refresh
+# call: batch_knowledge_refresh <keyword_file>
+# does: Reads a list of keywords from a file and runs KnowledgeRefreshUpdater for each to ensure archive freshness.
+
+if [ "$#" -ne 1 ]; then
+    echo "Usage: batch_knowledge_refresh <keyword_file>"
+    exit 1
+fi
+
+KEYWORD_FILE=$1
+
+if [ ! -f "$KEYWORD_FILE" ]; then
+    echo "Error: File $KEYWORD_FILE not found."
+    exit 1
+fi
+
+while IFS= read -r keyword || [ -n "$keyword" ]; do
+    # Skip empty lines and comments
+    [[ -z "$keyword" || "$keyword" =~ ^# ]] && continue
+    
+    echo "--- Refreshing: $keyword ---"
+    # Call the existing tool
+    KnowledgeRefreshUpdater "$keyword"
+done < "$KEYWORD_FILE"

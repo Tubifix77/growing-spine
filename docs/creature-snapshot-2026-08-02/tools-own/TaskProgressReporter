@@ -1,0 +1,6 @@
+#!/bin/bash
+does: Monitors ongoing tasks and generates a natural-language progress report
+step_planner_tracker list
+wake_catchup_fetcher
+subagent_ask_helper 'Generate a progress report for the current tasks'
+keyword_archive_store 'task_progress_report'

@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# tool: latency_benchmark_notifier_compose
+# does: Fetch a latency benchmark JSON, ask an LLM if latency > 20 ms, and create a high‑priority alert task in step‑planner‑tracker.
+# Usage: latency_benchmark_notifier_compose <url>
+#   <url> – HTTP(S) URL returning JSON with a numeric "latency_ms" field.
+# Exit codes: 0 on success (alert possibly created), 1 on error.
+
+set -euo pipefail
+
+if [[ $# -ne 1 ]]; then
+    echo "Usage: $0 <url>"
+    exit 1
+fi
+
+URL="$1"
+
+# 1️⃣ Fetch the JSON (web-fetch prints the body)
+JSON=$(web-fetch "$URL")
+if [[ -z "$JSON" ]]; then
+    echo "Failed to fetch JSON from $URL"
+    exit 1
+fi
+
+# 2️⃣ Ask the LLM whether latency exceeds 20 ms.
+# We craft a concise prompt; subagent_ask_helper returns only the answer.
+PROMPT="The following JSON contains a field \"latency_ms\" with a numeric value.
+
+$json
+Is the latency value greater than 20 ms? Respond with ONLY YES or NO."
+
+# Use subagent_ask_helper – it reads the prompt from STDIN.
+ANSWER=$(printf "%s\n" "$PROMPT" | subagent_ask_helper)
+
+# Normalise answer
+ANSWER_UPPER=$(echo "$ANSWER" | tr '[:lower:]' '[:upper:]' | tr -d '[:space:]')
+
+if [[ "$ANSWER_UPPER" == "YES" ]]; then
+    # Extract the numeric latency for the alert description
+    LATENCY=$(echo "$JSON" | jq -r '.latency_ms // empty')
+    # Fallback if jq not available – try python
+    if [[ -z "$LATENCY" ]]; then
+        LATENCY=$(python3 -c "import sys, json; data=json.load(sys.stdin); print(data.get('latency_ms',''))" <<<"$JSON")
+    fi
+    # Create a high‑priority task in the persistent planner
+    TASK_TITLE="⚠️ Latency >20 ms detected"
+    TASK_DESC="Fetched latency: ${LATENCY} ms from $URL. Immediate investigation required."
+    step-planner-tracker add "$TASK_TITLE" "$TASK_DESC"
+    echo "Alert task created in planner."
+else
+    echo "Latency within acceptable range (≤20 ms). No alert created."
+fi

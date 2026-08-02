@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# does: Monitor a file or URL for content changes and emit a JSON alert on first change.
+# Usage: monitor_change_and_alert <path-or-URL> [interval_seconds]
+#   path-or-URL   – local file path or HTTP/HTTPS URL
+#   interval_seconds – how often to poll (default 30)
+
+set -euo pipefail
+
+TARGET="${1:-}"
+INTERVAL="${2:-30}"
+
+if [[ -z "$TARGET" ]]; then
+  echo "Error: No target supplied." >&2
+  exit 1
+fi
+
+# Helper: fetch content (file or URL) to stdout
+fetch_content() {
+  if [[ "$TARGET" =~ ^https?:// ]]; then
+    # Prefer curl, fallback to wget, then python
+    if command -v curl >/dev/null 2>&1; then
+      curl -fsSL "$TARGET"
+    elif command -v wget >/dev/null 2>&1; then
+      wget -qO- "$TARGET"
+    else
+      python -c "import sys, urllib.request; sys.stdout.buffer.write(urllib.request.urlopen('$TARGET').read())"
+    fi
+  else
+    cat "$TARGET"
+  fi
+}
+
+# Compute initial hash
+OLD_HASH=$(fetch_content | sha256sum | awk '{print $1}')
+
+while true; do
+  sleep "$INTERVAL"
+  NEW_HASH=$(fetch_content | sha256sum | awk '{print $1}')
+  if [[ "$NEW_HASH" != "$OLD_HASH" ]]; then
+    TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    jq -n \
+      --arg alert "changed" \
+      --arg path "$TARGET" \
+      --arg old_hash "$OLD_HASH" \
+      --arg new_hash "$NEW_HASH" \
+      --arg timestamp "$TIMESTAMP" \
+      '{alert:$alert, path:$path, old_hash:$old_hash, new_hash:$new_hash, timestamp:$timestamp}'
+    exit 0
+  fi
+done

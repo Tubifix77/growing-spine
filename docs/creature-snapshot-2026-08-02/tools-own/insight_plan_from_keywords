@@ -1,0 +1,64 @@
+#!/usr/bin/env python3
+import sys, subprocess, json, shlex, os, textwrap
+
+def run_cmd(cmd):
+    """Run a shell command, capture stdout, raise on error."""
+    result = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"Command failed: {cmd}\nSTDERR: {result.stderr}")
+    return result.stdout.strip()
+
+def main():
+    if len(sys.argv) != 3:
+        print("Usage: insight_plan_from_keywords <keyword1> <keyword2>", file=sys.stderr)
+        sys.exit(1)
+
+    kw1, kw2 = sys.argv[1], sys.argv[2]
+
+    # 1️⃣ Generate the cross‑archive insight
+    try:
+        insight = run_cmd(f"cross_archive_synthesizer {shlex.quote(kw1)} {shlex.quote(kw2)}")
+    except RuntimeError as e:
+        print(f"Error generating insight: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if not insight:
+        print("No insight produced.", file=sys.stderr)
+        sys.exit(1)
+
+    # 2️⃣ Archive the insight
+    archive_key = f"insight:{kw1}+{kw2}"
+    try:
+        run_cmd(f'keyword-archive-store "{archive_key}" "{insight}"')
+    except RuntimeError as e:
+        print(f"Error archiving insight: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    # 3️⃣ Create a plan from the insight
+    try:
+        plan_output = run_cmd(f'plan_from_question "{insight}"')
+    except RuntimeError as e:
+        print(f"Error creating plan: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    # The plan_from_question tool prints something like:
+    #   PLAN_ID=<id>
+    #   Summary: <text>
+    # We'll extract the plan ID.
+    plan_id = None
+    for line in plan_output.splitlines():
+        if line.startswith("PLAN_ID"):
+            plan_id = line.split("=", 1)[1].strip()
+            break
+
+    if not plan_id:
+        print("Failed to obtain plan ID.", file=sys.stderr)
+        sys.exit(1)
+
+    # 4️⃣ Report success
+    print(f"Created insight archive entry under key '{archive_key}'.")
+    print(f"Generated plan ID: {plan_id}")
+
+if __name__ == "__main__":
+    main()

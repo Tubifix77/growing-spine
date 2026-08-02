@@ -1,0 +1,142 @@
+#!/usr/bin/env python3
+"""
+memstore – durable key/value JSON storage with timestamps and tags.
+
+Usage:
+  memstore add <key> <json-value> [--tags tag1,tag2,...]
+  memstore get <key>
+  memstore list [--tag tag]
+  memstore delete <key>
+
+The SQLite database lives at /mind/memstore.db (persistent volume) and stores each entry
+with a UTC timestamp and optional comma‑separated tags.
+"""
+
+import sys
+import json
+import sqlite3
+import datetime
+import argparse
+from pathlib import Path
+
+DB_PATH = Path("/mind/memstore.db")
+
+def init_db():
+    """Create the DB and table if they don't exist."""
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("""CREATE TABLE IF NOT EXISTS entries (
+                     id INTEGER PRIMARY KEY AUTOINCREMENT,
+                     key TEXT NOT NULL,
+                     value TEXT NOT NULL,
+                     tags TEXT,
+                     ts TEXT NOT NULL
+                 )""")
+    conn.commit()
+    conn.close()
+
+def add_entry(key, value_json, tags):
+    """Insert a new entry."""
+    ts = datetime.datetime.utcnow().isoformat() + "Z"
+    tags_str = ",".join(tags) if tags else None
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute(
+        "INSERT INTO entries (key, value, tags, ts) VALUES (?,?,?,?)",
+        (key, value_json, tags_str, ts)
+    )
+    conn.commit()
+    conn.close()
+    print(f"Added entry for key '{key}' at {ts}")
+
+def get_entry(key):
+    """Return the most recent value for a key."""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute(
+        "SELECT value FROM entries WHERE key = ? ORDER BY ts DESC LIMIT 1",
+        (key,)
+    )
+    row = c.fetchone()
+    conn.close()
+    if row:
+        print(row[0])
+    else:
+        print(f"No entry found for key '{key}'", file=sys.stderr)
+        sys.exit(1)
+
+def list_entries(filter_tag=None):
+    """List entries, optionally filtering by a single tag."""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    if filter_tag:
+        c.execute(
+            "SELECT key, ts, tags FROM entries WHERE tags LIKE ? ORDER BY ts DESC",
+            (f"%{filter_tag}%",)
+        )
+    else:
+        c.execute("SELECT key, ts, tags FROM entries ORDER BY ts DESC")
+    rows = c.fetchall()
+    conn.close()
+    for key, ts, tags in rows:
+        tag_display = tags if tags else ""
+        print(f"{key}\t{ts}\t{tag_display}")
+
+def delete_key(key):
+    """Delete all entries for a given key."""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("DELETE FROM entries WHERE key = ?", (key,))
+    affected = c.rowcount
+    conn.commit()
+    conn.close()
+    print(f"Deleted {affected} entr{'y' if affected == 1 else 'ies'} for key '{key}'")
+
+def parse_args(argv):
+    parser = argparse.ArgumentParser(prog="memstore", description="Durable key/value store with timestamps & tags.")
+    subparsers = parser.add_subparsers(dest="cmd", required=True)
+
+    # add
+    add_parser = subparsers.add_parser("add", help="Add a value")
+    add_parser.add_argument("key")
+    add_parser.add_argument("value")
+    add_parser.add_argument("--tags", help="Comma‑separated tags", default="")
+
+    # get
+    get_parser = subparsers.add_parser("get", help="Get the latest value for a key")
+    get_parser.add_argument("key")
+
+    # list
+    list_parser = subparsers.add_parser("list", help="List stored entries")
+    list_parser.add_argument("--tag", help="Filter by a single tag", default=None)
+
+    # delete
+    del_parser = subparsers.add_parser("delete", help="Delete all entries for a key")
+    del_parser.add_argument("key")
+
+    return parser.parse_args(argv)
+
+def main():
+    init_db()
+    args = parse_args(sys.argv[1:])
+    if args.cmd == "add":
+        tags = [t.strip() for t in args.tags.split(",")] if args.tags else []
+        # Validate that the value is valid JSON (allow raw strings as JSON)
+        try:
+            # If the user gave a plain string, wrap it as JSON string
+            json.loads(args.value)
+            value_json = args.value
+        except json.JSONDecodeError:
+            # Treat it as a raw string and json‑encode it
+            value_json = json.dumps(args.value)
+        add_entry(args.key, value_json, tags)
+    elif args.cmd == "get":
+        get_entry(args.key)
+    elif args.cmd == "list":
+        list_entries(filter_tag=args.tag)
+    elif args.cmd == "delete":
+        delete_key(args.key)
+
+if __name__ == "__main__":
+    main()

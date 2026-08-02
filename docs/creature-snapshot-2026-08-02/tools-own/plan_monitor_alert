@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# does:
+# Creates a persistent plan from a natural‑language goal and writes a monitoring entry
+# (JSON file) under /mind/state so the cousin can later track the plan’s progress.
+
+# Usage: plan_monitor_alert <goal description>
+# Example: plan_monitor_alert "Write a weekly summary of AI research"
+
+if [[ $# -lt 1 ]]; then
+  echo "Usage: $0 <goal description>"
+  exit 1
+fi
+
+# Combine all arguments into the goal string
+goal="$*"
+
+# 1️⃣ Create the plan using the existing planner tool
+# plan_from_question_onecall returns the plan ID (or a line containing it)
+plan_output=$(plan_from_question_onecall "$goal")
+# Extract the first number that looks like an ID
+plan_id=$(echo "$plan_output" | grep -oE '[0-9]+' | head -n1)
+
+# If we could not parse an ID, fall back to a placeholder
+if [[ -z "$plan_id" ]]; then
+  plan_id="unknown"
+fi
+
+# 2️⃣ Register a simple monitoring record
+timestamp=$(date --iso-8601=seconds)
+monitor_file="/mind/state/monitor_${plan_id}.json"
+
+cat > "$monitor_file" <<JSON
+{
+  "plan_id": "$plan_id",
+  "goal": "$goal",
+  "created": "$timestamp"
+}
+JSON
+
+# Output a concise confirmation
+echo "Plan created: $plan_id"
+echo "Monitoring entry written to: $monitor_file"

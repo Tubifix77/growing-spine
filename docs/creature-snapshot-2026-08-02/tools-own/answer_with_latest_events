@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# does: Answer a question enriched with today’s fresh news headlines
+# Usage: answer_with_latest_events "Your question here"
+# Dependencies: wake_catchup_fetcher.real, subagent_ask_helper, jq, deep_answer_synth
+
+set -euo pipefail
+
+question="${1:-}"
+if [[ -z "$question" ]]; then
+  echo "Usage: $0 \"<question>\""
+  exit 1
+fi
+
+# Fetch today’s fresh headlines (limit to 5 for brevity)
+headlines_json="$(wake_catchup_fetcher.real --limit 5 || true)"
+if [[ -z "$headlines_json" ]]; then
+  echo "Warning: No fresh headlines found – proceeding without news context." >&2
+  rich_prompt="$question"
+else
+  titles=$(echo "$headlines_json" | jq -r '.[].title' | paste -sd "; " -)
+  if [[ -z "$titles" ]]; then
+    rich_prompt="$question"
+  else
+    rich_prompt="Today’s top headlines: $titles. $question"
+  fi
+fi
+
+# Run deep answer synthesis
+answer=$(echo "$rich_prompt" | deep_answer_synth)
+
+echo "$answer"

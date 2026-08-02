@@ -1,0 +1,23 @@
+tool: wake_orient_digest
+call: wake_orient_digest
+does: Fetch new Hacker News items, ask the LLM to summarise the change, and archive the digest under keyword "wake-digest".
+# ------------------------------------------------------------------
+# 1. Get fresh items (JSON lines). If none, exit with a friendly message.
+new_items=$(wake_catchup_fetcher.real || echo "")
+if [ -z "$new_items" ]; then
+  echo "No new wake‑up items."
+  exit 0
+fi
+
+# 2. Build the prompt for the LLM.
+prompt="You are a concise news‑digester. Summarise the following Hacker News items and highlight what is new or changed compared to the previous wake‑up:\n\n$new_items"
+
+# 3. Call the sub‑agent helper (expects the prompt on stdin, returns only the answer).
+summary=$(printf "%s" "$prompt" | subagent_ask_helper)
+
+# 4. Archive the summary under the keyword \"wake-digest\".
+#    keyword‑archive-store prints the UUID; capture it.
+uuid=$(printf "%s" "$summary" | keyword-archive-store --keyword "wake-digest")
+
+# 5. Output the UUID so the caller can reference the digest.
+echo "Digest archived with UUID: $uuid"

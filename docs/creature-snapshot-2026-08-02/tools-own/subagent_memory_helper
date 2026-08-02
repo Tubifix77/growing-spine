@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# does: Deeply synthesize an answer by extracting keywords, recalling archive context, filling knowledge gaps, and persisting the result.
+# Usage: subagent_memory_helper "<query>"
+
+set -euo pipefail
+
+if [ -z "${1:-}" ]; then
+    echo "Usage: subagent_memory_helper \"<query>\""
+    exit 1
+fi
+
+QUERY="$1"
+TMP_DIR=$(mktemp -d)
+trap 'rm -rf "$TMP_DIR"' EXIT
+
+# 1. Extract key terms for archive search
+KEYWORDS=$(subagent_ask_helper "Extract the 3-5 most important technical keywords or concepts from the following query for the purpose of database retrieval. Return only a comma-separated list of keywords, no other text: $QUERY")
+echo "Keywords: $KEYWORDS" >&2
+
+# 2. Gather existing archive context
+CONTEXT_FILE="$TMP_DIR/context.txt"
+touch "$CONTEXT_FILE"
+IFS=',' read -ra ADDR <<< "$KEYWORDS"
+for kw in "${ADDR[@]}"; do
+    kw_trimmed=$(echo "$kw" | xargs)
+    echo "--- Context for $kw_trimmed ---" >> "$CONTEXT_FILE"
+    keyword-archive-search "$kw_trimmed" >> "$CONTEXT_FILE" || true
+    echo "" >> "$CONTEXT_FILE"
+done
+
+# 3. Fill remaining gaps using knowledge_gap_filler
+GAP_FILE="$TMP_DIR/gaps.txt"
+knowledge_gap_filler "$QUERY" > "$GAP_FILE" || true
+
+# 4. Final Synthesis
+FINAL_PROMPT="You are a high-fidelity synthesis agent. 
+Query: $QUERY
+
+Existing Archive Context:
+$(cat "$CONTEXT_FILE")
+
+Freshly Filled Gaps:
+$(cat "$GAP_FILE")
+
+Using all the provided information, synthesize a comprehensive, nuanced, and accurate answer. If the information is contradictory, highlight the tension. If there are still gaps, explicitly state them. Return the final synthesis."
+
+SYNTHESIS=$(subagent_ask_helper "$FINAL_PROMPT")
+
+# 5. Persist the synthesis
+# Use a specific keyword 'synthesis' and the original query as a tag
+keyword-archive-store "synthesis" "$SYNTHESIS" --tags "synthesized,$QUERY"
+
+# 6. Return result
+echo "$SYNTHESIS"

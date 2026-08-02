@@ -1,0 +1,77 @@
+#!/usr/bin/env python3
+"""
+tool: CrossDomainHypothesisGenerator
+call: CrossDomainHypothesisGenerator <domain1> <domain2> [num_hypotheses]
+does: Generate research hypotheses that connect two Wikipedia domains by fetching their summaries, prompting an LLM, and archiving the result.
+"""
+
+import sys
+import subprocess
+import json
+
+def run_command(cmd):
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        return result.stdout.strip()
+    except subprocess.CalledProcessError as e:
+        print(f"Error running command {' '.join(cmd)}: {e.stderr}")
+        return None
+
+def fetch_wiki_summary(domain):
+    # Use Wikipedia's REST API for a concise summary
+    url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{domain.replace(' ', '_')}"
+    # We use the built-in web-fetch tool if available, or just curl via subprocess
+    # To stay consistent with the toolkit, I'll use web-fetch
+    output = run_command(["web-fetch", url])
+    if not output:
+        return None
+    try:
+        data = json.loads(output)
+        return data.get("extract", "No summary available.")
+    except json.JSONDecodeError:
+        return "Could not parse summary."
+
+def main():
+    if len(sys.argv) < 3:
+        print("Usage: CrossDomainHypothesisGenerator <domain1> <domain2> [num_hypotheses]")
+        sys.exit(1)
+
+    domain1 = sys.argv[1]
+    domain2 = sys.argv[2]
+    num_hypotheses = sys.argv[3] if len(sys.argv) > 3 else "3"
+
+    print(f"Fetching summaries for {domain1} and {domain2}...")
+    summary1 = fetch_wiki_summary(domain1)
+    summary2 = fetch_wiki_summary(domain2)
+
+    if not summary1 or not summary2:
+        print("Failed to fetch summaries for one or both domains.")
+        sys.exit(1)
+
+    prompt = (
+        f"I have two domains of knowledge:\n\n"
+        f"Domain 1: {domain1}\nSummary: {summary1}\n\n"
+        f"Domain 2: {domain2}\nSummary: {summary2}\n\n"
+        f"Generate {num_hypotheses} novel, high-potential research hypotheses that connect these two domains. "
+        f"Explain the logic behind each hypothesis and why the intersection is valuable."
+    )
+
+    print("Generating hypotheses via subagent...")
+    hypotheses = run_command(["subagent_ask_helper", prompt])
+
+    if not hypotheses:
+        print("Failed to generate hypotheses.")
+        sys.exit(1)
+
+    print("\nGenerated Hypotheses:\n")
+    print(hypotheses)
+
+    # Archive the results
+    archive_keyword = f"cross-domain-{domain1}-{domain2}".lower().replace(' ', '-')
+    archive_content = f"Domains: {domain1}, {domain2}\n\n{hypotheses}"
+    
+    run_command(["keyword-archive-store", archive_keyword, archive_content])
+    print(f"\nResults archived under keyword: {archive_keyword}")
+
+if __name__ == "__main__":
+    main()

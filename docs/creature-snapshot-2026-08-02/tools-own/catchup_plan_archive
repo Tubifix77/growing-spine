@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# tool: catchup_plan_archive
+# call: catchup_plan_archive <topic>
+# does: Bridges wake_catchup_fetcher and step-planner-tracker by turning fresh news items into targeted research plans.
+
+set -euo pipefail
+
+if [ "$#" -lt 1 ]; then
+    echo "Usage: catchup_plan_archive <topic>"
+    exit 1
+fi
+
+TOPIC="$1"
+echo "--- Bridge: Fetch -> Planning for topic: $TOPIC ---"
+
+# 1. Fetch fresh news items
+echo "Fetching fresh items via wake_catchup_fetcher..."
+ITEMS_JSON=$(wake_catchup_fetcher "$TOPIC")
+
+if [ -z "$ITEMS_JSON" ] || [ "$ITEMS_JSON" == "[]" ]; then
+    echo "No new items found for $TOPIC."
+    exit 0
+fi
+
+# Extract items using jq
+COUNT=$(echo "$ITEMS_JSON" | jq '. | length')
+echo "Found $COUNT new items."
+
+# 2. Process each item
+for i in $(seq 0 $((COUNT - 1))); do
+    ITEM=$(echo "$ITEMS_JSON" | jq -c ".[$i]")
+    TITLE=$(echo "$ITEM" | jq -r '.title')
+    URL=$(echo "$ITEM" | jq -r '.url')
+    
+    echo "Triage: $TITLE"
+    
+    # Use subagent to decide if this is worth a full research plan
+    # We ask if this item contains a novel concept, a gap in knowledge, or a strategic shift.
+    TRIAGE_PROMPT="Analyze this news title: '$TITLE'. Is this item worthy of a structured research plan? (Does it represent a significant shift, a new tool, a complex concept, or a critical gap in knowledge?). Answer only 'YES' or 'NO'."
+    DECISION=$(subagent_ask_helper "$TRIAGE_PROMPT" | tr '[:lower:]' '[:upper:]' | xargs)
+    
+    if [[ "$DECISION" == *"YES"* ]]; then
+        echo "  -> WORTHY. Creating targeted research plan..."
+        
+        # Construct a research question based on the title
+        RESEARCH_QUESTION="Research the implications and details of: $TITLE. Source: $URL"
+        
+        # Use plan_from_question to create a persisted plan in step-planner-tracker
+        # plan_from_question outputs the plan ID
+        PLAN_ID=$(plan_from_question "$RESEARCH_QUESTION")
+        
+        echo "  -> Plan created: $PLAN_ID"
+        
+        # Archive the link between the news item and the plan
+        keyword-archive-store "$TOPIC" "News item '$TITLE' ($URL) triggered research plan $PLAN_ID" --tags "bridge,automated-plan"
+    else
+        echo "  -> Not worthy of a full plan."
+    fi
+done
+
+echo "--- Bridge cycle complete ---"

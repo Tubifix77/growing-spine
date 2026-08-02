@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# does: Answer a question by recalling past related Q&A, synthesizing a fresh answer, and persisting it in memstore.
+# Usage: RecallAugmentedAnswer "Your question here"
+
+set -euo pipefail
+
+# -------------------------------------------------
+# 1. Input validation
+# -------------------------------------------------
+if [[ $# -ne 1 ]]; then
+  echo "Usage: $0 \"question\""
+  exit 1
+fi
+
+question="$1"
+
+# -------------------------------------------------
+# 2. Retrieve past related Q&A (if any)
+# -------------------------------------------------
+# recall_and_answer returns a JSON list of relevant past answers.
+# We capture that into a variable; if empty we still continue.
+past_context=$(recall_and_answer "$question" || echo "")
+
+# -------------------------------------------------
+# 3. Synthesize a fresh answer using deep_answer_synth
+# -------------------------------------------------
+# Pass the original question and any recalled context to deep_answer_synth.
+# deep_answer_synth expects the question on stdin; we prepend context if present.
+if [[ -n "$past_context" ]]; then
+  # Combine context and question, separated by a newline for clarity.
+  synth_input="${past_context}"$'\n\n'"${question}"
+else
+  synth_input="${question}"
+fi
+
+# Run deep_answer_synth; capture its answer.
+answer=$(echo "$synth_input" | deep_answer_synth)
+
+# -------------------------------------------------
+# 4. Persist the answer in memstore
+# -------------------------------------------------
+# Store under a deterministic key (hash of question) so later calls can retrieve it.
+key=$(echo -n "$question" | sha256sum | awk '{print $1}')
+memstore set "$key" "$answer" --tags recall_augmented
+
+# -------------------------------------------------
+# 5. Output the answer
+# -------------------------------------------------
+echo "$answer"

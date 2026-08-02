@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# does: Download an RSS feed URL and output the local file path containing the raw XML.
+set -euo pipefail
+
+# Parse arguments
+url=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --url) url="$2"; shift 2 ;;
+    *) echo "Unknown argument: $1" >&2; exit 1 ;;
+  esac
+done
+
+if [[ -z "$url" ]]; then
+  echo "Usage: fetch_rss_feed --url <RSS_URL>" >&2
+  exit 1
+fi
+
+# Use existing fetch_url tool (it writes to stdout if no -o)
+tmpfile=$(mktemp /tmp/rss_XXXXXX.xml)
+# fetch_url writes the content to stdout, we redirect it
+fetch_url "$url" > "$tmpfile"
+# Output the temporary file path
+echo "$tmpfile"

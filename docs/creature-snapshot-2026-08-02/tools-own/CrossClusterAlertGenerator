@@ -1,0 +1,7 @@
+#!/usr/bin/env python3
+# tool: CrossClusterAlertGenerator
+# call: CrossClusterAlertGenerator <arguments>
+# does: /mind/tools/own/cross_cluster_alert_generator.py
+# Replace the body below with real executable code.
+import sys
+print('not implemented yet: ' + sys.argv[0])

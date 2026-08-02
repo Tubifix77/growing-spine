@@ -1,0 +1,86 @@
+#!/usr/bin/env python3
+import argparse, json, os, sys, datetime, pathlib
+
+# Directory where archives are stored
+ARCHIVE_ROOT = pathlib.Path(os.getenv("MEMARCH_ROOT", "/mind/memarch"))
+ARCHIVE_ROOT.mkdir(parents=True, exist_ok=True)
+
+def add_entry(entry_id, data, tags):
+    timestamp = datetime.datetime.utcnow().isoformat()
+    entry = {
+        "id": entry_id,
+        "timestamp": timestamp,
+        "tags": tags or [],
+        "data": data,
+    }
+    # one file per entry, name = <id>_<timestamp>.json
+    fname = f"{entry_id}_{timestamp.replace(':','_')}.json"
+    (ARCHIVE_ROOT / fname).write_text(json.dumps(entry, ensure_ascii=False))
+    print(f"Added entry {entry_id}")
+
+def get_entry(entry_id):
+    # find latest entry with matching id
+    files = sorted(ARCHIVE_ROOT.glob(f"{entry_id}_*.json"), key=os.path.getmtime, reverse=True)
+    if not files:
+        print(f"No entry for id {entry_id}", file=sys.stderr)
+        sys.exit(1)
+    entry = json.loads(files[0].read_text())
+    print(json.dumps(entry["data"], ensure_ascii=False))
+
+def search_entries(query):
+    # naïve full‑text search over stored JSON files
+    results = []
+    for f in ARCHIVE_ROOT.glob("*.json"):
+        entry = json.loads(f.read_text())
+        if query.lower() in json.dumps(entry).lower():
+            results.append(entry)
+    # show up to 5 matches
+    for e in results[:5]:
+        print(json.dumps({"id": e["id"], "data": e["data"]}))
+    if not results:
+        print("No matches found", file=sys.stderr)
+
+def main():
+    parser = argparse.ArgumentParser(prog="memarch")
+    subparsers = parser.add_subparsers(dest="cmd")
+
+    # add
+    add = subparsers.add_parser("add", help="Add a JSON record")
+    add.add_argument("--id", dest="entry_id")
+    add.add_argument("--data", dest="data")
+    add.add_argument("--tags", nargs="*", default=[])
+    # positional fallback: if user supplies two extra args, treat as id and data
+    add.add_argument("positional", nargs="*")
+
+    # get
+    get = subparsers.add_parser("get", help="Get latest record for an id")
+    get.add_argument("entry_id")
+
+    # search
+    search = subparsers.add_parser("search", help="Search records")
+    search.add_argument("query")
+
+    args = parser.parse_args()
+
+    if args.cmd == "add":
+        # If positional args provided and flags missing, map them
+        if not args.entry_id and not args.data and len(args.positional) >= 2:
+            args.entry_id = args.positional[0]
+            args.data = args.positional[1]
+        if not args.entry_id or not args.data:
+            parser.error("add requires --id and --data (or positional id data)")
+        try:
+            data_obj = json.loads(args.data)
+        except json.JSONDecodeError:
+            parser.error("data must be valid JSON")
+        add_entry(args.entry_id, data_obj, args.tags)
+    elif args.cmd == "get":
+        get_entry(args.entry_id)
+    elif args.cmd == "search":
+        search_entries(args.query)
+    else:
+        parser.print_help()
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main()

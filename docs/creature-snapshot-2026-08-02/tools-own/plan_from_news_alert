@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ------------------------------------------------------------
+# Tool: plan_from_news_alert
+# does: Fetch recent news items, turn each headline into a
+#       concrete planning question, create a persistent plan
+#       via `plan_from_question`, and archive the mapping for
+#       fast keyword‑archive search.
+# ------------------------------------------------------------
+
+# Helper: ensure required tools exist
+for cmd in wake_catchup_fetcher plan_from_question keyword-archive-store jq; do
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+        echo "Required tool '\''$cmd'\'' not found." >&2
+        exit 1
+    fi
+done
+
+# Fetch fresh items. The fetcher prints a JSON array of objects:
+# [{ "title": "...", "url": "...", "tags": [...] }, ...]
+json=$(wake_catchup_fetcher) || {
+    echo "Failed to fetch news via wake_catchup_fetcher" >&2
+    exit 1
+}
+if [[ -z "$json" ]]; then
+    echo "No news items returned." >&2
+    exit 0
+fi
+
+# Process each news item
+echo "$json" | jq -c '.[]' | while read -r item; do
+    title=$(echo "$item" | jq -r '.title')
+    url=$(echo "$item" | jq -r '.url')
+    tags=$(echo "$item" | jq -r '.tags // [] | join(",")')
+
+    # Build a concrete question for planning.
+    question="What actions should be taken regarding ${title}?"
+
+    # Create a plan using the existing tool.
+    plan_id=$(plan_from_question "$question") || {
+        echo "Failed to create plan for: $question" >&2
+        continue
+    }
+
+    # Archive the mapping: headline ↔ plan_id ↔ url
+    archive_key="news-plan-${plan_id}"
+    archive_content="title: ${title}
+url: ${url}
+plan_id: ${plan_id}"
+    keyword-archive-store "$archive_key" "$archive_content" --tags "news,plan,$tags"
+
+    echo "Created plan $plan_id for headline: $title"
+done

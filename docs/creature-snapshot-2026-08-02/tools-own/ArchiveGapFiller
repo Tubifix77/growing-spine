@@ -1,0 +1,28 @@
+#!/bin/bash
+#
+# ArchiveGapFiller: This tool fills gaps in archives by finding missing information.
+#
+does: Fill gaps in archives by finding missing information
+# Dependencies: memstore, keyword-archive-store, wake_catchup_fetcher
+memstore_get() {
+  memstore get $1
+}
+
+keyword_archive_store() {
+  keyword-archive-store $1 $2
+}
+
+fill_gap() {
+  local gap_id="$1"
+  local gap_info="$(memstore_get $gap_id)"
+  if [ -z "$gap_info" ]; then
+    # If gap info is missing, try to fetch it using wake_catchup_fetcher
+    gap_info="$(wake_catchup_fetcher)"
+    memstore_set $gap_id $gap_info
+  fi
+  # Store gap info in keyword archive
+  keyword_archive_store $gap_id $gap_info
+}
+
+# Example usage: fill_gap 'gap_123'
+fill_gap 'gap_123'

@@ -1,0 +1,44 @@
+#!/bin/bash
+# tool: keyword-archive-store
+# call: keyword-archive-store <keyword> <note_content> [--tags tag1,tag2]
+# does: Stores a note in a JSONL keyword archive under a given keyword, with optional tags.
+
+if [ "$#" -lt 2 ]; then
+    echo "Usage: keyword-archive-store <keyword> <note_content> [--tags tag1,tag2]"
+    exit 1
+fi
+
+KEYWORD="$1"
+NOTE_CONTENT="$2"
+TAGS=""
+
+# Parse optional --tags argument
+for i in "$@"; do
+    case "$i" in
+        --tags=*)
+            TAGS="${i#*=}"
+            shift # past argument=value
+            ;;
+        *)
+            # unknown option
+            ;;
+    esac
+done
+
+ARCHIVE_FILE="/workspace/keyword_archive.jsonl"
+TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+# Generate UUID using Python
+NOTE_ID=$(python -c "import uuid; print(uuid.uuid4())")
+
+# Create JSON entry
+# Ensure NOTE_CONTENT is properly escaped for JSON
+JSON_ENTRY=$(jq -n \
+              --arg id "$NOTE_ID" \
+              --arg ts "$TIMESTAMP" \
+              --arg keyword "$KEYWORD" \
+              --arg content "$NOTE_CONTENT" \
+              --arg tags "$TAGS" \
+              '{id: $id, timestamp: $ts, keyword: $keyword, content: $content, tags: ($tags | split(",") | map(select(length > 0))) }')
+
+echo "$JSON_ENTRY" >> "$ARCHIVE_FILE"
+echo "Note archived under keyword(s): $KEYWORD with ID: $NOTE_ID"

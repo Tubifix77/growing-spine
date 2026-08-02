@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# tool: TaskInsightGenerator
+# does: Generate a persistent task plan for a high‑level goal, fill any knowledge gaps, synthesize a ready‑to‑use answer, and write a combined task file.
+# Usage: TaskInsightGenerator "<high level goal>"
+# Example: TaskInsightGenerator "How to launch a community AI podcast?"
+#
+# Steps performed:
+#   1. Call `plan_from_question` to create a tracked plan.
+#   2. Retrieve the generated plan ID (last line of output).
+#   3. Use `step-planner-tracker list <plan_id>` to get the ordered steps.
+#   4. Run `deep_answer_synth` on the original goal to obtain a concise answer.
+#   5. Write a task file with steps + answer under /workspace/task_insight_<timestamp>.txt.
+#   6. Echo the file path and the answer summary.
+
+set -euo pipefail
+
+# ---------- Input ----------
+if [[ $# -ne 1 ]]; then
+  echo "Usage: $0 \"<high level goal>\""
+  exit 1
+fi
+GOAL="$1"
+
+# ---------- 1. Generate a persistent plan ----------
+# plan_from_question prints a human‑readable summary and ends with the plan ID.
+PLAN_OUTPUT=$(plan_from_question "$GOAL")
+# The plan ID is the last word on the last line (e.g., "Plan ID: 1234567890").
+PLAN_ID=$(echo "$PLAN_OUTPUT" | tail -n1 | awk '{print $NF}')
+
+if [[ -z "$PLAN_ID" ]]; then
+  echo "Failed to obtain a plan ID from plan_from_question."
+  exit 1
+fi
+
+# ---------- 2. Retrieve ordered steps ----------
+# step-planner-tracker supports: list <plan_id>
+STEPS_JSON=$(step-planner-tracker list "$PLAN_ID" --json)
+
+# The tool returns a JSON array of step objects, each with fields:
+#   { "order": <int>, "title": "<text>", "status": "pending"/"done", ... }
+# We'll extract the ordered titles.
+STEP_TITLES=$(echo "$STEPS_JSON" | jq -r '.steps[] | "\(.order). \(.title)"')
+
+# ---------- 3. Synthesize a final answer ----------
+ANSWER=$(deep_answer_synth "$GOAL")
+
+# ---------- 4. Write the task file ----------
+TIMESTAMP=$(date +%s)
+TASK_FILE="/workspace/task_insight_${TIMESTAMP}.txt"
+
+{
+  echo "=== Goal ==="
+  echo "$GOAL"
+  echo
+  echo "=== Generated Plan (ID $PLAN_ID) ==="
+  echo "$STEP_TITLES"
+  echo
+  echo "=== Synthesized Answer ==="
+  echo "$ANSWER"
+} > "$TASK_FILE"
+
+# ---------- 5. Output ----------
+echo "Task file written to: $TASK_FILE"
+echo "===== Answer Summary ====="
+echo "$ANSWER"

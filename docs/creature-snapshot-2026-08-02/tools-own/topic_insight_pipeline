@@ -1,0 +1,77 @@
+tool: topic_insight_pipeline
+call: topic_insight_pipeline "$@"
+does: |
+  For a given topic, fetch fresh Hacker News items, filter by the topic,
+  fill any knowledge gaps, generate concise LLM insights, archive them,
+  and schedule a review task in the persistent planner.
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ---------- Argument parsing ----------
+topic=""
+limit=5
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --topic) topic="${2:-}"; shift 2 ;;
+    --limit) limit="${2:-}"; shift 2 ;;
+    *) echo "Unknown argument: $1" >&2; exit 1 ;;
+  esac
+done
+if [[ -z "$topic" ]]; then
+  echo "Usage: $0 --topic <keyword> [--limit N]" >&2
+  exit 1
+fi
+
+# ---------- Fetch fresh items ----------
+json=$(wake_catchup_fetcher.real)   # returns a JSON array of items
+
+# ---------- Filter items by topic ----------
+matched=$(echo "$json" | jq -c --arg t "$topic" '
+  .[] | select(.title | test($t; "i"))
+' | head -n "$limit")
+
+if [[ -z "$matched" ]]; then
+  echo "No fresh items matched topic '$topic' (limit $limit)."
+  exit 0
+fi
+
+created=0
+
+# ---------- Process each matched item ----------
+while IFS= read -r item; do
+  # Run knowledge_gap_filler; it expects a JSON line on stdin and
+  # returns a JSON object with a "gap" field when a gap is found,
+  # otherwise an empty object.
+  gap_json=$(echo "$item" | knowledge_gap_filler) || continue
+  gap=$(echo "$gap_json" | jq -r '.gap // empty')
+  
+  # If no gap, skip LLM generation (insight already known)
+  if [[ -z "$gap" ]]; then
+    continue
+  fi
+
+  # Extract title and URL for the prompt
+  title=$(echo "$item" | jq -r '.title')
+  url=$(echo "$item" | jq -r '.url')
+
+  # Prompt the sub‑agent LLM for a concise insight
+  prompt="Provide a concise 2‑sentence insight about the topic \"$topic\" based on this article:
+Title: $title
+URL: $url
+Identified knowledge gap: $gap
+
+Focus on what is new or surprising for the topic."
+  insight=$(echo "$prompt" | subagent_ask_helper)
+
+  # Archive the insight
+  keyword="insight-${topic}"
+  keyword-archive-store "$keyword" "$insight" --tags "topic:$topic,generated"
+
+  # Schedule a review step in the planner
+  step_desc="Review insight for topic '$topic' – source: $title"
+  step-planner-tracker add-step --desc "$step_desc" --tags "insight,$topic"
+
+  ((created++))
+done <<< "$matched"
+
+echo "Created $created insight(s) for topic '$topic'."

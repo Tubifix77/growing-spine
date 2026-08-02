@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# ---------------------------------------------------------------
+# gap_filled_task_generator <question>
+# ---------------------------------------------------------------
+# Generates concrete task plans from knowledge gaps for a query.
+#   * Uses knowledge_gap_filler to discover missing information.
+#   * For each gap, runs plan_from_question to create a persistent plan.
+#   * Registers each plan with step-planner-tracker.
+#   * Returns a JSON list of created plans.
+# ---------------------------------------------------------------
+set -euo pipefail
+
+# ----------------------------------------------------------------
+# Helper: print a JSON error and exit
+error() {
+    echo "{\"error\":\"$1\"}" >&2
+    exit 1
+}
+# ----------------------------------------------------------------
+
+if [[ $# -lt 1 ]]; then
+    error "Usage: gap_filled_task_generator <question>"
+fi
+
+QUESTION="$*"
+
+# 1️⃣ Run knowledge_gap_filler – it returns a JSON array of gaps.
+# If the tool fails (e.g., LLM unavailable) we fall back to an empty array.
+GAPS_JSON=$(knowledge_gap_filler "$QUESTION" 2>/dev/null || echo "[]")
+
+# Ensure we have valid JSON (empty array on malformed output)
+if ! echo "$GAPS_JSON" | jq . >/dev/null 2>&1; then
+    GAPS_JSON="[]"
+fi
+
+# Convert to Bash array of objects
+mapfile -t GAP_ITEMS < <(echo "$GAPS_JSON" | jq -c '.[]')
+
+# If no gaps were detected, treat the original question as the only gap.
+if [[ ${#GAP_ITEMS[@]} -eq 0 ]]; then
+    GAP_ITEMS=( "$(jq -n --arg q "$QUESTION" '{gap:$q, source:"original"}')" )
+fi
+
+# 2️⃣ For each gap, create a plan and collect its ID.
+declare -a PLANS=()
+for GAP_JSON in "${GAP_ITEMS[@]}"; do
+    GAP_TEXT=$(echo "$GAP_JSON" | jq -r '.gap')
+    # Create a plan – plan_from_question prints the new plan ID.
+    PLAN_ID=$(plan_from_question "$GAP_TEXT")
+    # Register the plan with the tracker (no‑op if already registered).
+    step-planner-tracker add-plan "$PLAN_ID" >/dev/null
+    # Store result for final output
+    PLANS+=( "$(jq -n \
+        --arg id "$PLAN_ID" \
+        --arg gap "$GAP_TEXT" \
+        '{plan_id:$id, gap:$gap}')" )
+done
+
+# 3️⃣ Output summary JSON
+echo "["$(IFS=,; echo "${PLANS[*]}")"]"

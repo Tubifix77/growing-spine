@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+# does: Turn fresh TechCrunch news headlines into a persistent actionable plan.
+# Usage: NewsDrivenTaskCreator --source <rss_url>
+# Example: NewsDrivenTaskCreator --source https://techcrunch.com/feed/
+#
+# Steps:
+#   1. Fetch RSS feed.
+#   2. Extract titles (one per line).
+#   3. For each title, ask LLM to generate a concise actionable task.
+#   4. Create (or reuse) a plan named "TechCrunch News Tasks" and add each task as a step.
+#   5. Print the plan ID.
+
+set -euo pipefail
+
+# ---------- helpers ----------
+die() { echo "❌ $*" >&2; exit 1; }
+
+# ---------- parse arguments ----------
+SOURCE="https://techcrunch.com/feed/"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --source) SOURCE="$2"; shift 2 ;;
+    *) die "Unknown argument: $1" ;;
+  esac
+done
+
+# ---------- 1. fetch RSS ----------
+echo "🔎 Fetching RSS feed from $SOURCE ..."
+rss=$(web-fetch "$SOURCE") || die "Failed to fetch RSS"
+
+# ---------- 2. extract titles ----------
+echo "📑 Extracting headline titles ..."
+titles=$(echo "$rss" | extract_rss_titles) || die "Failed to parse RSS"
+# Ensure we have at most a reasonable number (avoid LLM throttle)
+titles=$(echo "$titles" | head -n 20)
+
+# ---------- 3. ask LLM for an actionable task per title ----------
+tasks=()
+i=0
+while IFS= read -r line; do
+  ((i++))
+  echo "🤖 Generating task for headline $i ..."
+  prompt="Take the following news headline and turn it into a single short actionable task for an AI researcher. Keep it under 80 characters.\nHeadline: \"$line\"\nTask:"
+  task=$(subagent_ask_helper "$prompt") || die "LLM failed for headline $i"
+  # Clean up possible newline characters
+  task=$(echo "$task" | tr -d '\r\n')
+  tasks+=("$task")
+done <<<"$titles"
+
+# ---------- 4. create or reuse a persistent plan ----------
+PLAN_NAME="TechCrunch News Tasks"
+# Try to find an existing plan with that name
+plan_id=$(step-planner-tracker list-goals | grep -i "$PLAN_NAME" | awk '{print $1}' || true)
+
+if [[ -z "$plan_id" ]]; then
+  echo "🗂️ No existing plan found – creating a new one."
+  plan_id=$(step-planner-tracker add-goal "$PLAN_NAME") || die "Failed to create plan"
+else
+  echo "🔄 Reusing existing plan ID $plan_id."
+fi
+
+# Add each generated task as a step (ordered)
+for task in "${tasks[@]}"; do
+  step-planner-tracker add-step "$plan_id" "$task" || die "Failed to add step"
+done
+
+# ---------- 5. output plan ID ----------
+echo "✅ Done – plan ID: $plan_id"

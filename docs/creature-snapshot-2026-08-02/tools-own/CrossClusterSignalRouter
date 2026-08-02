@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# does: Evaluate an incoming alert, optionally fetch supporting data, and create or update a high‑priority task in step‑planner‑tracker.
+
+# Exit on any error
+set -euo pipefail
+
+# ---------- Helper: ask sub‑agent if alert is relevant ----------
+is_relevant() {
+    local alert_text="$1"
+    # Prompt the sub‑agent LLM
+    local prompt="You are a security analyst. Is the following alert relevant for immediate high‑priority action? Answer with a short yes/no."
+    # Use subagent_ask_helper which expects the question on stdin
+    echo "$prompt"$'\n'"Alert: $alert_text" | subagent_ask_helper
+}
+
+# ---------- Main ----------
+if [[ $# -lt 1 ]]; then
+    echo "Usage: $0 <alert-text>"
+    exit 1
+fi
+
+alert_text="$*"
+
+# 1. Ask the sub‑agent for relevance
+relevance_answer=$(is_relevant "$alert_text")
+# Normalise answer
+relevance=$(echo "$relevance_answer" | tr '[:upper:]' '[:lower:]' | grep -i -E 'yes|no' || echo "no")
+
+if [[ "$relevance" != *yes* ]]; then
+    echo "Alert deemed not relevant – no task created."
+    exit 0
+fi
+
+# 2. Fetch supporting data (latest Hacker News items)
+# wake_catchup_fetcher.real returns a JSON array; we pick the first URL
+support_json=$(wake_catchup_fetcher.real)
+support_url=$(echo "$support_json" | jq -r '.[0].url // empty')
+
+# 3. Build a goal description, incorporating any supporting URL
+if [[ -n "$support_url" ]]; then
+    goal="Investigate alert: $alert_text (context: $support_url)"
+else
+    goal="Investigate alert: $alert_text"
+fi
+
+# 4. Create a high‑priority plan
+# step-planner-tracker add <goal> --priority high
+plan_id=$(step-planner-tracker add "$goal" --priority high | tail -n1)
+
+echo "Created high‑priority plan ID: $plan_id"

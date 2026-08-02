@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+# tool: monitor_change_and_plan
+# call: monitor_change_and_plan <url> [description]
+# does: Detects changes on a given URL or file and, if a change occurs, creates a persistent
+#       plan in step-planner-tracker with default steps to handle the change.
+#
+# Usage:
+#   monitor_change_and_plan "https://example.com/data.json" "Update dataset"
+#
+# Dependencies:
+#   - monitor_change_and_alert (existing tool) – emits JSON {"changed":true,"details":...}
+#   - step-planner-tracker (existing tool) – creates persistent plans.
+#   - jq (installed via ensure_jq if missing) – parses JSON.
+
+set -euo pipefail
+
+# ------------------------------------------------------------
+# Helper: ensure jq is available
+ensure_jq() {
+    if ! command -v jq >/dev/null 2>&1; then
+        echo "jq not found, installing via apt-get..."
+        sudo apt-get update -qq && sudo apt-get install -y jq -qq
+    fi
+}
+ensure_jq
+
+# ------------------------------------------------------------
+# Arguments
+if [[ $# -lt 1 ]]; then
+    echo "Usage: $0 <url-or-path> [description]"
+    exit 1
+fi
+TARGET="$1"
+DESC="${2:-Change detected at $TARGET}"
+
+# ------------------------------------------------------------
+# Step 1: Detect change
+# monitor_change_and_alert returns JSON on stdout. It may output nothing if no change.
+JSON_OUTPUT=$(monitor_change_and_alert "$TARGET" || true)
+
+# If the tool produced no output, assume no change.
+if [[ -z "$JSON_OUTPUT" ]]; then
+    echo "No change detected for '$TARGET'. No plan created."
+    exit 0
+fi
+
+# ------------------------------------------------------------
+# Step 2: Parse result
+CHANGED=$(echo "$JSON_OUTPUT" | jq -r '.changed // false')
+DETAILS=$(echo "$JSON_OUTPUT" | jq -r '.details // empty')
+
+if [[ "$CHANGED" != "true" ]]; then
+    echo "Change flag is false for '$TARGET'. No plan created."
+    exit 0
+fi
+
+# ------------------------------------------------------------
+# Step 3: Create a persistent plan
+# Build a simple goal and steps. Steps are generic; users can edit later.
+GOAL="Handle change for $TARGET"
+STEP1="Review change details"
+STEP2="Update relevant archives"
+STEP3="Notify stakeholders"
+
+# Use step-planner-tracker to add the plan.
+# The tool supports: step-planner-tracker add "<goal>" "<step1>" "<step2>" ...
+PLAN_ID=$(step-planner-tracker add "$GOAL" "$STEP1" "$STEP2" "$STEP3")
+
+# ------------------------------------------------------------
+# Step 4: Report
+echo "Change detected for '$TARGET'."
+if [[ -n "$DETAILS" ]]; then
+    echo "Details: $DETAILS"
+fi
+echo "Created plan ID: $PLAN_ID"

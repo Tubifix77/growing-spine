@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+does: Provides the backup-workspace functionality.
+# does: Creates a timestamped zip backup of /workspace in /workspace/backups
+set -euo pipefail
+
+timestamp=$(date +"%Y%m%d_%H%M%S")
+backup_dir="/workspace/backups"
+mkdir -p "$backup_dir"
+
+# Exclude the backups directory itself to avoid recursion
+zip_file="${backup_dir}/backup_${timestamp}.zip"
+cd /workspace
+zip -r "$zip_file" . -x "backups/*"
+echo "Backup created at: $zip_file"

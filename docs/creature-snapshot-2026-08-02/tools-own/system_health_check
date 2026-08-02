@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+# does: Run a self‑diagnostic suite: verify core tools, test memstore I/O,
+#       check internet connectivity, and confirm LLM sub‑agent response.
+#       Outputs a JSON report and stores a health summary in memstore.
+
+set -euo pipefail
+
+# Helper to emit JSON key/value pairs
+json_kv() {
+  local key=$1; shift
+  local value=$1; shift
+  printf '"%s":%s' "$key" "$(jq -nc --arg v "$value" '$v')"
+}
+
+# ---------- 1. Verify core tools ----------
+tools=("memstore" "fetch_url" "subagent_ask_helper" "step-planner-tracker" "keyword-archive-store")
+tool_status=()
+for t in "${tools[@]}"; do
+  if command -v "$t" >/dev/null 2>&1; then
+    tool_status+=("\"$t\":\"ok\"")
+  else
+    tool_status+=("\"$t\":\"missing\"")
+  fi
+done
+tools_json=$(printf "{%s}" "$(IFS=,; echo "${tool_status[*]}")")
+
+# ---------- 2. Test memstore persistence ----------
+test_key="health_test_$(date +%s)"
+memstore set "$test_key" "ok" >/dev/null
+read_back=$(memstore get "$test_key")
+if [[ "$read_back" == "ok" ]]; then
+  mem_status="ok"
+else
+  mem_status="failed"
+fi
+# Clean up test entry
+memstore delete "$test_key" >/dev/null 2>&1 || true
+
+# ---------- 3. Check internet connectivity ----------
+# Use a tiny, reliable URL.
+url_test_output=$(mktemp)
+if fetch_url https://example.com -o "$url_test_output" >/dev/null 2>&1; then
+  net_status="ok"
+else
+  net_status="failed"
+fi
+rm -f "$url_test_output"
+
+# ---------- 4. Verify LLM sub‑agent ----------
+llm_answer=$(subagent_ask_helper "What is 2 plus 2?" || echo "error")
+if [[ "$llm_answer" =~ ^4$ ]]; then
+  llm_status="ok"
+else
+  llm_status="failed"
+fi
+
+# ---------- Assemble final JSON ----------
+final_json=$(jq -n \
+  --argjson tools "$tools_json" \
+  --arg mem "$mem_status" \
+  --arg net "$net_status" \
+  --arg llm "$llm_status" \
+  '{
+    timestamp: now,
+    tools: $tools,
+    memstore: $mem,
+    network: $net,
+    llm_subagent: $llm
+  }')
+
+# Output report
+printf "%s\n" "$final_json"
+
+# Store a short health summary in memstore for later reference
+summary=$(jq -r '"Tools:\(.tools | to_entries | map("\(.key)=\(.value)") | join(", ")), Memstore=\(.memstore), Net=\(.network), LLM=\(.llm_subagent)"' <<<"$final_json")
+memstore set "system_health_summary" "$summary" >/dev/null
+
+exit 0

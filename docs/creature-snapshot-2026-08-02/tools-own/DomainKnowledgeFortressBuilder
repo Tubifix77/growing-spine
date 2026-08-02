@@ -1,0 +1,7 @@
+#!/usr/bin/env python3
+# tool: DomainKnowledgeFortressBuilder
+# call: DomainKnowledgeFortressBuilder <arguments>
+# does: Build a comprehensive knowledge base for a domain by chaining DomainModelBuilder, wiki_faq_builder, and knowledge_gap_filler.
+# Replace the body below with real executable code.
+import sys
+print('not implemented yet: ' + sys.argv[0])

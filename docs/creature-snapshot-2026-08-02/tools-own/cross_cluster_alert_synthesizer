@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+# does: Pull fresh items via wake_catchup_fetcher, evaluate each with knowledge_gap_filler,
+#       craft a concise alert via subagent_ask_helper, and archive the alert with
+#       keyword-archive-store.  One‑line summary printed at the end.
+#
+# Usage: cross_cluster_alert_synthesizer --topic <keyword>
+#   If no --topic is supplied, all fresh items are processed.
+
+# -------------------- helper functions --------------------
+json_escape() {
+  # Escape double‑quotes for safe JSON embedding
+  printf '%s' "$1" | sed 's/"/\\"/g'
+}
+
+# -------------------- parse arguments --------------------
+TOPIC=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --topic)
+      TOPIC="$2"
+      shift 2
+      ;;
+    *)
+      echo "Unknown argument: $1" >&2
+      exit 1
+      ;;
+  esac
+done
+
+# -------------------- fetch fresh items --------------------
+# wake_catchup_fetcher.real writes a JSON array to stdout
+FETCHED_JSON=$(wake_catchup_fetcher.real)
+if [[ -z "$FETCHED_JSON" ]]; then
+  echo "No fresh items fetched."
+  exit 0
+fi
+
+# If a topic filter is given, keep only items whose title contains it (case‑insensitive)
+if [[ -n "$TOPIC" ]]; then
+  FILTERED=$(printf '%s' "$FETCHED_JSON" | jq "[.[] | select(.title | test(\"$TOPIC\"; \"i\"))]")
+else
+  FILTERED="$FETCHED_JSON"
+fi
+
+ITEM_COUNT=$(printf '%s' "$FILTERED" | jq 'length')
+if [[ "$ITEM_COUNT" -eq 0 ]]; then
+  echo "No items matching topic '$TOPIC'."
+  exit 0
+fi
+
+ALERT_CREATED=0
+
+# -------------------- process each item --------------------
+printf '%s' "$FILTERED" | jq -c '.[]' | while IFS= read -r ITEM_JSON; do
+  # Run knowledge_gap_filler on the single item
+  GAP_RESULT=$(printf '%s' "$ITEM_JSON" | knowledge_gap_filler)
+
+  # knowledge_gap_filler returns a JSON with a boolean field "needs_gap"
+  NEEDS_GAP=$(printf '%s' "$GAP_RESULT" | jq -r '.needs_gap // false')
+  if [[ "$NEEDS_GAP" != "true" ]]; then
+    # We already have sufficient knowledge – skip alert creation
+    continue
+  fi
+
+  # Build a concise prompt for the sub‑agent
+  TITLE=$(printf '%s' "$ITEM_JSON" | jq -r '.title')
+  URL=$(printf '%s' "$ITEM_JSON" | jq -r '.url')
+  PROMPT="Summarise the news item titled \"$(json_escape "$TITLE")\" from $URL in one short sentence suitable for an alert."
+
+  # Ask the sub‑agent for a concise summary
+  ALERT_TEXT=$(printf '%s' "$PROMPT" | subagent_ask_helper)
+
+  # Archive the alert
+  # Use a keyword that reflects the topic; fallback to generic "alerts"
+  KEYWORD="alert-${TOPIC:-general}"
+  # Store as JSON: {title, url, alert}
+  ALERT_JSON=$(printf '{"title":"%s","url":"%s","alert":"%s"}' \
+    "$(json_escape "$TITLE")" "$(json_escape "$URL")" "$(json_escape "$ALERT_TEXT")")
+  echo "$ALERT_JSON" | keyword-archive-store "$KEYWORD"
+
+  ((ALERT_CREATED++))
+done
+
+echo "CrossClusterAlertSynthesizer: created $ALERT_CREATED alert(s) for topic '${TOPIC:-all}'."
+exit 0

@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# does: Refresh a FAQ entry by chaining dynamic_faq_updater, subagent_ask_helper,
+#       and keyword-archive-store. Input: <faq-keyword>. Output: Updated FAQ text printed
+#       to stdout and persisted in the keyword‑archive.
+
+set -euo pipefail
+
+# ---------- helper ----------
+die() {
+  echo "ERROR: $*" >&2
+  exit 1
+}
+
+# ---------- sanity checks ----------
+[[ $# -eq 1 ]] || die "Usage: $0 <faq-keyword>"
+FAQ_KEYWORD=$1
+
+# ensure required tools exist
+for tool in dynamic_faq_updater subagent_ask_helper keyword-archive-store; do
+  command -v "$tool" >/dev/null 2>&1 || die "Required tool '$tool' not found in PATH"
+done
+
+# ---------- 1️⃣ Refresh the FAQ ----------
+# dynamic_faq_updater prints the refreshed FAQ to stdout
+REFRESHED_FAQ=$(dynamic_faq_updater "$FAQ_KEYWORD")
+# If the tool fails it will have aborted because of set -e
+
+# ---------- 2️⃣ Polishing via sub‑agent ----------
+# Construct a short prompt for the sub‑agent
+POLISH_PROMPT="Please review the following FAQ entry for clarity, completeness and tone. Return ONLY the revised FAQ text.
+
+--- FAQ START ---
+$REFRESHED_FAQ
+--- FAQ END ---"
+POLISHED_FAQ=$(printf '%s' "$POLISH_PROMPT" | subagent_ask_helper)
+
+# ---------- 3️⃣ Persist the polished FAQ ----------
+# keyword-archive-store expects: <keyword> <note> [optional tags]
+# Overwrite any existing entry for the same keyword
+echo "$POLISHED_FAQ" | keyword-archive-store "$FAQ_KEYWORD" --overwrite
+
+# ---------- 4️⃣ Output ----------
+printf '%s\n' "$POLISHED_FAQ"

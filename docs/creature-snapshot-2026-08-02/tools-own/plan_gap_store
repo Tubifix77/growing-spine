@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# tool: plan_gap_store
+# call: plan_gap_store "<question>"
+# does: Create a persistent plan for a question, fill knowledge gaps for each step,
+#       and archive the enriched plan in the keyword‑archive.
+# Usage example:
+#   plan_gap_store "How to launch a community podcast?"
+
+set -euo pipefail
+
+usage() {
+  echo "Usage: $0 \"<question>\""
+  exit 1
+}
+
+if [[ $# -eq 0 ]]; then
+  usage
+fi
+
+QUESTION="$1"
+
+# 1️⃣ Generate a plan
+PLAN_ID=$(plan_from_question "$QUESTION")
+if [[ -z "$PLAN_ID" ]]; then
+  echo "Error: plan_from_question failed to produce a plan ID." >&2
+  exit 1
+fi
+
+PLAN_FILE="/mind/state/step_planner.json"
+
+# 2️⃣ Extract steps for the plan
+STEPS_JSON=$(jq -c --arg pid "$PLAN_ID" '
+  .[] | select(.plan_id == $pid) | .steps
+' "$PLAN_FILE")
+if [[ -z "$STEPS_JSON" ]]; then
+  echo "Error: Could not find steps for plan $PLAN_ID." >&2
+  exit 1
+fi
+
+# 3️⃣ Fill gaps for each step
+echo "$STEPS_JSON" | jq -r '.[] .description' | while IFS= read -r STEP_DESC; do
+  knowledge_gap_filler "$STEP_DESC" >/dev/null 2>&1 || :
+done
+
+# 4️⃣ Archive enriched plan
+TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+ENRICHED_NOTE=$(jq -n \
+  --arg pid "$PLAN_ID" \
+  --arg q "$QUESTION" \
+  --arg ts "$TIMESTAMP" \
+  '{plan_id:$pid, question:$q, generated_at:$ts, steps:$steps}' \
+  --argjson steps "$STEPS_JSON")
+KEYWORD="plan:$PLAN_ID"
+keyword-archive-store "$KEYWORD" "$ENRICHED_NOTE" --tags "generated,plan"
+
+echo "✅ plan_gap_store completed – plan $PLAN_ID archived under keyword '$KEYWORD'"

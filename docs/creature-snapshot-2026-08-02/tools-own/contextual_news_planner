@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# does: Fetch fresh Hacker News items (optionally filtered by a keyword),
+#      turn each title into an actionable plan via plan_from_question,
+#      and output the created plan IDs.
+
+# Usage: contextual_news_planner [keyword]
+#   keyword – optional string to filter titles (case‑insensitive).
+
+set -euo pipefail
+
+KEYWORD="${1:-}"
+LOG="/mind/logs/contextual_news_planner.log"
+
+# 1. Fetch fresh items.
+if [[ -z "$KEYWORD" ]]; then
+    RAW_JSON=$(wake_catchup_fetcher.real)
+else
+    RAW_JSON=$(wake_catchup_fetcher.real | jq --arg kw "$KEYWORD" '[.[] | select(.title | test($kw; "i"))]')
+fi
+
+# If no fresh items, exit quietly.
+if [[ -z "$RAW_JSON" ]] || [[ "$RAW_JSON" == "null" ]] || [[ "$RAW_JSON" == "[]" ]]; then
+    echo "No new items$( [[ -n \"$KEYWORD\" ]] && echo " matching '$KEYWORD'" )."
+    exit 0
+fi
+
+# 2. Iterate over each item and create a plan.
+PLAN_IDS=()
+while IFS= read -r line; do
+    TITLE=$(echo "$line" | jq -r '.title')
+    URL=$(echo "$line" | jq -r '.url')
+    # Combine title + URL to give the LLM context.
+    QUESTION="News item: $TITLE. Full article: $URL"
+    # plan_from_question prints the new plan ID on stdout.
+    PLAN_ID=$(printf "%s" "$QUESTION" | plan_from_question | tail -n1)
+    PLAN_IDS+=("$PLAN_ID")
+    echo "Created plan $PLAN_ID – $TITLE"
+done < <(echo "$RAW_JSON" | jq -c '.[]')
+
+# 3. Summarize results.
+if (( ${#PLAN_IDS[@]} )); then
+    echo "Total plans created: ${#PLAN_IDS[@]}"
+    echo "${PLAN_IDS[@]}" | tr ' ' '\n'
+else
+    echo "No plans were created."
+fi

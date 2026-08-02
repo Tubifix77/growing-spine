@@ -1,0 +1,71 @@
+#!/usr/bin/env python3
+"""
+continuous_news_to_memory
+does: Fetch latest news items for a topic and archive each with keyword‑archive‑store
+"""
+
+import argparse
+import subprocess
+import sys
+import xml.etree.ElementTree as ET
+from urllib.parse import quote_plus
+
+def fetch_rss(topic):
+    """Fetch RSS XML for the given topic from Google News."""
+    url = f"https://news.google.com/rss/search?q={quote_plus(topic)}"
+    # Use curl (installed in the container) to get the feed
+    result = subprocess.run(
+        ["curl", "-fsSL", url],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        sys.exit(f"Failed to fetch RSS feed: {result.stderr}")
+    return result.stdout
+
+def parse_items(xml_text, max_items=20):
+    """Parse RSS XML and return a list of dicts with title, link, and pubDate."""
+    root = ET.fromstring(xml_text)
+    channel = root.find('channel')
+    if channel is None:
+        return []
+    items = []
+    for item in channel.findall('item')[:max_items]:
+        title = item.findtext('title', default='(no title)')
+        link = item.findtext('link', default='')
+        pubdate = item.findtext('pubDate', default='')
+        items.append({
+            "title": title,
+            "url": link,
+            "published": pubdate,
+        })
+    return items
+
+def archive_item(topic, item):
+    """Call keyword-archive-store to save the item."""
+    # Build a JSON note
+    note = f'{{"title": {repr(item["title"])}, "url": {repr(item["url"])}, "published": {repr(item["published"])}}}'
+    tags = f"news,topic:{topic.lower()}"
+    # keyword-archive-store <keyword> <note> --tags <tags>
+    subprocess.run(
+        ["keyword-archive-store", topic.lower(), note, "--tags", tags],
+        check=False,
+    )
+
+def main():
+    parser = argparse.ArgumentParser(description="Fetch latest news for a topic and archive it.")
+    parser.add_argument("--topic", required=True, help="Topic to search for (e.g., AI)")
+    args = parser.parse_args()
+
+    rss_xml = fetch_rss(args.topic)
+    items = parse_items(rss_xml, max_items=20)
+
+    if not items:
+        sys.exit("No news items found.")
+    for itm in items:
+        archive_item(args.topic, itm)
+
+    print(f"Archived {len(items)} news items for topic '{args.topic}'.")
+    
+if __name__ == "__main__":
+    main()

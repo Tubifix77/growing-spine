@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+# does: Fetch fresh Hacker News items, summarise each via subagent_ask_helper,
+#       archive the raw item, limit processing, avoid repeats, and return archive IDs.
+
+set -euo pipefail
+
+# ------------------------------
+# Configuration
+# ------------------------------
+# Maximum number of items to process this run (default: 10)
+MAX_ITEMS="${MAX_ITEMS:-10}"
+# Keyword under which summaries are stored (default: "news")
+KEYWORD="${KEYWORD:-news}"
+# State file tracking processed item IDs
+STATE_FILE="/mind/state/catchup_summarize_state.json"
+
+# ------------------------------
+# Helper functions
+# ------------------------------
+log() { echo "[catchup_summarize_archive] $*"; }
+
+# Ensure state file exists
+init_state() {
+  if [[ ! -f "$STATE_FILE" ]]; then
+    echo "{}" > "$STATE_FILE"
+  fi
+}
+# Load processed IDs into a Bash associative array
+declare -A PROCESSED
+load_state() {
+  init_state
+  while IFS="=" read -r id val; do
+    PROCESSED["$id"]=$val
+  done < <(jq -r "to_entries|map(\"\(.key)=\(.value)\")|.[]" "$STATE_FILE")
+}
+# Persist updated state
+save_state() {
+  jq -n 'reduce env.PROCESSED as $item ({}; .[$item.key] = $item.value)' \
+    | jq -c . > "$STATE_FILE"
+}
+# Append a raw item to the keyword‑archive (raw JSON)
+archive_raw() {
+  local json="$1"
+  local id
+  id=$(echo "$json" | jq -r '.id // empty')
+  # Use the generic archive store tool
+  keyword-archive-store "$KEYWORD-raw" "$json" --tags "raw,$id"
+}
+# Summarise a single Hacker News item
+summarise_item() {
+  local json="$1"
+  local title url
+  title=$(echo "$json" | jq -r '.title // empty')
+  url=$(echo "$json" | jq -r '.url // empty')
+  # Ask sub‑agent to summarise; we give title+url as context
+  local summary
+  summary=$(printf "Summarise the following news article in two sentences:\nTitle: %s\nURL: %s" "$title" "$url" \
+    | subagent_ask_helper)
+  echo "$summary"
+}
+# Store a summary in the keyword‑archive and return the entry ID
+store_summary() {
+  local summary="$1"
+  # Archive and capture the generated ID (the tool prints the ID)
+  local entry_id
+  entry_id=$(echo "$summary" | keyword-archive-store "$KEYWORD" --tags "summary")
+  echo "$entry_id"
+}
+# ------------------------------
+# Main logic
+# ------------------------------
+main() {
+  load_state
+  # Fetch fresh Hacker News items (uses the existing fetcher)
+  fresh_items=$(wake_catchup_fetcher.real --limit "$MAX_ITEMS")
+  # If the fetcher returns JSON array, iterate
+  echo "$fresh_items" | jq -c '.[]' | while read -r item; do
+    id=$(echo "$item" | jq -r '.id')
+    # Skip already‑processed items
+    if [[ -n "${PROCESSED[$id]:-}" ]]; then
+      continue
+    fi
+
+    # Archive the raw JSON for future reference
+    archive_raw "$item"
+
+    # Summarise (protect against sub‑agent failure)
+    if summary=$(summarise_item "$item"); then
+      entry_id=$(store_summary "$summary")
+      echo "Created summary entry ID: $entry_id"
+    else
+      log "Failed to summarise item $id – skipping"
+    fi
+
+    # Mark as processed
+    PROCESSED["$id"]=true
+    # Stop if we reached the limit
+    (( ++COUNT ))
+    (( COUNT >= MAX_ITEMS )) && break
+  done
+
+  save_state
+}
+main "$@"

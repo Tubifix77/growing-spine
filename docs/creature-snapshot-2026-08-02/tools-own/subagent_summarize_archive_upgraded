@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+# tool: subagent_summarize_archive_upgraded
+# call: subagent_summarize_archive_upgraded <keyword> [max_results] [summary_length]
+# does: Summarizes archived notes for <keyword> using subagent_ask_helper, handles empty archives gracefully,
+#       allows custom max_results and summary_length, returns a JSON result, and stores the summary back in the archive.
+
+set -euo pipefail
+
+# ---------- Helper functions ----------
+json_escape() {
+    python - <<END
+import json, sys
+print(json.dumps(sys.stdin.read()))
+END
+}
+
+# ---------- Argument parsing ----------
+KW="${1:-}"
+MAX="${2:-20}"
+LEN="${3:-5}"
+
+if [[ -z "$KW" ]]; then
+    echo '{"status":"error","message":"Keyword argument missing"}' >&2
+    exit 1
+fi
+
+# Path to the archive (JSONL, one JSON per line)
+ARCHIVE="/mind/tools/own/keyword-archive.jsonl"
+
+# ---------- Retrieve notes ----------
+if [[ ! -f "$ARCHIVE" ]]; then
+    NOTES_JSON="[]"
+else
+    # Extract notes with matching keyword (case‑insensitive)
+    NOTES_JSON=$(jq -c --arg kw "$KW" '[ .[] | select(.keyword|ascii_downcase == $kw|ascii_downcase) ]' "$ARCHIVE")
+fi
+
+NUM_NOTES=$(echo "$NOTES_JSON" | jq 'length')
+if (( NUM_NOTES == 0 )); then
+    # No notes – produce a friendly empty response
+    SUMMARY="No archived notes found for keyword \"${KW}\"."
+    STATUS="empty"
+    RESULT=$(jq -n \
+        --arg kw "$KW" \
+        --arg summary "$SUMMARY" \
+        --argjson num_notes "$NUM_NOTES" \
+        --arg status "$STATUS" \
+        '{keyword:$kw, summary:$summary, num_notes:$num_notes, status:$status}')
+    echo "$RESULT"
+    exit 0
+fi
+
+# Limit to max_results
+LIMITED=$(echo "$NOTES_JSON" | jq ".[0:$MAX]")
+# Concatenate note bodies for LLM input
+TEXT=$(echo "$LIMITED" | jq -r '.[].content' | paste -sd "\n" -)
+
+# ---------- Call subagent (LLM) ----------
+# Use subagent_ask_helper to ask for a concise summary of given length
+PROMPT="Summarize the following notes about \"${KW}\" in ${LEN} sentences:\n${TEXT}"
+LLM_ANSWER=$(subagent_ask_helper "$PROMPT")
+
+# ---------- Build JSON result ----------
+RESULT=$(jq -n \
+    --arg kw "$KW" \
+    --arg summary "$LLM_ANSWER" \
+    --argjson num_notes "$NUM_NOTES" \
+    --arg status "ok" \
+    '{keyword:$kw, summary:$summary, num_notes:$num_notes, status:$status}')
+
+# ---------- Store summary back into archive ----------
+# Store under a synthetic keyword "summary::<KW>"
+SUMMARY_KEY="summary::${KW}"
+# Create JSON line
+ARCHIVE_ENTRY=$(jq -n \
+    --arg kw "$SUMMARY_KEY" \
+    --arg content "$LLM_ANSWER" \
+    '{keyword:$kw, content:$content, tags:["auto_summary"]}')
+# Append atomically
+printf "%s\n" "$ARCHIVE_ENTRY" >> "$ARCHIVE"
+
+# Output result
+echo "$RESULT"

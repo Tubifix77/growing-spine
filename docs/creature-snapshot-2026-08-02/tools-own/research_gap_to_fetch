@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# research_gap_to_fetch – Fill research gaps automatically
+# Usage: research_gap_to_fetch "<high-level question>"
+# Does: Identifies missing sub-questions via knowledge_gap_filler,
+# fetches each missing piece (via web-fetch of Wikipedia summary),
+# and stores the fetched content in the keyword archive.
+
+set -euo pipefail
+
+if [[ $# -ne 1 ]]; then
+    echo "Usage: $0 \"<high-level question>\""
+    exit 1
+fi
+
+QUESTION=\"$1\"
+
+# 1. Find missing sub-questions
+echo \"Finding missing sub-questions for: $QUESTION\"
+gap_output=$(knowledge_gap_filler \"$QUESTION\" 2>/dev/null || true)
+# Assume knowledge_gap_filler prints one subquestion per line
+mapfile -t subquestions < <(echo \"$gap_output\" | grep -v '^$' || true)
+
+if [[ ${#subquestions[@]} -eq 0 ]]; then
+    echo \"No missing sub-questions identified.\"
+    # Still archive the original question as a note
+    echo \"Archiving original question.\"
+    echo \"<note>Original question: $QUESTION</note>\" | keyword-archive-store -k \"$QUESTION\" -
+    exit 0
+fi
+
+# 2. Fetch each missing piece
+for sq in \"\${subquestions[@]}\"; do
+    echo \"Processing sub-question: \$sq\"
+    # Create a safe keyword (replace spaces with '_' etc.)
+    safe_key=$(echo \"\$sq\" | tr -c '[:alnum:]_/' '_' | head -c80)
+    # Fetch Wikipedia summary (simple heuristic)
+    fetch_url=\"https://en.wikipedia.org/w/api.php?action=query&prop=extracts&explaintext=&titles=\"+\$(echo -w \"\$sq\" | tr ' ' '_' )
+    # Use web-fetch to get the raw page content
+    fetched=$(web-fetch \"\$fetch_url\" 2>/dev/null || true)
+    if [[ -z \"\$fetched\" ]]; then
+        echo \"Failed to fetch information for: \$sq\"
+        continue
+    fi
+    # Store the fetched content in the keyword archive
+    echo \"\$fetched\" | keyword-archive-store -k \"\$safe_key\" -
+    echo \"Stored note for sub-question: \$sq\"
+done
+
+# 3. Optionally create a summary note
+summary=$(printf \"Collected notes for sub-questions of: %s\\n\" \"$QUESTION\")
+echo \"\$summary\" | keyword-archive-store -k \"research_gap_summary_$QUESTION\" -
+echo \"Research gap filling complete. Archive populated.\"

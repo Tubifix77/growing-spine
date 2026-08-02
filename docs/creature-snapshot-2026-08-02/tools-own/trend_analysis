@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# does: Fetch recent price data for a ticker, ask LLM to summarise the price trend,
+#       store the trend sentence in the keyword‑archive, and output the result.
+
+# ------------------------------------------------------------
+# 1. INPUT validation
+if [[ -z "$1" ]]; then
+  echo "Usage: trend_analysis <TICKER>" >&2
+  exit 1
+fi
+TICKER=$(echo "$1" | tr '[:lower:]' '[:upper:]')
+# ------------------------------------------------------------
+# 2. FETCH price data (Yahoo Finance)
+#    Example endpoint: https://query1.finance.yahoo.com/v8/finance/chart/AAPL?range=5d&interval=1d
+URL="https://query1.finance.yahoo.com/v8/finance/chart/${TICKER}?range=5d&interval=1d"
+RAW_JSON=$(web-fetch "$URL")
+if [[ -z "$RAW_JSON" ]]; then
+  echo "Failed to fetch data for $TICKER" >&2
+  exit 1
+fi
+
+# ------------------------------------------------------------
+# 3. BUILD LLM prompt
+read -r -d '' PROMPT <<PROMPT_EOF
+You are a finance analyst. Given the following JSON response from Yahoo Finance
+containing daily closing prices for the ticker ${TICKER}, write a **single
+sentence** that states the overall price trend (e.g., "The price rose modestly,
+ending higher than it started," or "The price declined sharply over the period").
+Do not mention numbers, only describe the direction and strength of the trend.
+
+JSON:
+${RAW_JSON}
+PROMPT_EOF
+
+# ------------------------------------------------------------
+# 4. Ask the LLM (subagent_ask_helper) – it expects the prompt on stdin
+TREND_SENTENCE=$(echo "$PROMPT" | subagent_ask_helper)
+if [[ -z "$TREND_SENTENCE" ]]; then
+  echo "LLM did not return a trend sentence" >&2
+  exit 1
+fi
+
+# ------------------------------------------------------------
+# 5. STORE the trend in the keyword‑archive
+#    Use keyword “trend:<TICKER>”. The note title is the ticker, the body
+#    is the trend sentence.
+NOTE_ID=$(echo "$TREND_SENTENCE" | keyword-archive-store \
+  --title "${TICKER} price trend" \
+  --keyword "trend:${TICKER}" \
+  --tags "trend,auto")
+if [[ -z "$NOTE_ID" ]]; then
+  echo "Failed to store trend in keyword‑archive" >&2
+  exit 1
+fi
+
+# ------------------------------------------------------------
+# 6. OUTPUT: show the stored note ID and the sentence
+printf "Trend stored (ID=%s): %s\n" "$NOTE_ID" "$TREND_SENTENCE"
+exit 0

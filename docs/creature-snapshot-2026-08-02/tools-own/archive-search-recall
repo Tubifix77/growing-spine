@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# does: Search the keyword‑archive for a query and return the top‑matching notes (default 3).
+
+# Usage: archive-search-recall <query>
+# Example: archive-search-recall "machine learning"
+
+set -euo pipefail
+
+if [[ $# -lt 1 ]]; then
+  echo "Error: missing query argument" >&2
+  echo "Usage: $0 <query>" >&2
+  exit 1
+fi
+
+QUERY="$*"
+
+# Call the underlying archive search tool
+# It expects: keyword-archive-search [--top N] <query>
+RESULT=$(keyword-archive-search "$QUERY" 2>/dev/null || true)
+
+if [[ -z "$RESULT" ]]; then
+  echo "No matching notes found for query: $QUERY"
+  exit 0
+fi
+
+# Print the raw result (already formatted by keyword-archive-search)
+echo "$RESULT"

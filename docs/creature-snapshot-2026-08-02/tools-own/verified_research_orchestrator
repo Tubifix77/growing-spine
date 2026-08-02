@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+# does: Orchestrates a full research cycle (plan → execution → synthesis → cross‑source verification) and stores the verified answer.
+
+set -euo pipefail
+
+# ----------------------------------------------------------------------
+# Helper: print usage and exit
+# ----------------------------------------------------------------------
+usage() {
+    echo "Usage: verified_research_orchestrator \"<research_question>\""
+    exit 1
+}
+
+if [ "$#" -lt 1 ]; then
+    usage
+fi
+
+QUERY="$1"
+echo "--- Starting Verified Research Cycle ---"
+echo "Query: $QUERY"
+
+# 1. Planning
+echo "[1/5] Generating research plan..."
+# plan_from_question usually outputs the plan ID as the last line or in a clear format.
+# We try to extract the plan ID.
+PLAN_OUT=$(plan_from_question "$QUERY")
+PLAN_ID=$(echo "$PLAN_OUT" | grep -oE '[0-9]{10,}' | tail -n 1)
+
+if [ -z "$PLAN_ID" ]; then
+    echo "Error: Failed to extract Plan ID from plan_from_question output."
+    echo "Output was: $PLAN_OUT"
+    exit 1
+fi
+echo "Plan created with ID: $PLAN_ID"
+
+# 2. Execution
+echo "[2/5] Executing research steps..."
+# plan_executor executes pending steps of a persistent plan.
+plan_executor "$PLAN_ID"
+
+# 3. Synthesis
+echo "[3/5] Synthesizing deep answer..."
+FINAL_ANSWER=$(deep_answer_synth "$QUERY")
+
+if [ -z "$FINAL_ANSWER" ]; then
+    echo "Error: Synthesis produced no answer."
+    exit 1
+fi
+echo "Synthesis complete."
+
+# 4. Verification
+echo "[4/5] Verifying factual claims..."
+# Use subagent_ask_helper to extract a few core claims to verify.
+CLAIMS_RAW=$(subagent_ask_helper "Extract the 3 most important factual claims from the following text. Return them as a simple list, one claim per line, no numbers or bullets:
+$FINAL_ANSWER")
+
+VERIFICATION_LOG=""
+while IFS= read -r CLAIM; do
+    if [ -n "$CLAIM" ]; then
+        echo "Verifying claim: $CLAIM"
+        # cross_source_fact_checker checks a claim against external data and archive.
+        V_RES=$(cross_source_fact_checker "$CLAIM")
+        VERIFICATION_LOG+="\nClaim: $CLAIM\nResult: $V_RES\n-------------------"
+    fi
+done <<< "$CLAIMS_RAW"
+
+# 5. Archiving and Final Output
+echo "[5/5] Archiving verified result..."
+VERIFIED_REPORT="Question: $QUERY
+\n\nAnswer:
+$FINAL_ANSWER
+\n\nVerification Log:
+$VERIFICATION_LOG"
+
+# Store in the keyword archive under 'verified_research'
+keyword-archive-store "verified_research" "$VERIFIED_REPORT"
+
+echo "--- Research Cycle Complete ---"
+echo -e "$VERIFIED_REPORT"

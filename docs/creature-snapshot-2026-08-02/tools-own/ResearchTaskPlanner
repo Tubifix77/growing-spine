@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# does: Create a research task plan from a list of topics by chaining
+#       knowledge_gap_filler → plan_from_question → step-planner-tracker.
+# Usage: ResearchTaskPlanner "<topic1>" "<topic2>" ...
+
+set -euo pipefail
+
+# Verify required tools exist
+for tool in knowledge_gap_filler plan_from_question; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+        echo "Error: required tool '$tool' not found in PATH." >&2
+        exit 1
+    fi
+done
+
+# If no topics were supplied, show help and exit
+if [[ $# -eq 0 ]]; then
+    echo "Usage: $(basename "$0") \"<topic1>\" \"<topic2>\" ..."
+    exit 1
+fi
+
+# Process each topic
+for topic in "$@"; do
+    echo "=== Processing topic: $topic ==="
+
+    # ---- Knowledge‑gap filling ------------------------------------------------
+    # Provide a tiny JSON record; the filler expects a JSON object on stdin.
+    # Any output is logged but not required for the downstream steps.
+    echo "{\"topic\": \"$topic\"}" | knowledge_gap_filler || {
+        echo "Warning: knowledge_gap_filler failed for topic '$topic' (continuing)." >&2
+    }
+
+    # ---- Generate a research plan ---------------------------------------------
+    # plan_from_question creates a persistent plan and prints a line like:
+    #   "Created plan ID <plan_id> for goal: <topic>"
+    plan_output=$(plan_from_question "$topic") || {
+        echo "Error: plan_from_question failed for topic '$topic'." >&2
+        exit 1
+    }
+
+    # Extract the plan ID from the tool's output (fallback to raw output)
+    if [[ "$plan_output" =~ ([0-9]{13,}) ]]; then
+        plan_id="${BASH_REMATCH[1]}"
+    else
+        plan_id="UNKNOWN"
+    fi
+
+    echo "Generated plan ID $plan_id for topic: $topic"
+    echo "$plan_output"
+done
+
+echo "ResearchTaskPlanner completed successfully."
+exit 0

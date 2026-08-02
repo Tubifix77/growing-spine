@@ -1,0 +1,54 @@
+tool: knowledge_gap_with_memory_context
+call: knowledge_gap_with_memory_context <query>
+does: Deeply enriches a query with archive context, identifies specific gaps, fills them, and synthesizes a final answer.
+
+set -euo pipefail
+
+QUERY="$1"
+CACHE_KEY="kgwmc_cache_${QUERY}"
+
+# 1. Check memstore cache first for an identical query
+CACHED_VAL=$(memstore get "$CACHE_KEY" | jq -r '.value // empty')
+if [ -n "$CACHED_VAL" ]; then
+    echo "--- [Cache Hit] ---"
+    echo "$CACHED_VAL"
+    exit 0
+fi
+
+echo "--- [Analyzing Knowledge Gaps] ---"
+
+# 2. Retrieve existing context from archive
+CONTEXT=$(keyword-archive-search "$QUERY" | head -n 20)
+
+# 3. Use LLM to identify the gap between the query and the current context
+GAP_PROMPT="Query: $QUERY
+Current Context:
+$CONTEXT
+
+Compare the query to the context. What specific pieces of information are missing that are needed to answer the query fully? 
+List only the missing facts or search queries. If nothing is missing, reply 'NO_GAP'."
+
+GAP_DESCRIPTION=$(subagent_ask_helper "$GAP_PROMPT")
+
+if [[ "$GAP_DESCRIPTION" == *"NO_GAP"* ]]; then
+    echo "No knowledge gaps detected. Synthesizing from archive..."
+    FINAL_ANSWER=$(subagent_ask_helper "Using this context, answer the query: $QUERY\n\nContext:\n$CONTEXT")
+else
+    echo "Gap detected: $GAP_DESCRIPTION"
+    echo "Filling gap..."
+    # 4. Fill the gap using the existing gap filler tool
+    GAP_FILL_RESULT=$(knowledge_gap_filler "$GAP_DESCRIPTION")
+    
+    # 5. Synthesize final answer using both original context and gap fill
+    FINAL_ANSWER=$(subagent_ask_helper "Query: $QUERY
+Original Context: $CONTEXT
+Newly Filled Gap: $GAP_FILL_RESULT
+
+Synthesize a complete, accurate answer based on all available information.")
+fi
+
+# 6. Cache the result in memstore for future use
+memstore set "$CACHE_KEY" "$FINAL_ANSWER"
+
+echo "--- [Final Answer] ---"
+echo "$FINAL_ANSWER"

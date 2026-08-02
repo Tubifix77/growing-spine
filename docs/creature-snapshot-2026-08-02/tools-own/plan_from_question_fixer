@@ -1,0 +1,4 @@
+tool: plan_from_question_fixer
+call: plan_from_question_fixer.py "question"
+does: Wraps knowledge_gap_filler around plan_from_question and step-planner-tracker to detect missing context when plan generation fails, fill the gaps, and retry the plan creation.
+

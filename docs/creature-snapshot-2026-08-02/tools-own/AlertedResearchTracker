@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+# does: Merge wake_orient_digest, knowledge_gap_filler, and step-planner-tracker.
+#       Creates research tasks from daily news digests that have identified knowledge gaps.
+
+set -euo pipefail
+
+# -----------------------------
+# Helper: print usage and exit
+# -----------------------------
+usage() {
+    echo "Usage: $0 --source <source-name>"
+    exit 1
+}
+
+# -----------------------------
+# Parse arguments
+# -----------------------------
+if [[ $# -lt 2 ]]; then
+    usage
+fi
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --source)
+            SOURCE="$2"
+            shift 2
+            ;;
+        *)
+            echo "Unknown argument: $1"
+            usage
+            ;;
+    esac
+done
+
+# -----------------------------
+# 1. Get the daily digest (JSON array of items)
+# -----------------------------
+DIGEST_JSON=$(wake_orient_digest --source "$SOURCE")
+# If the tool failed or returned empty, abort
+if [[ -z "$DIGEST_JSON" ]]; then
+    echo "No digest returned; exiting."
+    exit 0
+fi
+
+# Store the digest temporarily for debugging
+TMP_DIGEST=$(mktemp /tmp/digest.XXXX.json)
+echo "$DIGEST_JSON" > "$TMP_DIGEST"
+
+# -----------------------------
+# 2. Process each item through knowledge_gap_filler
+# -----------------------------
+# We'll collect plan IDs of created tasks
+PLAN_IDS=()
+
+# Iterate over each element in the array
+jq -c '.[]' "$TMP_DIGEST" | while read -r ITEM_JSON; do
+    # Feed the item to knowledge_gap_filler; it returns the item possibly enriched with a "gap" field
+    GAPTED=$(echo "$ITEM_JSON" | knowledge_gap_filler)
+
+    # Check if a gap was identified
+    if echo "$GAPTED" | jq -e '.gap // empty' >/dev/null; then
+        # Create a human‑readable description for the task
+        TITLE=$(echo "$GAPTED" | jq -r '.title // "Untitled item"')
+        URL=$(echo "$GAPTED" | jq -r '.url // empty')
+        GAP_DESC=$(echo "$GAPTED" | jq -r '.gap // "knowledge gap"')
+
+        # Build a concise goal string
+        GOAL="Research gap for \"$TITLE\" – $GAP_DESC"
+
+        # Create a persistent plan with a single step: investigate the URL (if present)
+        if [[ -n "$URL" && "$URL" != "null" ]]; then
+            STEP="Fetch and analyse $URL"
+        else
+            STEP="Investigate the identified gap"
+        fi
+
+        # Use step‑planner‑tracker to add the plan; capture the plan ID printed on stdout
+        PLAN_ID=$(step-planner-tracker add "$GOAL" "$STEP")
+        PLAN_IDS+=("$PLAN_ID")
+    fi
+done
+
+# Output the created plan IDs as a JSON array for downstream tooling
+if [[ ${#PLAN_IDS[@]} -gt 0 ]]; then
+    printf '[%s]\n' "$(printf '"%s",' "${PLAN_IDS[@]}" | sed 's/,$//')"
+else
+    echo "[]"
+fi

@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# tool: SubagentArchiveRecall
+# call: SubagentArchiveRecall <query>
+# does: Answers a query using a fresh LLM sub‑agent answer plus relevant archived snippets,
+#       stores the combined result in memstore, and prints the enriched answer.
+
+set -euo pipefail
+
+# ----- Input -----
+if [[ $# -eq 0 ]]; then
+  echo "Usage: SubagentArchiveRecall <query>" >&2
+  exit 1
+fi
+QUERY="$*"
+
+# ----- Step 1: fresh answer from sub‑agent -----
+# subagent_ask_helper returns ONLY the LLM answer (no metadata)
+LLM_ANSWER="$(subagent_ask_helper "$QUERY")"
+
+# ----- Step 2: search the keyword archive for related snippets -----
+# keyword-archive-search returns the top matching notes (JSON lines). We keep only the “content” field.
+ARCHIVE_RAW="$(keyword-archive-search "$QUERY")"
+if [[ -n "$ARCHIVE_RAW" ]]; then
+  # Extract just the text part (assumes each line is a JSON object with a `content` field)
+  ARCHIVE_SNIPPETS="$(echo "$ARCHIVE_RAW" | jq -r '.content // empty' | paste -sd'  ' -)"
+else
+  ARCHIVE_SNIPPETS="(no archived snippets found)"
+fi
+
+# ----- Step 3: combine answer and snippets -----
+COMBINED="Query: $QUERY
+
+LLM answer:
+$LLM_ANSWER
+
+Relevant archived snippets:
+$ARCHIVE_SNIPPETS"
+
+# ----- Step 4: persist the combined result in memstore -----
+# Use a deterministic key so the same query can be retrieved later.
+KEY="SubagentArchiveRecall:$(echo "$QUERY" | md5sum | cut -d' ' -f1)"
+# memstore add <key> <value>
+memstore add "$KEY" "$COMBINED"
+
+# ----- Output -----
+echo "$COMBINED"
+exit 0

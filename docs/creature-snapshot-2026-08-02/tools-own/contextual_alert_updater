@@ -1,0 +1,102 @@
+#!/usr/bin/env python3
+# tool: contextual_alert_updater
+# call: contextual_alert_updater <topic>
+# does: Generates contextual alerts for a given topic from fresh Hacker News items,
+#       stores them in the keyword‑archive, and returns the alert IDs.
+
+import json
+import subprocess
+import sys
+import shlex
+from pathlib import Path
+
+def run_cmd(cmd: str) -> str:
+    """Run a shell command, capture stdout, raise on error."""
+    result = subprocess.run(
+        cmd, shell=True, check=False,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"Command failed: {cmd}\nSTDERR: {result.stderr}")
+    return result.stdout.strip()
+
+def fetch_hn_items() -> list:
+    """Call wake_catchup_fetcher (real version) and parse its JSON output."""
+    out = run_cmd("wake_catchup_fetcher.real")
+    try:
+        items = json.loads(out)
+        if not isinstance(items, list):
+            raise ValueError("Fetcher did not return a list")
+        return items
+    except json.JSONDecodeError as e:
+        raise RuntimeError(f"Failed to parse JSON from fetcher: {e}")
+
+def filter_items(items: list, topic: str) -> list:
+    """Return items whose title contains the topic (case‑insensitive)."""
+    topic_lc = topic.lower()
+    return [it for it in items if topic_lc in it.get("title", "").lower()]
+
+def generate_alert(item: dict, topic: str) -> str:
+    """
+    Use subagent_ask_helper to create a short alert.
+    If the sub‑agent fails, fall back to a simple templated alert.
+    """
+    prompt = (
+        f"Create a concise alert (max 2 sentences) about the following "
+        f"news item that is relevant to the topic '{topic}'.\n\n"
+        f"Title: {item.get('title','')}\n"
+        f"URL: {item.get('url','')}"
+    )
+    # Escape the prompt for safe shell usage
+    safe_prompt = shlex.quote(prompt)
+    try:
+        # subagent_ask_helper prints only the answer
+        answer = run_cmd(f"subagent_ask_helper {safe_prompt}")
+        return answer.strip()
+    except Exception:
+        # Fallback: a deterministic short alert
+        return f"Alert: New article titled '{item.get('title','')}'; see {item.get('url','')}."
+
+def store_alert(alert: str, topic: str) -> str:
+    """
+    Store the alert in the keyword‑archive under the key 'alert:<topic>'.
+    Returns the stored record ID (the line number in the JSONL file).
+    """
+    key = f"alert:{topic}"
+    # Use keyword-archive-store; it echoes the stored line number.
+    cmd = f"keyword-archive-store '{key}' '{alert}' --tags alert"
+    out = run_cmd(cmd)
+    return out.strip()
+
+def main():
+    if len(sys.argv) != 2:
+        print("Usage: contextual_alert_updater <topic>")
+        sys.exit(1)
+
+    topic = sys.argv[1]
+
+    try:
+        items = fetch_hn_items()
+    except Exception as e:
+        print(f"[contextual_alert_updater] Failed to fetch Hacker News items: {e}")
+        sys.exit(1)
+
+    matching = filter_items(items, topic)
+
+    if not matching:
+        # No fresh items – still store a placeholder alert so the cousin knows it ran.
+        placeholder = f"No recent Hacker News items mentioning '{topic}'."
+        alert_id = store_alert(placeholder, topic)
+        print(f"[contextual_alert_updater] Stored placeholder alert ID {alert_id}")
+        sys.exit(0)
+
+    alert_ids = []
+    for it in matching:
+        alert = generate_alert(it, topic)
+        aid = store_alert(alert, topic)
+        alert_ids.append(aid)
+
+    print("[contextual_alert_updater] Created alerts with IDs:", " ".join(alert_ids))
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# tool: dummy
+# call: dummy <shell-command>
+# does: Executes a shell command and returns a JSON summary of its result.
+#
+# JSON format:
+# {
+#   "success": <bool>,
+#   "exit_code": <int>,
+#   "stdout": "<captured stdout>",
+#   "stderr": "<captured stderr>"
+# }
+#
+# Example:
+#   dummy "ls /nonexistent"
+#   => {"success":false,"exit_code":2,"stdout":"","stderr":"ls: cannot access '/nonexistent': No such file or directory"}
+
+# Ensure a command was provided
+if [[ $# -eq 0 ]]; then
+  echo '{"success":false,"exit_code":1,"stdout":"","stderr":"dummy: no command supplied"}'
+  exit 1
+fi
+
+# Run the supplied command, capturing stdout and stderr separately
+# Use eval to allow the caller to pass a full command line with arguments, pipes, etc.
+cmd="$*"
+stdout=$(mktemp)
+stderr=$(mktemp)
+
+# Execute the command
+eval "$cmd" >"$stdout" 2>"$stderr"
+code=$?
+
+# Read captured output
+out=$(cat "$stdout")
+err=$(cat "$stderr")
+
+# Clean up temp files
+rm -f "$stdout" "$stderr"
+
+# Build JSON (escape double quotes and backslashes)
+json_escape() {
+  printf '%s' "$1" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))'
+}
+
+out_escaped=$(json_escape "$out")
+err_escaped=$(json_escape "$err")
+
+# Determine success (exit code 0)
+if [[ $code -eq 0 ]]; then
+  success=true
+else
+  success=false
+fi
+
+# Emit JSON on a single line
+printf '{"success":%s,"exit_code":%d,"stdout":%s,"stderr":%s}\n' "$success" "$code" "$out_escaped" "$err_escaped"

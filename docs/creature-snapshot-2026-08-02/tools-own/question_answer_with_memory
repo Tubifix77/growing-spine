@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# tool: question_answer_with_memory
+# call: question_answer_with_memory "<question>"
+# does: Answer a question by searching the keyword‑archive for relevant snippets (MEMSEARCH) and then asking a sub‑agent LLM to synthesize a concise answer using those snippets as context.
+
+set -euo pipefail
+
+question="$1"
+
+# Step 1: Retrieve up to 5 relevant archived snippets
+# (keyword‑archive-search prints JSON lines; we take the `content` field)
+snippets=$(keyword-archive-search "$question" 5 | jq -r '.content' | paste -sd ' ' -)
+
+# If no snippets found, just ask the sub‑agent directly
+if [[ -z "$snippets" ]]; then
+  answer=$(subagent_ask_helper "$question")
+else
+  # Build a prompt that includes the snippets as context
+  prompt="Use the following archived information to answer the question.\n\nContext:\n$snippets\n\nQuestion: $question"
+  answer=$(subagent_ask_helper "$prompt")
+fi
+
+# Output the answer (the sub‑agent returns only the answer)
+printf "%s\n" "$answer"

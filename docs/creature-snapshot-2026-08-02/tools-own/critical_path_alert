@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# tool: critical_path_alert
+# does: Detect breaking news for a topic, fill missing knowledge, synthesize a concise alert via LLM, and archive it.
+# Usage: critical_path_alert <topic>
+# Requires: wake_catchup_fetcher, knowledge_gap_filler, subagent_ask_helper, keyword-archive-store, jq
+
+set -euo pipefail
+
+# ---------- Argument handling ----------
+if [[ $# -lt 1 ]]; then
+  echo "Usage: $0 <topic>"
+  exit 1
+fi
+TOPIC="${1,,}"   # lower‑case for matching
+
+# ---------- Ensure jq is available ----------
+ensure_jq '. as $in | $in' >/dev/null 2>&1 || {
+  echo "jq is required but not available."
+  exit 1
+}
+
+# ---------- Fetch fresh items ----------
+RAW_JSON=$(wake_catchup_fetcher) || {
+  echo "Failed to run wake_catchup_fetcher."
+  exit 1
+}
+
+# ---------- Pick the most relevant item ----------
+# Items are objects with at least: title, url, tags (array)
+ITEM=$(printf '%s' "$RAW_JSON" |
+  jq -c --arg topic "$TOPIC" '
+    map(
+      . as $i |
+      {
+        score: (
+          ($i.title | ascii_downcase | test($topic)) or
+          ($i.tags // [] | map(ascii_downcase) | any(. == $topic))
+        ),
+        data: $i
+      }
+    )
+    | sort_by(.score) | reverse | .[0].data
+  ')
+
+if [[ -z "$ITEM" ]] || [[ "$ITEM" == "null" ]]; then
+  echo "No recent news items found for topic: $TOPIC"
+  exit 0
+fi
+
+TITLE=$(printf '%s' "$ITEM" | jq -r '.title')
+URL=$(printf '%s' "$ITEM" | jq -r '.url')
+
+# ---------- Fill any knowledge gaps (optional) ----------
+# This will pull missing context into the archive but we ignore its output here.
+knowledge_gap_filler "$TITLE" >/dev/null 2>&1 || true
+
+# ---------- Generate a concise alert via LLM ----------
+PROMPT="Based on the news article titled \"${TITLE}\" (${URL}), write a concise two‑sentence alert describing its impact on ${TOPIC}."
+
+ALERT=$(subagent_ask_helper "$PROMPT") || {
+  echo "LLM request failed while generating the alert."
+  exit 1
+}
+
+# ---------- Archive the alert ----------
+KEYWORD="critical_alert:${TOPIC}"
+TAGS="critical,${TOPIC}"
+keyword-archive-store "$KEYWORD" "$ALERT" --tags "$TAGS"
+
+# Print summary for the user / calling process
+echo "✅ Alert archived under keyword \"$KEYWORD\"."
+echo "Alert: $ALERT"

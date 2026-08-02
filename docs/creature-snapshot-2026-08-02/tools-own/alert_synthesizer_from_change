@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# does: Detect changes at a URL, generate a concise alert via LLM, and store it in the keyword archive.
+# Usage: alert_synthesizer_from_change --url <URL>
+# Dependencies: monitor_change_and_alert, subagent_ask_helper, keyword-archive-store
+
+set -euo pipefail
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --url) shift; URL="$1" ;;
+    *) echo "Unknown argument: $1" >&2; exit 1 ;;
+  esac
+  shift
+done
+
+if [[ -z "${URL:-}" ]]; then
+  echo "Error: --url is required" >&2
+  exit 1
+fi
+
+# 1. Run monitor_change_and_alert – it outputs a JSON alert if a change is detected.
+# The tool returns nothing if no change, so we capture output and test.
+ALERT_JSON=$(monitor_change_and_alert "$URL" || true)
+
+if [[ -z "$ALERT_JSON" ]]; then
+  # No change detected – exit silently with status 0
+  exit 0
+fi
+
+# 2. Extract the raw change description (field `detail` if present, else whole JSON)
+# We'll try to pull `detail`; fallback to the whole JSON.
+CHANGE_TEXT=$(echo "$ALERT_JSON" | jq -r '.detail // empty')
+if [[ -z "$CHANGE_TEXT" ]]; then
+  CHANGE_TEXT=$(echo "$ALERT_JSON" | jq -c '.')
+fi
+
+# 3. Ask the LLM (via subagent_ask_helper) to produce a concise alert message.
+# Prompt: "Summarize the following change in one short sentence."
+LLM_PROMPT="Summarize the following change in one short sentence:\n$CHANGE_TEXT"
+CONCISE=$(echo "$LLM_PROMPT" | subagent_ask_helper)
+
+# 4. Store the concise alert in the keyword archive.
+# Use a fixed keyword so all alerts are searchable: `change-alert`.
+# We'll also attach a tag with the source URL.
+keyword-archive-store "change-alert" "$CONCISE" --tags "source=$URL"
+
+# 5. Output the concise alert for visibility.
+echo "$CONCISE"

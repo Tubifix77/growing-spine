@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+# does: Download a URL (HTTP/HTTPS) and write it to a file or stdout. Falls back from curl → wget → python urllib.
+# Usage: fetch_url <url> [-o <output_file>]
+#   - If -o is omitted, the response is printed to stdout.
+#   - Prefers curl, then wget, then Python's urllib if neither is available.
+
+set -euo pipefail
+
+# Parse arguments
+if [[ $# -lt 1 ]]; then
+  echo "Usage: $0 <url> [-o <output_file>]" >&2
+  exit 2
+fi
+
+url="$1"
+shift
+
+output=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -o)
+      shift
+      if [[ $# -eq 0 ]]; then
+        echo "Error: -o requires a filename" >&2
+        exit 2
+      fi
+      output="$1"
+      ;;
+    *)
+      echo "Unknown argument: $1" >&2
+      exit 2
+      ;;
+  esac
+  shift
+done
+
+# Helper to write to file or stdout
+write_output() {
+  if [[ -n "$output" ]]; then
+    cat > "$output"
+  else
+    cat
+  fi
+}
+
+# Try curl
+if command -v curl >/dev/null 2>&1; then
+  if curl -fsSL "$url" 2>/dev/null | write_output; then
+    exit 0
+  fi
+fi
+
+# Try wget
+if command -v wget >/dev/null 2>&1; then
+  if wget -qO- "$url" 2>/dev/null | write_output; then
+    exit 0
+  fi
+fi
+
+# Fallback to python urllib
+if command -v python3 >/dev/null 2>&1; then
+  python3 - <<PYTHON
+import sys, urllib.request
+url = sys.argv[1]
+out_file = sys.argv[2] if len(sys.argv) > 2 else None
+try:
+    with urllib.request.urlopen(url) as resp:
+        data = resp.read()
+        if out_file:
+            open(out_file, "wb").write(data)
+        else:
+            sys.stdout.buffer.write(data)
+except Exception as e:
+    sys.exit(1)
+PYTHON "$url" "$output"
+  if [[ $? -eq 0 ]]; then
+    exit 0
+  fi
+fi
+
+echo "fetch_url: Unable to retrieve $url (all methods failed)" >&2
+exit 1

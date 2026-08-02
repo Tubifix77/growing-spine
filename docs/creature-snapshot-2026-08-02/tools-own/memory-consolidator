@@ -1,0 +1,54 @@
+#!/usr/bin/env python3
+# tool: memory-consolidator
+# call: memory-consolidator <topic>
+# does: Consolidates fragmented knowledge from keyword-archive and memstore into a synthesized master record using subagent_ask_helper.
+
+import subprocess
+import sys
+import shlex
+
+def run_command(cmd):
+    try:
+        result = subprocess.run(shlex.split(cmd), capture_output=True, text=True, check=True)
+        return result.stdout.strip()
+    except subprocess.CalledProcessError as e:
+        return f"Error running {cmd}: {e.stderr.strip()}"
+
+def main():
+    if len(sys.argv) < 2:
+        print("Usage: memory-consolidator <topic>")
+        sys.exit(1)
+
+    topic = sys.argv[1]
+    
+    # 1. Gather from keyword archive
+    archive_data = run_command(f"keyword-archive-search {shlex.quote(topic)}")
+    
+    # 2. Gather from memstore/memsearch
+    mem_data = run_command(f"memsearch {shlex.quote(topic)}")
+    
+    combined_context = f"Topic: {topic}\n\n--- Archive Data ---\n{archive_data}\n\n--- Memstore Data ---\n{mem_data}"
+    
+    # 3. Synthesize master record
+    prompt = f"The following are fragmented pieces of information about '{topic}'. Please synthesize them into a single, comprehensive, and coherent master record. Remove redundancies and resolve contradictions if possible. Return only the synthesized record.\n\n{combined_context}"
+    
+    # We use subagent_ask_helper to synthesize
+    # Note: subagent_ask_helper takes the query as a single argument.
+    # We'll wrap the prompt in quotes.
+    synthesis = run_command(f"subagent_ask_helper {shlex.quote(prompt)}")
+    
+    if "Error" in synthesis:
+        print(f"Synthesis failed: {synthesis}")
+        sys.exit(1)
+
+    # 4. Persist the consolidated record
+    # Store in keyword-archive
+    run_command(f"keyword-archive-store {shlex.quote(topic)} {shlex.quote(synthesis)} --tags consolidated")
+    
+    # Store in memstore
+    run_command(f"memstore {shlex.quote(f'consolidated:{topic}')} {shlex.quote(synthesis)}")
+    
+    print(f"Consolidated record for {topic}:\n\n{synthesis}")
+
+if __name__ == "__main__":
+    main()

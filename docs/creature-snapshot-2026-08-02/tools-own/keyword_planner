@@ -1,0 +1,64 @@
+#!/usr/bin/env python3
+"""
+tool: keyword_planner
+does: Generate a persistent plan by fetching relevant keyword‑archive notes for a search term
+       and feeding them to step‑planner‑tracker.
+"""
+
+import sys
+import json
+import subprocess
+from pathlib import Path
+
+# Helper to run a tool and capture its stdout
+def run_tool(name, *args):
+    result = subprocess.run([name] + list(args), capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"Tool {name} failed: {result.stderr.strip()}")
+    return result.stdout.strip()
+
+def main():
+    if len(sys.argv) < 2:
+        print("Usage: keyword_planner <search-term>", file=sys.stderr)
+        sys.exit(1)
+
+    query = " ".join(sys.argv[1:])
+
+    # 1️⃣ Retrieve relevant notes from the keyword archive
+    # The archive‑search tool returns top‑matching notes in JSONL (one per line)
+    raw = run_tool("keyword-archive-search", query)
+
+    # Parse each returned line as JSON; collect the 'content' field (or whole note)
+    notes = []
+    for line in raw.splitlines():
+        try:
+            note = json.loads(line)
+            # Prefer a 'content' field; fall back to whole note string
+            notes.append(note.get("content", json.dumps(note)))
+        except json.JSONDecodeError:
+            # If the tool returned plain text, keep the line verbatim
+            notes.append(line)
+
+    if not notes:
+        print(f"No archived notes found for '{query}'. Creating empty plan.", file=sys.stderr)
+
+    # 2️⃣ Compose a single prompt for the planner
+    # We'll pass the notes as a JSON‑encoded list to step‑planner‑tracker.
+    # The planner expects: step-planner-tracker add <goal> <steps-json>
+    # Goal: "Plan based on keyword archive for '<query>'"
+    goal = f"Plan based on keyword archive for '{query}'"
+
+    # Create a simple step list: each note becomes a step to review.
+    steps = [{"action": f"Review note: {note}", "status": "pending"} for note in notes]
+
+    steps_json = json.dumps(steps)
+
+    # 3️⃣ Create the persistent plan
+    # step-planner-tracker add <goal> <steps-json>
+    plan_output = run_tool("step-planner-tracker", "add", goal, steps_json)
+
+    # The planner prints the new plan ID; just forward it to the user
+    print(plan_output)
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# does: Turn live alerts (e.g., RSS feed) into a concrete, persisted task plan.
+# Usage: plan_from_live_alert --source rss <feed_url>
+#   --source rss   : fetch an RSS feed, extract each item title, ask LLM for an actionable task,
+#                    and record those tasks as steps in a new plan.
+
+set -euo pipefail
+
+# ---------- argument parsing ----------
+SOURCE=""
+FEED_URL=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --source)
+      SOURCE="$2"; shift 2 ;;
+    *)
+      if [[ -z "$FEED_URL" ]]; then
+        FEED_URL="$1"
+      else
+        echo "Unexpected argument: $1" >&2
+        exit 1
+      fi
+      shift ;;
+  esac
+done
+
+if [[ -z "$SOURCE" || -z "$FEED_URL" ]]; then
+  echo "Usage: $0 --source rss <feed_url>" >&2
+  exit 1
+fi
+
+# ---------- only RSS is supported for now ----------
+if [[ "$SOURCE" != "rss" ]]; then
+  echo "Only 'rss' source is currently supported." >&2
+  exit 1
+fi
+
+# ---------- fetch the RSS feed ----------
+# fetch_url writes to stdout; we pipe it directly.
+# extract_rss_titles reads from stdin and prints one title per line.
+titles=$(fetch_url "$FEED_URL" | extract_rss_titles)
+
+# ---------- create a new plan ----------
+# Use plan_from_question to create a persistent plan and capture its ID.
+PLAN_GOAL="Handle live alerts from $FEED_URL"
+PLAN_ID=$(plan_from_question "$PLAN_GOAL" | tail -n1 | tr -d '\r')
+echo "Created plan ID: $PLAN_ID"
+
+# ---------- turn each title into a task and add to the plan ----------
+while IFS= read -r title; do
+  # Ask the sub‑agent to propose a concise actionable task.
+  task=$(echo "Derive a short, concrete task that a human could act on from this alert title: \"$title\". Respond with only the task sentence." \
+        | subagent_ask_helper)
+
+  # Add the task as a new step in the plan.
+  # step‑planner‑tracker expects: add-step <plan-id> "<task>"
+  step-planner-tracker add-step "$PLAN_ID" "$task"
+  echo "Added step to plan $PLAN_ID: $task"
+done <<< "$titles"
+
+# ---------- final output ----------
+echo "Plan $PLAN_ID created with $(echo "$titles" | wc -l) steps."

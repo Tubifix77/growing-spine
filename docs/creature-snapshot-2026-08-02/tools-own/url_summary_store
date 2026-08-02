@@ -1,0 +1,50 @@
+#!/usr/bin/env python3
+"""
+tool: url_summary_store
+call: url_summary_store <url> <keyword>
+does: Fetch a URL, summarize its main text via LLM, and store the summary under <keyword> in the keyword‑archive.
+"""
+
+import sys
+import subprocess
+import json
+import shlex
+
+def run_cmd(cmd):
+    """Run a shell command, capture stdout, raise on error."""
+    result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"Command failed: {cmd}\\nStderr: {result.stderr}")
+    return result.stdout.strip()
+
+def main():
+    if len(sys.argv) != 3:
+        print("Usage: url_summary_store <url> <keyword>", file=sys.stderr)
+        sys.exit(1)
+    url, keyword = sys.argv[1], sys.argv[2]
+
+    # 1) Fetch the URL content (plain text or HTML)
+    # fetch_url prints the content to stdout; we capture it
+    content = run_cmd(f"fetch_url {shlex.quote(url)}")
+    
+    # 2) Ask LLM to summarise (short summary)
+    # subagent_ask_helper reads a prompt from stdin and returns the answer
+    prompt = f"Summarize the following text in 3-5 concise sentences:\\n\\n{content}"
+    summary = run_cmd(f'echo {shlex.quote(prompt)} | subagent_ask_helper')
+    
+    # 3) Store the summary in the keyword‑archive
+    # keyword-archive-store expects: <keyword> <text> [--tags ...]
+    # We store the summary as a single note.
+    store_cmd = f'keyword-archive-store {shlex.quote(keyword)} {shlex.quote(summary)}'
+    run_cmd(store_cmd)
+
+    # Output a friendly confirmation
+    print(json.dumps({
+        "url": url,
+        "keyword": keyword,
+        "summary": summary,
+        "status": "stored"
+    }))
+
+if __name__ == "__main__":
+    main()

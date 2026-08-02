@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# does: Build a daily brief by fetching today’s headlines, summarising them, and archiving the result.
+
+set -euo pipefail
+
+# Parse optional argument --date <date>. Default is today.
+DATE=$(date +%Y-%m-%d)
+if [[ "${1:-}" == "--date" && -n "${2:-}" ]]; then
+  DATE="$2"
+fi
+
+# 1. Fetch fresh items (JSON array) – we use the real fetcher which updates its state.
+ITEMS_JSON=$(wake_catchup_fetcher.real)
+
+# 2. Generate a digest (expects JSON array on stdin, returns a JSON object with a "summary" field)
+DIGEST_JSON=$(echo "$ITEMS_JSON" | wake_orient_digest)
+
+# 3. Build the title for the archive entry
+TITLE="Daily Brief $DATE"
+
+# 4. Store the digest in the keyword‑archive.
+#    keyword-archive-store <keyword> <title> <content>
+#    We use keyword "daily-brief" and add a tag with the date for easy lookup.
+keyword-archive-store "daily-brief" "$TITLE" "$DIGEST_JSON" --tags "date:$DATE"
+
+# 5. Output the stored entry (the archive‑store tool already prints the stored JSON,
+#    but we echo a friendly confirmation as well.)
+echo "✅ Daily brief archived as \"$TITLE\""

@@ -1,0 +1,81 @@
+#!/usr/bin/env python3
+# tool: memory_backed_question_scheduler
+# call: memory_backed_question_scheduler <question>
+# does: Accepts a question, generates a plan, refines it with archive search and a subagent, then tracks it in the planner and memstore.
+
+import subprocess
+import sys
+import json
+import re
+
+def run(cmd):
+    try:
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, check=True)
+        return result.stdout.strip()
+    except subprocess.CalledProcessError as e:
+        return f"Error running {cmd}: {e.stderr}"
+
+def main():
+    if len(sys.argv) < 2:
+        print("Usage: memory_backed_question_scheduler <question>")
+        sys.exit(1)
+
+    question = " ".join(sys.argv[1:])
+    print(f"[*] Scheduling question: {question}")
+
+    # 1. Initial Plan
+    print("[*] Generating initial plan...")
+    initial_plan_raw = run(f"plan_from_question '{question}'")
+    # plan_from_question typically returns the plan ID and the steps.
+    # We need to extract the steps for the refinement phase.
+    
+    # 2. Archive Search
+    print("[*] Searching archive for existing knowledge...")
+    # Use the question as the search term
+    archive_results = run(f"keyword-archive-search '{question}'")
+
+    # 3. Refine Plan via Subagent
+    print("[*] Refining plan with subagent...")
+    refinement_prompt = (
+        f"I have a user question: '{question}'\n\n"
+        f"Initial Plan:\n{initial_plan_raw}\n\n"
+        f"Existing Knowledge from Archive:\n{archive_results}\n\n"
+        f"Please refine the plan. Remove steps already answered by the archive, "
+        f"and improve the remaining steps based on the context. "
+        f"Return ONLY the refined list of steps, one per line, starting with '1.'."
+    )
+    refined_steps_raw = run(f"subagent_ask_helper '{refinement_prompt}'")
+    
+    # 4. Persist the Refined Plan in step-planner-tracker
+    # We need to treat the refined steps as the new ground truth.
+    # Since plan_from_question already created a plan, we might want to 
+    # overwrite it or create a new one. To be safe and clean, we'll 
+    # create a new one via the tracker if possible, or just log the refined version.
+    # The 'step-planner-tracker' usually takes 'add <goal> <steps>'.
+    
+    # Clean up refined steps for the tracker (joining them into a string)
+    cleaned_steps = refined_steps_raw.replace("\n", " | ")
+    plan_persistence = run(f"step-planner-tracker add '{question}' '{cleaned_steps}'")
+    
+    # 5. Store Context in memstore
+    print("[*] Logging context to memstore...")
+    # Create a unique key for this session
+    import time
+    session_id = f"sched_{int(time.time())}"
+    context_data = {
+        "question": question,
+        "initial_plan": initial_plan_raw,
+        "archive_context": archive_results,
+        "refined_steps": refined_steps_raw,
+        "persistence_log": plan_persistence
+    }
+    memstore_payload = json.dumps(context_data)
+    run(f"memstore set '{session_id}' '{memstore_payload}'")
+
+    print("\n--- Final Scheduled Plan ---")
+    print(refined_steps_raw)
+    print(f"\n[*] Plan persisted and context stored in memstore as {session_id}")
+    print(f"[*] Tracker output: {plan_persistence}")
+
+if __name__ == "__main__":
+    main()

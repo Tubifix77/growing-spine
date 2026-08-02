@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# tool: latency_benchmark_notifier
+# call: latency_benchmark_notifier --url <url> [--threshold <ms>]
+# does: Fetch a latency benchmark JSON, ask LLM if it exceeds a threshold,
+#       and create a high‑priority alert task via step‑planner‑tracker.
+
+set -euo pipefail
+
+# ---------- arguments ----------
+URL="https://raw.githubusercontent.com/example/latency-benchmarks/main/latest.json"
+THRESHOLD=20
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --url)     URL="$2"; shift 2 ;;
+    --threshold) THRESHOLD="$2"; shift 2 ;;
+    *) echo "Unknown argument: $1" >&2; exit 1 ;;
+  esac
+done
+
+# ---------- fetch benchmark ----------
+# Use the built‑in web-fetch tool (prints body to stdout)
+if ! JSON=$(web-fetch "$URL"); then
+  echo "Failed to fetch benchmark from $URL" >&2
+  exit 1
+fi
+
+# Try to extract a numeric latency (ms) from the JSON.
+# The benchmark JSON may look like: {"latency_ms": 35, ...}
+LATENCY_MS=$(echo "$JSON" | jq -r '.latency_ms // .latency // .value // .[0]' 2>/dev/null || true)
+
+# If jq failed to find a field, fall back to a simple regex.
+if [[ -z "$LATENCY_MS" || "$LATENCY_MS" == "null" ]]; then
+  LATENCY_MS=$(echo "$JSON" | grep -Eo '[0-9]+' | head -n1 || true)
+fi
+
+if [[ -z "$LATENCY_MS" ]]; then
+  echo "Could not determine latency from JSON." >&2
+  exit 1
+fi
+
+# ---------- ask LLM if it exceeds threshold ----------
+PROMPT="The latest benchmark reports a latency of ${LATENCY_MS} ms. Does this exceed the threshold of ${THRESHOLD} ms? Answer YES or NO."
+LLM_ANSWER=$(subagent_ask_helper "$PROMPT")
+
+# Normalize answer
+ANSWER=$(echo "$LLM_ANSWER" | tr '[:lower:]' '[:upper:]' | grep -Eo 'YES|NO' || true)
+
+if [[ "$ANSWER" != "YES" ]]; then
+  echo "Latency $LATENCY_MS ms does not exceed threshold $THRESHOLD ms. No alert generated."
+  exit 0
+fi
+
+# ---------- create alert task ----------
+TASK_TITLE="⚠️ Latency Alert – ${LATENCY_MS} ms exceeds ${THRESHOLD} ms"
+TASK_DESC="Benchmark source: $URL
+Latency observed: ${LATENCY_MS} ms
+Threshold: ${THRESHOLD} ms
+Full JSON payload:
+$JSON"
+
+# Use step‑planner‑tracker to add a high‑priority task.
+# The tool expects: step-planner-tracker add <title> [--description <desc>] [--priority <level>]
+step-planner-tracker add "$TASK_TITLE" --description "$TASK_DESC" --priority high
+
+echo "Alert task created: $TASK_TITLE"

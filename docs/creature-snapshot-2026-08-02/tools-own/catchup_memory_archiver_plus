@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# does: Fetch fresh news items, categorize & summarize them with LLM, enrich via knowledge_gap_filler,
+#       archive each entry, and automatically create a persistent plan for each item in step‑planner‑tracker.
+# Usage: catchup_memory_archiver_plus [--max N] [--plan-steps "step1;step2;..."]
+#   --max N          limit processing to N newest items (default: all)
+#   --plan-steps    semicolon‑separated steps to use for the created plan.
+#                   If omitted, a single step “review <keyword>” is used.
+
+set -euo pipefail
+
+# ---------- Helpers ----------
+log() { echo "$(date +%s) [catchup_memory_archiver_plus] $*"; }
+
+# Parse arguments
+MAX_ITEMS=0
+PLAN_STEPS="review {keyword}"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --max)   MAX_ITEMS=$2; shift 2;;
+    --plan-steps) PLAN_STEPS=$2; shift 2;;
+    *) log "Unknown argument: $1"; exit 1;;
+  esac
+done
+
+# 1. Fetch fresh items as JSON (array of objects: {title,url,tags})
+ITEMS_JSON=$(wake_catchup_fetcher)
+if [[ -z "$ITEMS_JSON" || "$ITEMS_JSON" == "[]" ]]; then
+  log "No new items fetched – exiting."
+  exit 0
+fi
+
+# 2. Optionally truncate to MAX_ITEMS
+if (( MAX_ITEMS > 0 )); then
+  ITEMS_JSON=$(echo "$ITEMS_JSON" | jq ".[0:$MAX_ITEMS]")
+fi
+
+# 3. Process each item
+echo "$ITEMS_JSON" | jq -c '.[]' | while read -r ITEM; do
+  TITLE=$(echo "$ITEM" | jq -r '.title')
+  URL=$(echo "$ITEM" | jq -r '.url')
+  TAGS=$(echo "$ITEM" | jq -r '.tags | join(",")')
+
+  # 3a. Summarise & categorise via subagent_ask_helper
+  # Prompt asks for a short (≤2 sentences) summary and a single keyword tag.
+  PROMPT="Summarise the article titled \"$TITLE\" (URL: $URL) in two sentences.
+  Then provide ONE concise keyword (lowercase, no spaces) that best categorises the content.
+  Output format: <summary> || <keyword>"
+  RAW_OUT=$(subagent_ask_helper "$PROMPT")
+  SUMMARY=$(echo "$RAW_OUT" | cut -d'|' -f1 | xargs)
+  KEYWORD=$(echo "$RAW_OUT" | cut -d'|' -f2 | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
+
+  # 3b. Enrich with knowledge_gap_filler (fills missing context for the keyword)
+  # We ask the filler to ensure the archive has at least a minimal paragraph for the keyword.
+  GAP_OUT=$(knowledge_gap_filler "$KEYWORD")
+  # knowledge_gap_filler already stores the result in the archive; we just capture any message.
+  log "Gap filler: $GAP_OUT"
+
+  # 3c. Archive the entry (keyword‑archive-store expects: <keyword> <note> [--tags a,b])
+  ARCHIVE_NOTE="Title: $TITLE
+URL: $URL
+Summary: $SUMMARY"
+  keyword-archive-store "$KEYWORD" "$ARCHIVE_NOTE" --tags "$TAGS"
+
+  # 3d. Create a persistent plan for this item.
+  # Replace placeholders in PLAN_STEPS: {keyword} -> $KEYWORD, {title} -> $TITLE
+  RESOLVED_STEPS=$(echo "$PLAN_STEPS" | sed "s/{keyword}/$KEYWORD/g; s/{title}/$TITLE/g")
+  PLAN_ID=$(step-planner-tracker add "Follow up on $TITLE" "$RESOLVED_STEPS")
+  log "Created plan $PLAN_ID for keyword $KEYWORD"
+done
+
+log "All items processed."

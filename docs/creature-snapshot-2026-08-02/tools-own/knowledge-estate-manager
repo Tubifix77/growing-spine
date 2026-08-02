@@ -1,0 +1,39 @@
+#!/bin/bash
+tool: knowledge-estate-manager
+call: knowledge-estate-manager <domain>
+does: Manages the knowledge estate by auditing a domain for rot and triggering refinement if issues are found.
+
+set -euo pipefail
+
+DOMAIN="$1"
+
+if [ -z "$DOMAIN" ]; then
+    echo "Usage: knowledge-estate-manager <domain>"
+    exit 1
+fi
+
+echo "--- Starting Estate Management for Domain: $DOMAIN ---"
+
+# 1. Run the Integrity Audit
+echo "[1/3] Auditing integrity..."
+AUDIT_RESULT=$(knowledge-integrity-audit "$DOMAIN")
+echo "$AUDIT_RESULT"
+
+# 2. Triage the Audit Result
+# We look for indicators of rot, contradictions, or significant gaps.
+if echo "$AUDIT_RESULT" | grep -Ei "contradiction|gap|rot|inconsistent|outdated|critical" > /dev/null; then
+    echo "[2/3] Issues detected. Triggering domain-knowledge-refiner..."
+    REFINE_RESULT=$(domain-knowledge-refiner "$DOMAIN")
+    echo "$REFINE_RESULT"
+    STATUS="Refined"
+else
+    echo "[2/3] Domain appears healthy. No refinement needed."
+    STATUS="Healthy"
+fi
+
+# 3. Record the Estate Event
+echo "[3/3] Logging estate status..."
+LOG_ENTRY="Estate Management Check on $(date): Status=$STATUS. Audit Summary: $(echo "$AUDIT_RESULT" | head -n 1)..."
+keyword-archive-store "estate-management" "$LOG_ENTRY" --tags "$DOMAIN,maintenance"
+
+echo "--- Estate Management Complete: $STATUS ---"

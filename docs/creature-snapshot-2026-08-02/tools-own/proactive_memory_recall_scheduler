@@ -1,0 +1,5 @@
+#!/bin/bash
+does: Combines memstore (memory search) → plan_from_question (planning) → step-planner-tracker (planning) to query the memory for forgotten concepts, transform the query into a scheduled review task, and add it to the planner.
+memsearch "Docker networking"
+plan_from_question "Review Docker networking concepts"
+step-planner-tracker "add task" "Review Docker networking concepts"

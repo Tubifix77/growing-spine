@@ -1,0 +1,50 @@
+#!/bin/bash
+# tool: domain-knowledge-refiner
+# call: domain-knowledge-refiner <keyword>
+# does: Refines a domain's knowledge by checking consistency, filling gaps, synthesizing a master summary, and scheduling future reviews.
+
+set -euo pipefail
+
+if [ "$#" -ne 1 ]; then
+    echo "Usage: domain-knowledge-refiner <keyword>"
+    exit 1
+fi
+
+KEYWORD="$1"
+echo "--- Refining domain knowledge for: $KEYWORD ---"
+
+# 1. Check for consistency/contradictions
+echo "[1/4] Checking for knowledge contradictions..."
+if command -v knowledge_consistency_checker >/dev/null 2>&1; then
+    knowledge_consistency_checker "$KEYWORD" || echo "Consistency check encountered an issue, continuing..."
+else
+    echo "knowledge_consistency_checker not found, skipping."
+fi
+
+# 2. Fill knowledge gaps
+echo "[2/4] Filling knowledge gaps..."
+if command -v knowledge_gap_filler >/dev/null 2>&1; then
+    knowledge_gap_filler "$KEYWORD" || echo "Gap filling encountered an issue, continuing..."
+else
+    echo "knowledge_gap_filler not found, skipping."
+fi
+
+# 3. Synthesize a master summary
+echo "[3/4] Synthesizing master summary..."
+if command -v archive_summarizer >/dev/null 2>&1; then
+    archive_summarizer "$KEYWORD" || echo "Summarization encountered an issue, continuing..."
+else
+    echo "archive_summarizer not found, skipping."
+fi
+
+# 4. Schedule a future review
+echo "[4/4] Scheduling future review..."
+if command -v step-planner-tracker >/dev/null 2>&1; then
+    REVIEW_TASK="Review and refine knowledge domain: $KEYWORD"
+    step-planner-tracker add "$REVIEW_TASK" "Review $KEYWORD archive for updates" "Verify consistency of $KEYWORD"
+    echo "Review task added to planner."
+else
+    echo "step-planner-tracker not found, skipping schedule."
+fi
+
+echo "--- Domain refinement for $KEYWORD complete ---"

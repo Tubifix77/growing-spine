@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# memsearch – thin wrapper around the Python implementation.
+# Usage: memsearch "<query>" [memory_file] [N]
+# If memory_file is omitted, defaults to /memory/sample.jsonl.
+# If N is omitted, defaults to 5.
+QUERY="$1"
+MEMFILE="${2:-/memory/sample.jsonl}"
+LIMIT="${3:-5}"
+python3 /mind/tools/own/memsearch.py "$QUERY" "$MEMFILE" "$LIMIT"

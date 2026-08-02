@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ----------------------------------------------------------------------
+# Tool: catchup_summarize_archive_new
+# does: Fetch fresh Hacker News items, summarize each via subagent_ask_helper,
+#       archive the summary with keyword-archive-store, and output archive IDs.
+# ----------------------------------------------------------------------
+
+# Fetch fresh items (JSON array) using the real fetcher that maintains state.
+items_json="$(wake_catchup_fetcher.real)"
+
+# If no items, exit gracefully.
+if [[ -z "$items_json" ]] || [[ "$items_json" == "null" ]] || [[ "$items_json" == "[]" ]]; then
+  echo "[]"
+  exit 0
+fi
+
+# Prepare an array to collect resulting archive IDs.
+declare -a archive_ids=()
+
+# Process each item.
+jq -c '.[]' <<<"$items_json" | while IFS= read -r item; do
+  title=$(jq -r '.title' <<<"$item")
+  url=$(jq -r '.url' <<<"$item")
+  # Ask sub‑agent to summarise – we pass a prompt that includes title & URL.
+  prompt="Summarize the following news article in 2‑3 sentences. Title: \"${title}\" URL: ${url}"
+  summary=$(echo "$prompt" | subagent_ask_helper)
+
+  # Store the summary in the keyword archive.
+  # Use a consistent keyword so later searches can find all catch‑up summaries.
+  keyword="catchup-summary"
+  # The archive tool expects: keyword-archive-store <keyword> <note> [tags...]
+  # It returns a JSON line with the stored entry ID.
+  stored_json=$(printf "%s\n" "$summary" | keyword-archive-store "$keyword")
+  # Extract the ID (field "id") – fallback to the whole JSON if not present.
+  id=$(jq -r '.id // empty' <<<"$stored_json")
+  archive_ids+=("$id")
+done
+
+# Output JSON array of IDs (empty array if none).
+printf '%s\n' "$(jq -nc --argjson ids "$(printf '%s\n' "${archive_ids[@]}" | jq -R . | jq -s .) '$ids')"

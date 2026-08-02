@@ -1,0 +1,7 @@
+#!/usr/bin/env python3
+# tool: gap_filled_search
+# call: gap_filled_search <arguments>
+# does: Search the keyword archive, auto‑fill gaps with knowledge_gap_filler, and retry, logging steps in step-planner-tracker.
+# Replace the body below with real executable code.
+import sys
+print('not implemented yet: ' + sys.argv[0])

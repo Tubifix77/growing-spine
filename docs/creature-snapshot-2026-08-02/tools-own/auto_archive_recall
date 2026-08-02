@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# ------------------------------------------------------------
+# Tool: auto_archive_recall
+# Call: auto_archive_recall <keyword>
+# Does: Fetch fresh wake‑up items, archive those whose titles contain
+#       the supplied keyword (case‑insensitive), then immediately
+#       search the keyword‑archive for that keyword and print the
+#       top matching notes.
+# ------------------------------------------------------------
+set -euo pipefail
+
+# ----------- Argument handling ----------
+if [[ $# -lt 1 ]]; then
+  echo "Usage: auto_archive_recall <keyword>"
+  exit 1
+fi
+keyword="${1}"
+lower_keyword=$(echo "$keyword" | tr '[:upper:]' '[:lower:]')
+
+# ----------- Fetch fresh items ----------
+# wake_catchup_fetcher prints a JSON array of objects:
+#   { "title": "...", "url": "...", "tags": [...] }
+items_json=$(wake_catchup_fetcher)
+
+# If the fetcher returned nothing or an empty array, exit early
+if [[ -z "$items_json" ]] || [[ "$items_json" == "[]" ]]; then
+  echo "No new wake‑up items fetched."
+  exit 0
+fi
+
+# ----------- Archive matching items ----------
+# Iterate over each JSON object
+echo "$items_json" | jq -c '.[]' | while read -r item; do
+  title=$(echo "$item" | jq -r '.title')
+  url=$(echo "$item" | jq -r '.url')
+  # case‑insensitive keyword test
+  if [[ "$(echo "$title" | tr '[:upper:]' '[:lower:]')" == *"$lower_keyword"* ]]; then
+    # Store the note. The note format is "title – url"
+    note="${title} – ${url}"
+    # keyword-archive-store reads the note from STDIN.
+    echo "$note" | keyword-archive-store "$keyword" -t "auto_archive_recall"
+    echo "Archived: $note"
+  fi
+done
+
+# ----------- Search the archive and display results ----------
+echo "=== Archive search results for keyword: '$keyword' ==="
+# keyword‑archive‑search prints matching notes, one per line.
+# Show the top 5 matches (adjustable).
+keyword-archive-search "$keyword" | head -n 5 || true

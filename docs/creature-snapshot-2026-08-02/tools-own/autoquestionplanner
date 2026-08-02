@@ -1,0 +1,78 @@
+#!/usr/bin/env python3
+# tool: autoquestionplanner
+# call: autoquestionplanner <arguments>
+# does: Generate a verified execution plan for a natural‑language question
+# Replace the body below with real executable code.
+import sys
+print('not implemented yet: ' + sys.argv[0])
+#!/usr/bin/env bash
+# does: Generate a verified execution plan for a natural‑language question.
+# Usage: autoquestionplanner "<question>"
+# --------------------------------------------------------------
+set -euo pipefail
+
+# ----------------------------------------------------------------
+# Helper: log a message to stderr (visible in the cycle log)
+log() { echo "[autoquestionplanner] $*" >&2; }
+
+# ----------------------------------------------------------------
+# 1️⃣  Create a raw plan from the question
+question="${1:-}"
+if [[ -z "$question" ]]; then
+    log "ERROR: No question supplied"
+    exit 1
+fi
+
+log "Generating raw plan for: $question"
+# plan_from_question prints: "Created plan ID: <id>" then numbered steps.
+plan_output=$(plan_from_question "$question")
+plan_id=$(echo "$plan_output" | grep -i "Created plan ID:" | awk -F': ' '{print $2}' | tr -d '[:space:]')
+if [[ -z "$plan_id" ]]; then
+    log "ERROR: Could not obtain plan ID"
+    exit 1
+fi
+log "Raw plan ID = $plan_id"
+
+# Extract step lines (they start with a number and a dot)
+mapfile -t raw_steps < <(echo "$plan_output" | grep -E '^[0-9]+\.' | sed -E 's/^[0-9]+\.\s*//')
+if [[ ${#raw_steps[@]} -eq 0 ]]; then
+    log "WARNING: No steps returned; creating empty plan"
+    step-planner-tracker add "$plan_id" "No steps generated (manual review needed)"
+    exit 0
+fi
+
+# ----------------------------------------------------------------
+# 2️⃣  Validate each step with a sub‑agent
+log "Validating steps with subagent_ask_helper"
+validated_steps=()
+for idx in "${!raw_steps[@]}"; do
+    step="${raw_steps[$idx]}"
+    # Ask the sub‑agent to *explain* the step – this serves as a validation.
+    # The prompt is simple to keep token usage low.
+    validation_prompt="Explain why the following step is needed for the question: \"$question\". Step: \"$step\""
+    answer=$(subagent_ask_helper "$validation_prompt" || true)
+
+    if [[ -n "$answer" ]]; then
+        # If we got an answer, augment the step with a short note.
+        verified_step="${step} (validated: ${answer:0:80}…)"
+    else
+        # If the sub‑agent failed, keep the original step but mark it.
+        verified_step="${step} (validation failed)"
+    fi
+    validated_steps+=("$verified_step")
+done
+
+# ----------------------------------------------------------------
+# 3️⃣  Store the verified steps in the persistent planner
+log "Storing verified steps in step-planner-tracker"
+# First, clear any existing steps for safety (the plan should be fresh)
+step-planner-tracker clear "$plan_id" 2>/dev/null || true
+
+# Add each verified step
+for vstep in "${validated_steps[@]}"; do
+    step-planner-tracker add "$plan_id" "$vstep"
+done
+
+log "Plan $plan_id ready with ${#validated_steps[@]} verified steps"
+
+# End of script

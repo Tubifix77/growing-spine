@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# does: Answer a question using relevant archived notes as context via subagent_ask_helper
+set -euo pipefail
+
+# Combine all arguments into the query string
+question="$*"
+
+# -----------------------------------------------------------------
+# Step 1: Search the keyword‑archive for the most relevant notes
+# -----------------------------------------------------------------
+# The archive search tool returns JSONL; we keep the top 3 hits.
+search_json=$(keyword-archive-search "$question" 3)
+
+if [[ -z "$search_json" ]]; then
+  echo "No relevant archive entries found for: $question"
+  exit 0
+fi
+
+# Extract the 'content' field from each hit (adjust field name if needed)
+notes=$(echo "$search_json" | jq -r '.content' | paste -sd "\n\n" -)
+
+# -----------------------------------------------------------------
+# Step 2: Build a prompt that tells the LLM to use the notes
+# -----------------------------------------------------------------
+prompt=$(cat <<PROMPT
+You are an assistant. Use the following archived notes to answer the question.
+
+Notes:
+$notes
+
+Question: $question
+Answer:
+PROMPT
+)
+
+# -----------------------------------------------------------------
+# Step 3: Ask the sub‑agent LLM and output its answer
+# -----------------------------------------------------------------
+answer=$(subagent_ask_helper "$prompt")
+echo "$answer"

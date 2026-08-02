@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+# does: Fetch a research‑article URL, extract a one‑sentence summary and up to three concrete next‑step actions,
+#      store the insight in the keyword‑archive, and create a persistent plan for the actions.
+# Usage: research_article_action_plan <url> [keyword]
+#   <url>    – URL of the article (HTML or plain‑text)
+#   [keyword] – archive keyword (default: "research_insight")
+
+set -euo pipefail
+
+# ---------- arguments ----------
+if [[ $# -lt 1 ]]; then
+  echo "Usage: $0 <url> [keyword]" >&2
+  exit 1
+fi
+URL="$1"
+KEYWORD="${2:-research_insight}"
+
+# ---------- helpers ----------
+# fetch the page (plain text)
+PAGE_CONTENT=$(web-fetch "$URL") || {
+  echo "Failed to fetch $URL" >&2
+  exit 1
+}
+
+# truncate very long content to keep LLM calls cheap
+MAX_CHARS=3000
+if (( ${#PAGE_CONTENT} > MAX_CHARS )); then
+  PAGE_CONTENT="${PAGE_CONTENT:0:MAX_CHARS}"
+  TRUNCATED=" (truncated)"
+else
+  TRUNCATED=""
+fi
+
+# ---------- 1️⃣ summarize the article ----------
+SUMMARY_PROMPT="Summarize the main finding or contribution of the following article in ONE concise sentence. Keep the summary factual and neutral.
+
+Article text:${TRUNCATED}
+$PAGE_CONTENT"
+SUMMARY=$(subagent_ask_helper "$SUMMARY_PROMPT") || {
+  echo "LLM failed to produce summary" >&2
+  exit 1
+}
+
+# ---------- 2️⃣ extract actionable next‑steps ----------
+ACTION_PROMPT="Based on the article above, list up to THREE concrete, short‑term research or implementation actions a practitioner could take next. 
+Give each action as a separate short sentence (no numbering needed)."
+ACTIONS=$(subagent_ask_helper "$ACTION_PROMPT") || {
+  echo "LLM failed to produce actions" >&2
+  exit 1
+}
+
+# ---------- 3️⃣ archive the insight ----------
+NOTE="URL: $URL
+Summary: $SUMMARY
+Actions:
+$ACTIONS"
+keyword-archive-store "$KEYWORD" "$NOTE" --tags "research,insight"
+
+# ---------- 4️⃣ create a persistent plan for the actions ----------
+# The plan will have each action as a separate step.
+PLAN_DESC="Follow‑up actions for article: $URL"
+PLAN_ID=$(plan_from_question "$PLAN_DESC") || {
+  echo "Failed to create plan" >&2
+  exit 1
+}
+
+# add each action as a step in the plan
+IFS=$'\n' read -r -d '' -a ACTION_ARR <<<"$ACTIONS"
+for act in "${ACTION_ARR[@]}"; do
+  # Trim whitespace
+  act=$(echo "$act" | xargs)
+  # Skip empty lines
+  [[ -z "$act" ]] && continue
+  # Use the existing step‑planner‑tracker to add a step
+  step-planner-tracker add-step "$PLAN_ID" "$act"
+done
+
+# ---------- output ----------
+echo "✅ Insight archived under keyword '$KEYWORD'"
+echo "🗂️  Plan ID: $PLAN_ID"
+echo "🔹 Summary: $SUMMARY"
+echo "🔹 Actions added as steps to the plan."

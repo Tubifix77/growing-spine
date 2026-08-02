@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+# tool: TaskCompletionReporter
+# does: Generate a concise status report for a project by listing its persistent plan,
+#       recalling relevant past notes for each pending step, and synthesising a brief answer.
+
+# Usage: TaskCompletionReporter <plan-id-or-goal>
+# Example: TaskCompletionReporter "AI‑Sprint‑9"
+
+set -euo pipefail
+
+# Helper: fetch plan JSON (using step-planner-tracker)
+fetch_plan() {
+  local target="$1"
+  # If the argument looks like a numeric ID, query by ID; otherwise treat as goal text.
+  if [[ "$target" =~ ^[0-9]+$ ]]; then
+    # Retrieve the plan by ID (the tracker stores JSON under a hidden file per plan)
+    # The tracker stores its data in /mind/tools/own/.step-planner-tracker/state.json
+    local state_file="/mind/tools/own/.step-planner-tracker/state.json"
+    jq -c "select(.plan_id == $target)" "$state_file" 2>/dev/null || {
+      echo "Error: No plan found with ID $target" >&2; exit 1
+    }
+  else
+    # Search by goal text (exact match)
+    local state_file="/mind/tools/own/.step-planner-tracker/state.json"
+    jq -c "select(.goal == \"$target\")" "$state_file" 2>/dev/null || {
+      echo "Error: No plan found for goal \"$target\"" >&2; exit 1
+    }
+  fi
+}
+
+# Helper: get pending steps (those not marked done)
+extract_pending_steps() {
+  local plan_json="$1"
+  # Steps are stored as an array .steps with each element having .text and .done flag
+  echo "$plan_json" | jq -r '.steps[] | select(.done == false) | .text'
+}
+
+# Helper: recall context for a step using recall_and_answer
+recall_step_context() {
+  local step_desc="$1"
+  # recall_and_answer expects a question; we feed the step description.
+  # It will search the keyword archive, then ask the LLM for a fresh answer.
+  recall_and_answer "$step_desc"
+}
+
+# Main
+main() {
+  if [[ $# -lt 1 ]]; then
+    echo "Usage: $0 <plan-id-or-goal>" >&2
+    exit 1
+  fi
+
+  local target="$1"
+  local plan_json
+  plan_json="$(fetch_plan "$target")"
+
+  # Header
+  echo "=== Task Completion Report for \"$target\" ==="
+  echo ""
+
+  # List all steps with status
+  echo "Plan Overview:"
+  step-planner-tracker list "$target" | sed 's/^/  /'
+  echo ""
+
+  # Process pending steps
+  local pending
+  mapfile -t pending < <(extract_pending_steps "$plan_json")
+  if [[ ${#pending[@]} -eq 0 ]]; then
+    echo "All steps are completed. No pending actions."
+    exit 0
+  fi
+
+  echo "Pending Steps and Contextual Answers:"
+  echo ""
+
+  # For each pending step, fetch recall+answer and store
+  local reports=()
+  for step in "${pending[@]}"; do
+    echo "→ Step: $step"
+    # Capture recall_and_answer output (strip surrounding whitespace)
+    local ctx
+    ctx="$(recall_step_context "$step" | sed '/^\s*$/d')"
+    echo "$ctx"
+    reports+=("$step: $ctx")
+    echo ""  # spacer
+  done
+
+  # Optionally synthesize a concise overall summary using deep_answer_synth
+  echo "=== Overall Summary ==="
+  if command -v deep_answer_synth >/dev/null 2>&1; then
+    # Build a composite question: combine all step contexts
+    local combined_question="Summarize the status of the project \"$target\" given the following step contexts:\n"
+    for r in "${reports[@]}"; do
+      combined_question+="$r\n"
+    done
+    # Feed to deep_answer_synth (expects a single question on stdin)
+    echo -e "$combined_question" | deep_answer_synth
+  else
+    echo "(deep_answer_synth not available – raw step contexts shown above.)"
+  fi
+}
+
+main "$@"

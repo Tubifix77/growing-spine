@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# does: Build a multi‑source knowledge graph for a topic.
+#   1. Pull fresh items with wake_catchup_fetcher (JSON array of {title,url,tags}).
+#   2. Filter URLs that contain the query term (case‑insensitive).
+#   3. For each URL, ask subagent_ask_helper to extract key concepts/entities.
+#   4. Feed all extracted concepts to cross_source_knowledge_graph to produce a JSON graph.
+#   5. Store the resulting graph under /workspace/<topic>_graph.json and print its path.
+
+set -euo pipefail
+
+# Input: a single argument – the search topic/keyword.
+TOPIC="${1:-}"
+if [[ -z "$TOPIC" ]]; then
+  echo "Usage: $0 <topic>" >&2
+  exit 1
+fi
+
+# 1️⃣ Fetch fresh items (JSON array)
+FETCHED_JSON=$(wake_catchup_fetcher.real --limit 20)   # limit keeps it quick
+# The fetcher writes state so each call returns only new items.
+# If the fetcher fails, exit early.
+if [[ -z "$FETCHED_JSON" ]]; then
+  echo "No items fetched." >&2
+  exit 1
+fi
+
+# 2️⃣ Filter URLs that mention the topic (case‑insensitive)
+FILTERED_URLS=$(echo "$FETCHED_JSON" | jq -r --arg T "$TOPIC" '
+  .[] | select(.url|test($T; "i")) | .url
+')
+if [[ -z "$FILTERED_URLS" ]]; then
+  echo "No URLs matched topic \"$TOPIC\"." >&2
+  exit 1
+fi
+
+# 3️⃣ For each URL, ask the sub‑agent to extract concepts.
+#    We'll accumulate a newline‑separated list of JSON objects {url, concepts:Array}
+EXTRACTED_DATA=""
+while IFS= read -r URL; do
+  # Ask LLM to return a JSON list of key concepts from the page.
+  # subagent_ask_helper expects: <prompt> and prints only the answer.
+  PROMPT="Extract the most important concepts/entities from the following article URL (return a JSON array of short strings, no extra text): $URL"
+  CONCEPTS=$(subagent_ask_helper "$PROMPT")
+  # Ensure we have a JSON array; if not, fall back to empty.
+  if ! echo "$CONCEPTS" | jq -e . >/dev/null 2>&1; then
+    CONCEPTS='[]'
+  fi
+  EXTRACTED_DATA+=$(printf '{"url":%s,"concepts":%s}' "$(jq -R <<<"$URL")" "$CONCEPTS")
+  EXTRACTED_DATA+=$'\n'
+done <<<"$FILTERED_URLS"
+
+# 4️⃣ Feed the accumulated concepts to the knowledge‑graph builder.
+#    The graph builder expects a JSON lines file (one object per line).
+GRAPH_INPUT="/tmp/${TOPIC}_concepts.jsonl"
+printf "%s\n" "$EXTRACTED_DATA" > "$GRAPH_INPUT"
+
+# Call the existing graph builder (it reads the file via stdin or argument)
+GRAPH_JSON=$(cross_source_knowledge_graph "$GRAPH_INPUT")
+# The tool returns a JSON object describing nodes and edges.
+
+# 5️⃣ Persist the graph.
+OUTFILE="/workspace/${TOPIC}_graph.json"
+echo "$GRAPH_JSON" > "$OUTFILE"
+
+# Output the location of the generated graph.
+echo "Graph for \"$TOPIC\" written to: $OUTFILE"

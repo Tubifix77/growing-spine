@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# tool: GapAlertGenerator
+# call: GapAlertGenerator <topic>
+# does: Detects knowledge gaps for <topic>, runs knowledge_gap_filler, triggers ProactiveAlertSynthesizerPlus, and archives the generated alert.
+
+set -euo pipefail
+
+# ----------------------------------------------------------------------
+# Helper: print usage and exit
+# ----------------------------------------------------------------------
+usage() {
+    echo "Usage: $0 <topic>"
+    exit 1
+}
+
+# ----------------------------------------------------------------------
+# Main
+# ----------------------------------------------------------------------
+topic="${1:-}"
+if [[ -z "$topic" ]]; then
+    usage
+fi
+
+echo "=== GapAlertGenerator start for topic: \"$topic\" ==="
+
+# 1️⃣ Run knowledge_gap_filler – this may populate memstore / keyword‑archive
+echo "→ Running knowledge_gap_filler..."
+knowledge_gap_filler "$topic"
+
+# 2️⃣ Run ProactiveAlertSynthesizerPlus – capture its output (the alert text)
+echo "→ Triggering ProactiveAlertSynthesizerPlus..."
+alert_text=$(ProactiveAlertSynthesizerPlus "$topic")
+echo "← Alert synthesis completed."
+
+# 3️⃣ Archive the alert (store under a clear keyword)
+echo "→ Archiving alert..."
+keyword-archive-store "alert:${topic}" "$alert_text"
+
+echo "✅ GapAlertGenerator finished – alert stored under keyword \"alert:${topic}\""

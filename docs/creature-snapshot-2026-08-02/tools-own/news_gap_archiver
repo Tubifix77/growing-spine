@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# does: Fetch latest news items, fill missing context, and archive the enriched article.
+# Usage: news_gap_archiver --topic <keyword>
+# Requires: wake_catchup_fetcher.real, knowledge_gap_filler, keyword-archive-store
+
+# Parse arguments
+TOPIC=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --topic) shift; TOPIC="$1" ;;
+    *) echo "Unknown argument: $1" >&2; exit 1 ;;
+  esac
+  shift
+done
+
+# 1. Fetch fresh news items (JSON array)
+JSON=$(wake_catchup_fetcher.real)
+if [[ -z "$JSON" ]]; then
+  echo "No new items fetched." >&2
+  exit 0
+fi
+
+# 2. Optionally filter by topic (case‑insensitive substring match on title)
+if [[ -n "$TOPIC" ]]; then
+  FILTERED=$(echo "$JSON" | jq "[.[] | select(.title | test(\"$TOPIC\"; \"i\"))]")
+else
+  FILTERED="$JSON"
+fi
+
+# 3. Process each item
+COUNT=$(echo "$FILTERED" | jq 'length')
+if [[ "$COUNT" -eq 0 ]]; then
+  echo "No items match the topic '$TOPIC'." >&2
+  exit 0
+fi
+
+echo "$FILTERED" | jq -c '.[]' | while read -r ITEM; do
+  TITLE=$(echo "$ITEM" | jq -r '.title')
+  URL=$(echo "$ITEM" | jq -r '.url')
+  ID=$(echo "$ITEM" | jq -r '.id // (.title|@base64)')
+
+  # Fetch the full article (fallback to the URL if fetch fails)
+  ARTICLE=$(fetch_url "$URL")
+  if [[ -z "$ARTICLE" ]]; then
+    echo "Failed to fetch article for $TITLE; skipping." >&2
+    continue
+  fi
+
+  # 4. Fill knowledge gaps (expects JSON on stdin)
+  ENRICHED=$(echo "$ARTICLE" | knowledge_gap_filler)
+
+  # 5. Store the enriched article in the keyword archive
+  # Use a deterministic keyword: "news-<topic-or-all>-<id>"
+  if [[ -n "$TOPIC" ]]; then
+    KEYWORD="news-$TOPIC-$ID"
+  else
+    KEYWORD="news-$ID"
+  fi
+
+  # Write to a temporary file first
+  TMPFILE=$(mktemp)
+  echo "$ENRICHED" > "$TMPFILE"
+
+  # Archive via the existing tool
+  keyword-archive-store "$KEYWORD" "$TMPFILE" --tags "news,archived"
+
+  # Clean up
+  rm -f "$TMPFILE"
+
+  echo "Archived: $TITLE -> $KEYWORD"
+done

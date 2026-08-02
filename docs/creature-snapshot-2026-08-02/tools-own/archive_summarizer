@@ -1,0 +1,75 @@
+#!/usr/bin/env python3
+# tool: archive_summarizer
+# call: archive_summarizer <arguments>
+# does: Summarizes all archived notes matching a keyword using the LLM and optionally stores the summary back.
+import argparse
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+def run_tool(cmd, *, input_text=None):
+    """Run a tool command and return its stdout as text."""
+    result = subprocess.run(
+        cmd,
+        input=input_text,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        sys.stderr.write(f"Error running {' '.join(cmd)}:\n{result.stderr}\n")
+        sys.exit(result.returncode)
+    return result.stdout.strip()
+
+def main():
+    parser = argparse.ArgumentParser(description="Summarize archived notes for a keyword.")
+    parser.add_argument("keyword", help="Keyword to search in the archive.")
+    parser.add_argument("--top", type=int, default=3,
+                        help="Maximum number of notes to retrieve (default: 3).")
+    parser.add_argument("--store", action="store_true",
+                        help="Store the generated summary back into the archive.")
+    args = parser.parse_args()
+
+    # 1. Retrieve notes from the keyword archive
+    search_cmd = ["keyword-archive-search", args.keyword, "--limit", str(args.top)]
+    notes_raw = run_tool(search_cmd)
+    if not notes_raw:
+        sys.stderr.write(f"No notes found for keyword '{args.keyword}'.\n")
+        sys.exit(1)
+
+    # The search tool prints JSON lines – one note per line.
+    notes = []
+    for line in notes_raw.splitlines():
+        try:
+            note = json.loads(line)
+            # Prefer a 'content' field, fall back to the whole note
+            content = note.get("content") or note.get("body") or note.get("text") or str(note)
+            notes.append(content.strip())
+        except json.JSONDecodeError:
+            # If a line is not JSON, treat it as raw text
+            notes.append(line.strip())
+
+    # 2. Build the summarisation prompt
+    prompt = f"Summarize the following notes about '{args.keyword}':\n"
+    for i, note in enumerate(notes, 1):
+        prompt += f"\nNote {i}:\n{note}\n"
+
+    # 3. Ask the LLM via subagent_ask_helper
+    answer = run_tool(["subagent_ask_helper", prompt])
+
+    # 4. Output the summary
+    print(answer)
+
+    # 5. Optionally store the summary back into the archive
+    if args.store:
+        store_cmd = [
+            "keyword-archive-store",
+            args.keyword,
+            "--content", answer,
+            "--tags", "summary"
+        ]
+        run_tool(store_cmd)
+
+if __name__ == "__main__":
+    main()

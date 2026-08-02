@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# tool: news_breaking_action_generator
+# call: news_breaking_action_generator <topic>
+# does: Fetches breaking news for a topic, summarises each item, evaluates urgency, and creates actionable tasks in step-planner-tracker.
+
+set -euo pipefail
+
+# ---- Argument handling -------------------------------------------------
+if [[ $# -lt 1 ]]; then
+  echo "Usage: $0 <topic>"
+  exit 1
+fi
+TOPIC="$1"
+
+# ---- Step 1: fetch fresh Hacker News items filtered by topic ------------
+# wake_catchup_fetcher returns a JSON array of items: [{title, url, tags, ...}, ...]
+# We filter items whose title or tags contain the topic (case‑insensitive)
+RAW_JSON=$(wake_catchup_fetcher)  # existing tool; prints JSON to stdout
+
+# Guard against empty fetch
+if [[ -z "$RAW_JSON" || "$RAW_JSON" == "null" ]]; then
+  echo "No fresh items returned by wake_catchup_fetcher."
+  exit 0
+fi
+
+# ---- Step 2: iterate over items -----------------------------------------
+echo "$RAW_JSON" | jq -c '.[]' | while read -r ITEM; do
+  TITLE=$(echo "$ITEM" | jq -r '.title')
+  URL=$(echo "$ITEM" | jq -r '.url')
+  TAGS=$(echo "$ITEM" | jq -r '.tags // [] | join(",")')
+
+  # Simple filter: keep if topic appears in title or tags
+  if [[ "${TITLE,,}" != *"${TOPIC,,}"* && "${TAGS,,}" != *"${TOPIC,,}"* ]]; then
+    continue
+  fi
+
+  # ---- Step 3: ask sub‑agent to summarise the article -------------------
+  SUMMARY_PROMPT="Summarize the following news item in one concise sentence:\nTitle: $TITLE\nURL: $URL"
+  SUMMARY=$(subagent_ask_helper "$SUMMARY_PROMPT")
+  # Fallback if LLM returns empty
+  if [[ -z "$SUMMARY" ]]; then
+    SUMMARY="No summary available."
+  fi
+
+  # ---- Step 4: ask sub‑agent to evaluate urgency -----------------------
+  URGENCY_PROMPT="Based on the summary, is this news item urgent? Respond with exactly one word: High, Medium, or Low.\nSummary: $SUMMARY"
+  URGENCY=$(subagent_ask_helper "$URGENCY_PROMPT" | tr -d '\r\n')
+  # Normalise response
+  case "${URGENCY,,}" in
+    high)   URGENCY="High"   ;;
+    medium) URGENCY="Medium" ;;
+    low)    URGENCY="Low"    ;;
+    *)      URGENCY="Medium" ;;  # default if LLM is ambiguous
+  esac
+
+  # ---- Step 5: create a task in the persistent planner ------------------
+  # step-planner-tracker expects: add "<description>"
+  TASK_DESC="[$URGENCY] $SUMMARY (source: $URL)"
+  step-planner-tracker add "$TASK_DESC"
+  echo "Created task: $TASK_DESC"
+done

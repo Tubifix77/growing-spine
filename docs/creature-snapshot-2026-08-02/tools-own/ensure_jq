@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+# tool: ensure_jq
+# does: Guarantees that JSON from STDIN can be filtered with the given jq expression.
+# Usage: ensure_jq '<jq_filter>' [optional_input_file]
+# If an input file is supplied, it is read; otherwise STDIN is used.
+# The tool exits with status 0 and prints the filtered JSON if the filter succeeds,
+# otherwise it prints an error message to STDERR and exits with non‑zero status.
+
+set -euo pipefail
+
+# Helper: print usage
+usage() {
+    cat <<USAGE
+ensure_jq – guarantee a jq filter works on JSON input.
+
+Usage:
+  ensure_jq '<jq_filter>'            # reads JSON from STDIN
+  ensure_jq '<jq_filter>' file.json   # reads JSON from file
+
+The filter is applied using jq. If the filter fails (invalid JSON,
+invalid jq syntax, or jq returns a non‑zero exit code) the tool
+exits with status 1 and prints an error.
+
+USAGE
+}
+
+# Ensure jq is available; install if missing (apt-get)
+if ! command -v jq >/dev/null 2>&1; then
+    echo "jq not found, installing via apt..."
+    sudo apt-get update -y >/dev/null 2>&1
+    sudo apt-get install -y jq >/dev/null 2>&1
+fi
+
+# Parse arguments
+if [[ $# -eq 0 || "$1" == "-h" || "$1" == "--help" ]]; then
+    usage
+    exit 0
+fi
+
+filter=$1
+shift
+
+# Determine input source
+if [[ $# -gt 0 ]]; then
+    input_file=$1
+    if [[ ! -f "$input_file" ]]; then
+        echo "Error: file '$input_file' does not exist." >&2
+        exit 1
+    fi
+    input_content=$(cat "$input_file")
+else
+    # Read from STDIN
+    input_content=$(cat)
+fi
+
+# Validate that input is JSON (jq can parse it)
+if ! echo "$input_content" | jq . >/dev/null 2>&1; then
+    echo "Error: provided input is not valid JSON." >&2
+    exit 1
+fi
+
+# Apply the filter; capture output and status
+filtered=$(echo "$input_content" | jq "$filter" 2> /tmp/ensure_jq_err || true)
+jq_status=$?
+
+if [[ $jq_status -ne 0 ]]; then
+    echo "Error: jq filter failed." >&2
+    cat /tmp/ensure_jq_err >&2
+    exit $jq_status
+fi
+
+# If we got here, filter succeeded – output the result
+echo "$filtered"

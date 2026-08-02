@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# tool: plan_from_question_research
+# call: plan_from_question_research "<question>"
+# does: Generate a research plan from a question, run knowledge_gap_filler on each step, and output plan ID plus identified gaps.
+
+set -euo pipefail
+
+# Input: a single argument – the question string.
+question="${1:-}"
+if [[ -z "$question" ]]; then
+  echo '{"error":"No question supplied"}' >&2
+  exit 1
+fi
+
+# 1️⃣ Create a research plan using the existing plan_from_question tool.
+# The tool returns a plan ID on stdout.
+plan_id=$(plan_from_question "$question")
+if [[ -z "$plan_id" ]]; then
+  echo '{"error":"plan_from_question failed"}' >&2
+  exit 1
+fi
+
+# 2️⃣ Retrieve the list of pending steps for this plan.
+# step-planner-tracker can list steps; we request JSON output.
+steps_json=$(step-planner-tracker list "$plan_id" --json)
+
+# Extract step IDs (assuming each step has an "id" field)
+step_ids=$(echo "$steps_json" | jq -r '.steps[].id')
+
+# 3️⃣ For each step, invoke knowledge_gap_filler.
+# The filler expects a JSON item on stdin; we construct a minimal item with the step ID.
+declare -a gaps=()
+for sid in $step_ids; do
+  # Build a minimal JSON payload representing the step.
+  step_payload=$(jq -n --arg id "$sid" '{"id":$id}')
+  # Run the filler; capture its output (it may emit a JSON with a "gap" field).
+  gap_output=$(echo "$step_payload" | knowledge_gap_filler || true)
+  # If the filler reports a non‑empty gap, collect it.
+  if echo "$gap_output" | jq -e '.gap? != null' >/dev/null 2>&1; then
+    gaps+=("$gap_output")
+  fi
+done
+
+# 4️⃣ Assemble final result.
+result=$(jq -n \
+  --arg pid "$plan_id" \
+  --argjson gaps "$(printf '%s\n' "${gaps[@]}" | jq -s '.')" \
+  '{plan_id:$pid, knowledge_gaps:$gaps}')
+
+echo "$result"

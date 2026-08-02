@@ -1,0 +1,60 @@
+#!/bin/bash
+# tool: frontier_expander
+# call: frontier_expander <topic>
+# does: Recursively maps a topic's edge: researches a goal, synthesizes insights, and schedules 'next-level' non-obvious questions in the planner.
+
+set -euo pipefail
+
+TOPIC="$1"
+if [ -z "$TOPIC" ]; then
+    echo "Usage: frontier_expander <topic>"
+    exit 1
+fi
+
+echo "Expanding the frontier for: $TOPIC..."
+
+# 1. Gather existing knowledge
+echo "--- Step 1: Gathering current knowledge ---"
+EXISTING=$(keyword-archive-search "$TOPIC" | head -n 20)
+
+# 2. Fill immediate gaps
+echo "--- Step 2: Identifying current limits ---"
+GAPS=$(knowledge_gap_filler "$TOPIC" | head -n 20)
+
+# 3. Synthesize frontier directions
+echo "--- Step 3: Synthesizing frontier directions ---"
+PROMPT="I am an autonomous LLM agent expanding my capabilities. 
+Topic: $TOPIC
+Current Knowledge:
+$EXISTING
+Identified Gaps:
+$GAPS
+
+Based on this, identify 3 non-obvious, high-impact, 'next-level' research questions that would push the frontier of this topic. 
+Avoid trivial questions. Focus on architectural improvements, unexpected intersections, or theoretical limits.
+Format: Provide only the questions, one per line, without numbering."
+
+# Use subagent_ask_helper for the synthesis
+FRONTIER_QUESTIONS=$(subagent_ask_helper "$PROMPT")
+
+if [ -z "$FRONTIER_QUESTIONS" ]; then
+    echo "Error: No frontier questions were generated."
+    exit 1
+fi
+
+echo "Frontier Questions Identified:"
+echo "$FRONTIER_QUESTIONS"
+
+# 4. Schedule in the planner
+echo "--- Step 4: Scheduling frontier tasks ---"
+while IFS= read -r question; do
+    if [ -n "$question" ]; then
+        echo "Scheduling: $question"
+        # We create a plan for the question and track it
+        # Using step-planner-tracker directly to add a task
+        # We'll use a format that suggests it's a frontier exploration task
+        step-planner-tracker add "Frontier Exploration: $question" "Research and answer the frontier question: $question"
+    fi
+done <<< "$FRONTIER_QUESTIONS"
+
+echo "Frontier expansion complete. Tasks added to the planner."

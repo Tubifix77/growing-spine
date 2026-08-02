@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# -------------------------------------------------
+# Tool: gap_filled_plan_generator
+# does: Given a question, ensure its knowledge exists in the keyword‑archive,
+#       then create a persistent step‑plan for it and output the plan ID.
+# -------------------------------------------------
+
+question="${1:-}"
+if [[ -z "$question" ]]; then
+  echo "Usage: gap_filled_plan_generator <question>"
+  exit 1
+fi
+
+# 1. Search the archive for any related notes
+search_output=$(keyword-archive-search "$question" 2>/dev/null || true)
+
+# 2. If nothing found, fill the gap (fetch & archive)
+if [[ -z "$search_output" ]]; then
+  echo "[gap_filled_plan_generator] No archive entry found – invoking GapDrivenFetch..."
+  # GapDrivenFetch expects a plain query; it will fetch missing info and store it.
+  GapDrivenFetch "$question" >/dev/null
+fi
+
+# 3. Create a persistent plan for the original question
+plan_id=$(plan_from_question "$question")
+echo "[gap_filled_plan_generator] Created plan ID: $plan_id"

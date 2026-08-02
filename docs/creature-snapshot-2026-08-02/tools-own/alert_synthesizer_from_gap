@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# -------------------------------------------------
+# alert_synthesizer_from_gap
+# -------------------------------------------------
+# Usage: alert_synthesizer_from_gap "<natural language query>"
+# Example: alert_synthesizer_from_gap "Hugging Face breach"
+#
+# What it does:
+#   1. Runs knowledge_gap_filler on the query to discover missing topics.
+#   2. For each discovered topic, invokes ProactiveAlertSynthesizerPlus to
+#      generate a concise alert.
+#   3. Prints each alert to stdout and stores it in the keyword‑archive
+#      under the keyword "gap‑alert".
+# -------------------------------------------------
+
+if [[ $# -ne 1 ]]; then
+  echo "Usage: $0 \"<natural language query>\"" >&2
+  exit 1
+fi
+
+QUERY="$1"
+
+# Run the gap filler – it prints missing topics, one per line
+MISSING_TOPICS=$(knowledge_gap_filler "$QUERY" | tr -d '\r')
+if [[ -z "$MISSING_TOPICS" ]]; then
+  echo "No knowledge gaps detected for query: $QUERY"
+  exit 0
+fi
+
+# Process each missing topic
+while IFS= read -r TOPIC; do
+  # Guard against empty lines
+  [[ -z "$TOPIC" ]] && continue
+
+  # Generate the alert
+  ALERT=$(ProactiveAlertSynthesizerPlus "$TOPIC" 2>/dev/null || true)
+
+  # If the sub‑tool failed, produce a fallback message
+  if [[ -z "$ALERT" ]]; then
+    ALERT="⚠️ Alert generation failed for topic: $TOPIC"
+  fi
+
+  # Output to console
+  echo "$ALERT"
+
+  # Store in keyword‑archive for later recall
+  # The archive stores JSONL lines: {"keyword":"gap-alert","content":"...","tags":["gap"] }
+  keyword-archive-store "gap-alert" "$ALERT" --tags "gap"
+done <<< "$MISSING_TOPICS"

@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# does: Synthesize an insight for a query by retrieving relevant archive notes,
+#       refining with a sub‑agent LLM, and persisting the final answer.
+
+set -euo pipefail
+
+# ---------- Helpers ----------
+log() {
+    echo "[persistentinsightsynth] $*" >&2
+}
+
+die() {
+    log "ERROR: $*"
+    exit 1
+}
+
+# ---------- Main ----------
+if [[ $# -lt 1 ]]; then
+    die "Usage: persistentinsightsynth <query>"
+fi
+
+QUERY="$*"
+
+# 1. Search the keyword archive for relevant notes
+log "Searching archive for relevance to: $QUERY"
+ARCHIVE_RESULTS=$(keyword-archive-search --top 5 "$QUERY") || die "archive search failed"
+
+# If we got no results, still continue – deep_answer_synth can work alone
+if [[ -z "$ARCHIVE_RESULTS" ]]; then
+    log "No archive hits – proceeding with empty context."
+    CONTEXT=""
+else
+    # Join the notes into a single context block
+    CONTEXT=$(echo "$ARCHIVE_RESULTS" | jq -r '.note' | paste -sd '\n' -)
+fi
+
+# 2. Run deep_answer_synth to get a draft answer
+#    deep_answer_synth expects a question; we give it the original query plus context
+log "Running deep_answer_synth"
+DRAFT_ANSWER=$(printf "%s\n\nContext:\n%s\n" "$QUERY" "$CONTEXT" | deep_answer_synth) \
+    || die "deep_answer_synth failed"
+
+log "Draft answer generated"
+
+# 3. Refine the draft with subagent_ask_helper (single‑shot refinement)
+log "Refining answer with subagent_ask_helper"
+REFINED_ANSWER=$(printf "Please improve the following answer for clarity and completeness:\n\n%s" "$DRAFT_ANSWER" \
+    | subagent_ask_helper) || die "subagent_ask_helper failed"
+
+log "Refinement complete"
+
+# 4. Archive the final insight
+#    Use a deterministic keyword: "insight:<query>"
+KEYWORD="insight:${QUERY// /_}"
+log "Archiving final insight under keyword '$KEYWORD'"
+keyword-archive-store "$KEYWORD" "$REFINED_ANSWER" --tags insight,generated
+
+# 5. Output the final answer
+echo "$REFINED_ANSWER"

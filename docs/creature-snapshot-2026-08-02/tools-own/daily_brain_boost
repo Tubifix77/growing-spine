@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# tool: daily_brain_boost
+# call: daily_brain_boost <topic>
+# does: Generates a short article about the cognitive benefits of the given topic using subagent_ask_helper,
+#       extracts a concise summary, and appends a habit entry (JSON) to /mind/habits.log.
+
+set -euo pipefail
+
+# ---- Input validation ----
+if [[ $# -lt 1 ]]; then
+  echo "Usage: daily_brain_boost <topic>"
+  exit 1
+fi
+
+TOPIC="$*"
+
+# ---- Step 1: Ask LLM for a short article describing cognitive benefits ----
+ARTICLE_PROMPT="Write a short (≈200‑word) article describing the cognitive benefits of ${TOPIC}."
+ARTICLE=$(subagent_ask_helper "$ARTICLE_PROMPT")
+# If the LLM failed, abort
+if [[ -z "$ARTICLE" ]]; then
+  echo "Error: No article produced."
+  exit 1
+fi
+
+# ---- Step 2: Ask LLM to summarise the main benefit in one sentence ----
+SUMMARY_PROMPT="Summarise the main cognitive benefit(s) from the following article in ONE concise sentence:\n\n${ARTICLE}"
+SUMMARY=$(subagent_ask_helper "$SUMMARY_PROMPT")
+if [[ -z "$SUMMARY" ]]; then
+  echo "Error: No summary produced."
+  exit 1
+fi
+
+# ---- Step 3: Record habit entry ----
+TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+HABIT_JSON=$(printf '{"timestamp":"%s","topic":"%s","summary":"%s"}\n' "$TIMESTAMP" "$TOPIC" "$SUMMARY")
+# Ensure the habits log exists
+mkdir -p "$(dirname /mind/habits.log)"
+echo "$HABIT_JSON" >> /mind/habits.log
+
+# ---- Output for the user (optional) ----
+echo "✅ Daily brain‑boost recorded:"
+echo "$HABIT_JSON"

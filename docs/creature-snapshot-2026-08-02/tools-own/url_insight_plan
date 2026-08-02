@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# tool: url_insight_plan
+# call: url_insight_plan <url>
+# does: Fetch a URL, fill knowledge gaps, synthesize a concise insight, archive it,
+#       and create a persistent action plan tracked by step-planner-tracker.
+# Usage: url_insight_plan "https://example.com/article"
+
+set -euo pipefail
+
+if [[ $# -lt 1 ]]; then
+  echo "Usage: $0 <url>"
+  exit 1
+fi
+
+URL="$1"
+TMPDIR=$(mktemp -d)
+PAGE_FILE="${TMPDIR}/page.html"
+INSIGHT_FILE="${TMPDIR}/insight.txt"
+KEYWORD="url_insight_$(date +%s%N | sha1sum | cut -c1-8)"
+
+# 1. Fetch the URL (raw HTML)
+fetch_url "${URL}" > "${PAGE_FILE}"
+
+# 2. Extract main textual content (fallback to whole HTML if extraction fails)
+#   Use grep/awk to strip tags loosely – we keep it simple for now.
+TEXT_CONTENT=$(sed -e 's/<[^>]*>/ /g' "${PAGE_FILE}" | tr -s '[:space:]' '\n' | grep -v '^$' | head -n 2000)
+
+# 3. Fill any knowledge gaps present in the extracted text.
+#    knowledge_gap_filler expects a query; we give it the text as a prompt.
+#    It will fetch missing info and store it in the keyword‑archive.
+echo "${TEXT_CONTENT}" | knowledge_gap_filler --quiet || true
+
+# 4. Generate a concise insight via subagent_ask_helper.
+#    Prompt: "Provide a single‑sentence actionable insight from the following article."
+INSIGHT_PROMPT="Provide a single‑sentence actionable insight from the following article:\n${TEXT_CONTENT}"
+insight=$(echo -e "${INSIGHT_PROMPT}" | subagent_ask_helper)
+
+# 5. Save the insight to the keyword‑archive.
+echo "${insight}" | keyword-archive-store "${KEYWORD}" --tags insight,url
+
+# 6. Create a persistent plan from the insight.
+#    We ask: "What actions should be taken based on <insight>?"
+PLAN_QUESTION="What actions should be taken based on the insight: \"${insight}\""
+PLAN_ID=$(echo "${PLAN_QUESTION}" | plan_from_question_onecall)
+
+# 7. Output identifiers for verification.
+echo "INSIGHT_KEYWORD=${KEYWORD}"
+echo "PLAN_ID=${PLAN_ID}"
+
+# Clean up temporary files.
+rm -rf "${TMPDIR}"

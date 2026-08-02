@@ -1,0 +1,90 @@
+#!/usr/bin/env python3
+# tool: ContextualWakeupSynchronizer
+# call: ContextualWakeupSynchronizer
+# does: Synchronizes fresh wake-up items with current interests, fills knowledge gaps, archives them, and schedules tasks.
+
+import subprocess
+import json
+import sys
+import os
+
+def run_cmd(cmd):
+    try:
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, check=True)
+        return result.stdout.strip()
+    except subprocess.CalledProcessError as e:
+        print(f"Error running command {cmd}: {e.stderr}")
+        return None
+
+def main():
+    print("Starting Contextual Wake-up Synchronization...")
+
+    # 1. Get Interests from memstore
+    interests_raw = run_cmd("memstore get interests")
+    if interests_raw:
+        try:
+            # Handle possible JSON list or plain string
+            interests = json.loads(interests_raw) if interests_raw.startswith('[') else [interests_raw]
+        except json.JSONDecodeError:
+            interests = [interests_raw]
+    else:
+        # Fallback defaults
+        interests = ['AI Agents', 'Toolsmithing', 'Cognitive Architecture']
+    
+    print(f"Synchronizing based on interests: {interests}")
+
+    # 2. Fetch fresh items
+    # Use .real to ensure we are using the state-persistent one
+    fetch_out = run_cmd("wake_catchup_fetcher.real")
+    if not fetch_out:
+        print("No new items found from fetcher.")
+        return
+
+    try:
+        items = json.loads(fetch_out)
+    except json.JSONDecodeError:
+        print("Failed to parse fetcher output.")
+        return
+
+    if not items:
+        print("No new items to process.")
+        return
+
+    print(f"Found {len(items)} new items. Filtering by interests...")
+
+    processed_count = 0
+    for item in items:
+        title = item.get('title', 'No Title')
+        url = item.get('url', '')
+        
+        if not url:
+            continue
+
+        # 3. Filter items using subagent_ask_helper
+        prompt = f"Does this headline match any of these interests: {interests}? Headline: {title}. Answer ONLY 'Yes' or 'No'."
+        match = run_cmd(f"subagent_ask_helper \"{prompt}\"")
+        
+        if match and 'yes' in match.lower():
+            print(f"Matched: {title}")
+            
+            # 4. Fill knowledge gaps
+            print(f"  Filling knowledge gaps for: {title}...")
+            gap_fill_out = run_cmd(f"knowledge_gap_filler \"{title} {url}\"")
+            
+            # 5. Archive the findings
+            # We'll use 'wake-sync' as the keyword for these items
+            keyword = "wake-sync"
+            archive_content = f"Title: {title}\nURL: {url}\nFindings: {gap_fill_out}"
+            run_cmd(f"keyword-archive-store {keyword} \"{archive_content}\"")
+            
+            # 6. Schedule a task in step-planner-tracker
+            goal = f"Research matched item: {title}"
+            steps = "Analyze article content;Integrate into archive;Reflect on implications"
+            run_cmd(f"step-planner-tracker add \"{goal}\" \"{steps}\"")
+            
+            processed_count += 1
+
+    print(f"Synchronization complete. Processed {processed_count} items.")
+
+if __name__ == "__main__":
+    main()

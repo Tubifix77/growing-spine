@@ -1,0 +1,48 @@
+tool: NewsInsightGenerator
+call: NewsInsightGenerator <topic>
+does: Generate proactive insights from fresh news about <topic> by chaining wake_catchup_fetcher → knowledge_gap_filler → subagent_ask_helper → ProactiveAlertSynthesizer.
+
+# Bash implementation
+set -euo pipefail
+
+# Argument: topic keyword (optional, empty means all fresh items)
+TOPIC="${1:-}"
+
+# 1. Fetch fresh news items (JSON array of objects {title,url,tags})
+if [ -n "$TOPIC" ]; then
+  NEWS_JSON=$(wake_catchup_fetcher "$TOPIC")   # filter by keyword if supported
+else
+  NEWS_JSON=$(wake_catchup_fetcher)
+fi
+
+# 2. Iterate over each news item
+echo "$NEWS_JSON" | jq -c '.[]' | while read -r ITEM; do
+  # 3. Run knowledge_gap_filler on the item (reads JSON on stdin)
+  GAP_RESULT=$(echo "$ITEM" | knowledge_gap_filler)
+
+  # The filler outputs a JSON object with a `gap` field if a gap exists.
+  GAP=$(echo "$GAP_RESULT" | jq -r '.gap // empty')
+  if [ -z "$GAP" ]; then
+    # No gap → skip this item
+    continue
+  fi
+
+  # 4. Ask sub‑agent to synthesize a proactive insight for the gap.
+  # We pass the original item plus the gap description.
+  INSIGHT_PROMPT=$(cat <<PROMPT
+You are a proactive analyst. Based on the news item below and the identified knowledge gap, create a short actionable insight or alert.
+News: $(echo "$ITEM" | jq -r '.title') – $(echo "$ITEM" | jq -r '.url')
+Gap: $GAP
+Provide the insight as a one‑sentence JSON object: {"alert":"..."}.
+PROMPT
+)
+
+  INSIGHT_JSON=$(echo "$INSIGHT_PROMPT" | subagent_ask_helper)
+
+  # 5. Feed the insight to ProactiveAlertSynthesizer which will schedule a task if needed.
+  # The synthesizer expects a JSON alert on stdin.
+  echo "$INSIGHT_JSON" | ProactiveAlertSynthesizer
+
+  # Also echo the alert for the caller's visibility
+  echo "$INSIGHT_JSON"
+done

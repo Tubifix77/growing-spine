@@ -1,0 +1,81 @@
+#!/bin/bash
+set -euo pipefail
+
+# proactive_learning_cycle: Periodically triggers wake_catchup_fetcher (FETCH) for AI‑related headlines,
+# feeds them to knowledge_gap_filler (RESEARCH) to spot learning gaps, stores the findings with
+# keyword-archive-store (MEMSTORE), and schedules follow‑up tasks in step-planner-tracker (PLANNING).
+# This end‑to‑end loop directly targets the recurring failures of ProactiveLearningOrchestrator by automating each stage.
+# does: Periodically triggers wake_catchup_fetcher for AI‑related headlines, feeds them to knowledge_gap_filler to spot learning gaps, stores findings with keyword-archive-store, and schedules follow‑up tasks in step-planner-tracker. This loop targets ProactiveLearningOrchestrator failures by automating each stage.
+
+echo "Starting proactive learning cycle..."
+
+# 1. Fetch AI-related headlines
+echo "Fetching fresh AI-related headlines..."
+HEADLINES_JSON=$(wake_catchup_fetcher.real)
+
+# Check if HEADLINES_JSON is empty or not valid JSON
+if [ -z "$HEADLINES_JSON" ] || [ "$(echo "$HEADLINES_JSON" | jq -r 'type')" != "array" ]; then
+    echo "No new headlines fetched or invalid JSON format. Exiting."
+    exit 0
+fi
+
+# 2. Process each headline to spot learning gaps and schedule tasks
+PLAN_DESCRIPTION="Proactive AI Learning Cycle: Discovered gaps from recent AI news"
+PLAN_ID=$(step-planner-tracker add "$PLAN_DESCRIPTION" --category "proactive_learning")
+echo "Created new plan with ID: $PLAN_ID"
+
+# Loop through each headline
+echo "$HEADLINES_JSON" | jq -c '.[]' | while read -r item; do
+    TITLE=$(echo "$item" | jq -r '.title')
+    URL=$(echo "$item" | jq -r '.url')
+
+    if [ -z "$TITLE" ]; then
+        echo "Skipping item with empty title."
+        continue
+    fi
+
+    echo "Processing headline: $TITLE"
+
+    # 2. Feed to knowledge_gap_filler to spot learning gaps
+    # Use the title as the query for knowledge gap filling.
+    # knowledge_gap_filler outputs a JSON array of identified gaps.
+    GAPS_JSON=$(knowledge_gap_filler "$TITLE")
+
+    # Check if GAPS_JSON is empty or not valid JSON
+    if [ -z "$GAPS_JSON" ] || [ "$(echo "$GAPS_JSON" | jq -r 'type')" != "array'" ] || [ "$(echo "$GAPS_JSON" | jq 'length')" -eq 0 ]; then
+        echo "No specific gaps identified for '$TITLE'. Archiving headline directly."
+        # Archive the headline even if no specific gaps were found, as it's still relevant info.
+        KEYWORD="AI-News-Headline"
+        TAGS="ai,news,headline"
+        # Combine title and URL for the note
+        NOTE="Headline: $TITLE\nURL: $URL"
+        keyword-archive-store "$KEYWORD" "$NOTE" --tags "$TAGS"
+        continue
+    fi
+
+    echo "Identified gaps for '$TITLE':"
+    echo "$GAPS_JSON" | jq -r '.[]'
+
+    # 3. Store the findings with keyword-archive-store
+    KEYWORD_BASE="AI-Learning-Gap"
+    TAGS="ai,learning_gap,proactive_learning"
+    
+    echo "$GAPS_JSON" | jq -c '.[]' | while read -r gap_item; do
+        GAP_TEXT=$(echo "$gap_item" | jq -r '.') # knowledge_gap_filler returns an array of strings
+        if [ -n "$GAP_TEXT" ]; then
+            # Archive each gap found
+            KEYWORD="${KEYWORD_BASE}: $(echo "$GAP_TEXT" | head -c 50 | sed 's/[^a-zA-Z0-9_-]/_/g')" # Create a keyword from the gap text
+            NOTE="Context: $TITLE (URL: $URL)\nDetected learning gap: $GAP_TEXT"
+            echo "Archiving gap: $GAP_TEXT"
+            keyword-archive-store "$KEYWORD" "$NOTE" --tags "$TAGS"
+
+            # 4. Schedule follow-up tasks in step-planner-tracker
+            TASK_DESCRIPTION="Research and fill knowledge gap: $GAP_TEXT (Context: $TITLE)"
+            echo "Scheduling task: $TASK_DESCRIPTION"
+            step-planner-tracker add "$TASK_DESCRIPTION" --plan_id "$PLAN_ID" --category "research"
+        fi
+    done
+done
+
+echo "Proactive learning cycle completed. Plan ID: $PLAN_ID"
+echo "To view tasks: step-planner-tracker list --plan_id $PLAN_ID"

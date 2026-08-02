@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+# ------------------------------------------------------------
+# Tool: planned_fetch_sequence
+# Call: planned_fetch_sequence "<goal>"
+# Does: Decompose a goal into ordered steps (via plan_from_question),
+#       fetch supporting data for each step (via wake_catchup_fetcher.real),
+#       summarise each fetch with subagent_ask_helper,
+#       archive the summaries (keyword-archive-store),
+#       and track step completion (step-planner-tracker).
+# ------------------------------------------------------------
+set -euo pipefail
+
+# ----------------------------------------------------------------
+# Helper: abort with a friendly message
+abort() {
+    echo "ERROR: $*" >&2
+    exit 1
+}
+# ----------------------------------------------------------------
+
+# ----------------------------------------------------------------
+# Input validation
+if [[ $# -ne 1 ]]; then
+    abort "Usage: $0 \"<goal>\""
+fi
+GOAL="$1"
+
+# ----------------------------------------------------------------
+# 1️⃣  Generate a persistent plan from the goal
+# `plan_from_question` prints the new plan ID on stdout.
+PLAN_ID=$(plan_from_question "$GOAL" | grep -Eo '[0-9]{13,}' || true)
+if [[ -z "$PLAN_ID" ]]; then
+    abort "Failed to create a plan for goal: $GOAL"
+fi
+echo "✅ Created plan ID: $PLAN_ID"
+
+# ----------------------------------------------------------------
+# 2️⃣  Retrieve the list of steps for this plan
+# `step-planner-tracker --list $PLAN_ID` prints each step as:
+#   <step_index> <status> <step_description>
+STEP_LINES=$(step-planner-tracker --list "$PLAN_ID")
+if [[ -z "$STEP_LINES" ]]; then
+    abort "No steps found for plan $PLAN_ID"
+fi
+
+# ----------------------------------------------------------------
+# 3️⃣  Process each step in order
+while IFS= read -r line; do
+    # Expected format: "<index> <status> <description>"
+    IDX=$(echo "$line" | awk '{print $1}')
+    STATUS=$(echo "$line" | awk '{print $2}')
+    DESC=$(echo "$line" | cut -d' ' -f3-)
+
+    # Skip already‑done steps
+    if [[ "$STATUS" == "done" ]]; then
+        echo "⚡ Step $IDX already done – skipping."
+        continue
+    fi
+
+    echo "▶️ Processing step $IDX: $DESC"
+
+    # ----------------------------------------------------------------
+    # 3a️⃣  Fetch supporting data
+    # We ask wake_catchup_fetcher.real to search the web for the description.
+    # It returns a JSON array; we grab the first entry’s URL.
+    FETCH_JSON=$(wake_catchup_fetcher.real --query "$DESC" --limit 1)
+    FETCH_URL=$(echo "$FETCH_JSON" | jq -r '.[0].url // empty')
+    if [[ -z "$FETCH_URL" ]]; then
+        echo "⚠️ No fresh item found for step $IDX – marking as done with empty result."
+        step-planner-tracker --done "$PLAN_ID" "$IDX"
+        continue
+    fi
+
+    echo "   ↳ Fetched URL: $FETCH_URL"
+
+    # ----------------------------------------------------------------
+    # 3b️⃣  Summarise the fetched content with a sub‑agent
+    # Build a concise prompt that asks the sub‑agent to produce a short,
+    # actionable summary for the step.
+    PROMPT="Summarise the content at $FETCH_URL in the context of the step: \"$DESC\". Produce a short (1‑2 sentence) answer that can be used to complete the step."
+    SUMMARY=$(subagent_ask_helper "$PROMPT")
+    if [[ -z "$SUMMARY" ]]; then
+        SUMMARY="(no summary generated)"
+    fi
+
+    # ----------------------------------------------------------------
+    # 3c️⃣  Archive the summary
+    # We store under a composite keyword: "plan_<PLAN_ID>_step_<IDX>"
+    KEYWORD="plan_${PLAN_ID}_step_${IDX}"
+    echo "   ↳ Archiving summary under keyword \"$KEYWORD\""
+    echo "$SUMMARY" | keyword-archive-store "$KEYWORD" --tags "plan,$PLAN_ID,step,$IDX"
+
+    # ----------------------------------------------------------------
+    # 3d️⃣  Mark the step as done
+    step-planner-tracker --done "$PLAN_ID" "$IDX"
+    echo "✅ Step $IDX completed."
+
+done <<< "$STEP_LINES"
+
+# ----------------------------------------------------------------
+# 4️⃣  Final report
+echo "🎉 All steps for plan $PLAN_ID processed."
+echo "Archive entries created with keyword prefix \"plan_${PLAN_ID}_step_\"."

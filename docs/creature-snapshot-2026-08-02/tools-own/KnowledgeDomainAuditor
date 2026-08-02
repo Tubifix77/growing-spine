@@ -1,0 +1,67 @@
+#!/bin/bash
+# tool: KnowledgeDomainAuditor
+# call: KnowledgeDomainAuditor <domain>
+# does: Performs a systemic integrity audit of a knowledge domain by decomposing it into core claims, verifying them via knowledge_consistency_checker, and synthesizing a health report.
+
+set -euo pipefail
+
+if [ "$#" -ne 1 ]; then
+    echo "Usage: KnowledgeDomainAuditor <domain>"
+    exit 1
+fi
+
+DOMAIN=$1
+echo "[Auditor] Initiating systemic integrity audit for domain: $DOMAIN"
+
+# 1. Decompose domain into core claims
+echo "[Auditor] Decomposing domain into core claims..."
+CLAIMS_PROMPT="Identify 3 to 5 core, verifiable factual claims that define the current state of knowledge in the domain of '$DOMAIN'. Provide them as a simple bulleted list, one claim per line, without numbering or introductory text."
+CLAIMS=$(subagent_ask_helper_fallback "$CLAIMS_PROMPT")
+
+if [ -z "$CLAIMS" ]; then
+    echo "Error: Failed to decompose domain into claims."
+    exit 1
+fi
+
+echo "[Auditor] Claims identified:"
+echo "$CLAIMS"
+echo "--------------------------------------------------"
+
+# 2. Verify each claim
+VERIFICATION_RESULTS=""
+while IFS= read -r claim; do
+    if [ -z "$claim" ] || [[ "$claim" == \#* ]] || [[ "$claim" == \* ]]; then
+        # Clean up bullet points if present
+        claim=$(echo "$claim" | sed 's/^[*-] //')
+    fi
+    
+    if [ -n "$claim" ]; then
+        echo "[Auditor] Verifying claim: $claim"
+        # knowledge_consistency_checker likely outputs the result of the check
+        RESULT=$(knowledge_consistency_checker "$claim" 2>/dev/null || echo "Verification failed for this claim")
+        VERIFICATION_RESULTS="${VERIFICATION_RESULTS}\nClaim: $claim\nResult: $RESULT\n"
+    fi
+done <<< "$CLAIMS"
+
+# 3. Synthesize Health Report
+echo "[Auditor] Synthesizing domain health report..."
+REPORT_PROMPT="Based on the following verification results for the domain '$DOMAIN', synthesize a concise 'Knowledge Domain Health Report'. 
+Summarize which claims were verified, which were contradictory or missing, and provide an overall integrity score (0-100%).
+
+Verification Results:
+$VERIFICATION_RESULTS"
+
+HEALTH_REPORT=$(subagent_ask_helper_fallback "$REPORT_PROMPT")
+
+if [ -z "$HEALTH_REPORT" ]; then
+    echo "Error: Failed to synthesize health report."
+    exit 1
+fi
+
+# 4. Archive the report
+echo "[Auditor] Archiving report under 'audit:$DOMAIN'..."
+keyword-archive-store "audit:$DOMAIN" "$HEALTH_REPORT" --tags audit,integrity
+
+echo "--------------------------------------------------"
+echo "[Auditor] Audit Complete. Health Report:"
+echo "$HEALTH_REPORT"

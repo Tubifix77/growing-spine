@@ -1,0 +1,79 @@
+#!/usr/bin/env python3
+# tool: ConsensusResearchOrchestrator
+# call: ConsensusResearchOrchestrator <question>
+# does: Orchestrates multi-perspective research to find consensus and divergence on a topic, persisting the final report.
+
+import subprocess
+import json
+import sys
+import re
+
+def run_cmd(cmd):
+    try:
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, check=True)
+        return result.stdout.strip()
+    except subprocess.CalledProcessError as e:
+        return f"Error running {cmd}: {e.stderr}"
+
+def main():
+    if len(sys.argv) < 2:
+        print("Usage: ConsensusResearchOrchestrator <question>")
+        sys.exit(1)
+
+    question = " ".join(sys.argv[1:])
+    print(f"Starting Consensus Research for: {question}")
+
+    # 1. Generate diversified search queries to avoid echo chambers
+    print("Generating diverse research perspectives...")
+    query_prompt = (
+        f"Given the question '{question}', suggest 3 distinct search queries or angles "
+        "to investigate this from different perspectives (e.g., technical, critical, historical, or competing theories). "
+        "Return ONLY a JSON list of strings."
+    )
+    queries_raw = run_cmd(f"subagent_ask_helper '{query_prompt}'")
+    
+    try:
+        # Clean up potential LLM markdown wrapping
+        queries_json = re.search(r'\[.*\]', queries_raw, re.DOTALL).group(0)
+        queries = json.loads(queries_json)
+    except Exception:
+        print("Failed to parse queries, falling back to basic query.")
+        queries = [question, f"{question} pros and cons", f"{question} alternative views"]
+
+    # 2. Gather data for each perspective
+    research_results = []
+    for i, query in enumerate(queries):
+        print(f"Researching perspective {i+1}/{len(queries)}: {query}...")
+        # We use knowledge_gap_filler as it is a high-level composition tool that fetches and synthesizes
+        data = run_cmd(f"knowledge_gap_filler '{query}'")
+        research_results.append(f"Perspective {i+1} ({query}):\n{data}")
+
+    # 3. Cross-examine for consensus and divergence
+    print("Analyzing results for consensus and divergence...")
+    combined_data = "\n\n---\n\n".join(research_results)
+    analysis_prompt = (
+        f"Question: {question}\n\n"
+        f"I have gathered the following information from different perspectives:\n\n{combined_data}\n\n"
+        "Please analyze this data and provide a structured 'Consensus Report' with the following sections:\n"
+        "1. CONSENSUS: What do the sources agree on?\n"
+        "2. DIVERGENCE: Where do the sources conflict or offer contradictory evidence?\n"
+        "3. OUTLIERS: What unique insights appear in only one source?\n"
+        "4. UNRESOLVED: What gaps still exist after this multi-perspective search?\n"
+        "Be concise and factual."
+    )
+    consensus_report = run_cmd(f"subagent_ask_helper '{analysis_prompt}'")
+
+    # 4. Persist the report
+    # Create a slug for the keyword
+    slug = re.sub(r'[^a-z0-9]', '_', question.lower())[:50]
+    keyword = f"consensus_{slug}"
+    
+    print(f"Storing consensus report under keyword: {keyword}...")
+    run_cmd(f"keyword-archive-store {keyword} '{consensus_report}' --tags consensus research")
+
+    # 5. Output the final result
+    print("\n--- FINAL CONSENSUS REPORT ---\n")
+    print(consensus_report)
+
+if __name__ == "__main__":
+    main()

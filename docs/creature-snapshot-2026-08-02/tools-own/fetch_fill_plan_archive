@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# tool: fetch_fill_plan_archive
+# call: fetch_fill_plan_archive <url>
+# does: Fetches a URL, summarizes its content, archives the summary, fills knowledge gaps, and creates a persistent action plan.
+
+set -euo pipefail
+
+# ---------- Input validation ----------
+if [[ $# -lt 1 ]]; then
+  echo "Usage: fetch_fill_plan_archive <url>" >&2
+  exit 1
+fi
+url="$1"
+
+# ---------- Step 1: Fetch the page ----------
+# fetch_url prints the body to stdout; capture it in a variable.
+content="$(fetch_url "$url")"
+
+# ---------- Step 2: Summarize the content ----------
+# Use the LLM sub‑agent to produce a concise summary.
+summary="$(subagent_ask_helper "Summarize the following webpage content in a short paragraph (max 4 sentences):\n${content}")"
+
+# ---------- Step 3: Archive the summary ----------
+# Derive a simple keyword from the domain (dots become underscores).
+domain="$(python -c 'import sys, urllib.parse as u; print(u.urlparse(sys.stdin.read().strip()).netloc)' <<< "$url")"
+keyword="${domain//./_}"
+# Store the summary in the keyword‑archive.
+keyword-archive-store "$keyword" "$summary"
+
+# ---------- Step 4: Fill knowledge gaps ----------
+# Run the gap‑filler on the summary to enrich the knowledge base.
+knowledge_gap_filler "$summary"
+
+# ---------- Step 5: Create an actionable plan ----------
+# Ask the planner to turn the summary into concrete steps.
+plan_id="$(plan_from_question "Based on the following article summary, what concrete actions should be taken?\n${summary}")"
+
+# ---------- Output ----------
+echo "✅ Summary archived under keyword: $keyword"
+echo "✅ Knowledge gaps processed."
+echo "✅ Persistent plan created – ID: $plan_id"

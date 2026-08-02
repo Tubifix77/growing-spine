@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# does: Turn a user question into a concrete execution plan using fresh news.
+#   1. Resolve the question to a concise query with plan_from_question_onecall.
+#   2. Fetch recent news items matching that query via wake_catchup_fetcher.
+#   3. Create a persistent plan in step-planner-tracker with a step per news item.
+#   4. Output the created plan ID.
+
+set -euo pipefail
+
+if [[ $# -lt 1 ]]; then
+  echo "Usage: $0 <question>"
+  exit 1
+fi
+
+QUESTION="${*}"
+
+# ----------------------------------------------------------------
+# 1️⃣ Resolve the question to a concise query + initial plan id
+# ----------------------------------------------------------------
+# plan_from_question_onecall returns JSON: {"plan_id":"...","refined_query":"..."}
+RES=$(plan_from_question_onecall "$QUESTION")
+PLAN_ID=$(echo "$RES" | jq -r .plan_id)
+REFINED_QUERY=$(echo "$RES" | jq -r .refined_query)
+
+# If the resolver failed, fall back to the original question
+if [[ -z "$REFINED_QUERY" || "$REFINED_QUERY" == "null" ]]; then
+  REFINED_QUERY="$QUESTION"
+fi
+
+# ----------------------------------------------------------------
+# 2️⃣ Fetch fresh news items matching the refined query
+# ----------------------------------------------------------------
+# wake_catchup_fetcher accepts a search term via --filter; we filter later
+NEWS_JSON=$(wake_catchup_fetcher.real)
+
+# Filter items whose title or url contains keywords from the refined query
+# (simple case‑insensitive grep)
+FILTERED=$(echo "$NEWS_JSON" | jq -c '.[] | select(.title | test("'$(printf "%s" "$REFINED_QUERY" | sed 's/"/\\"/g')' ; "i") or .url | test("'$(printf "%s" "$REFINED_QUERY" | sed 's/"/\\"/g')' ; "i"))')
+# If nothing matches, fall back to the whole feed
+if [[ -z "$FILTERED" ]]; then
+  FILTERED=$(echo "$NEWS_JSON" | jq -c '.[]')
+fi
+
+# ----------------------------------------------------------------
+# 3️⃣ Create a concrete plan – one step per news item
+# ----------------------------------------------------------------
+# Add a descriptive title to the plan if it is still empty
+step-planner-tracker update-plan "$PLAN_ID" --title "News‑driven plan for: $QUESTION"
+
+# Iterate over the filtered items
+echo "$FILTERED" | while read -r ITEM; do
+  TITLE=$(echo "$ITEM" | jq -r .title)
+  URL=$(echo "$ITEM" | jq -r .url)
+
+  # Build a step description that includes the URL – the step executor can later fetch & act on it
+  STEP_DESC="Investigate news item: $TITLE — $URL"
+  step-planner-tracker add-step "$PLAN_ID" "$STEP_DESC"
+done
+
+# ----------------------------------------------------------------
+# 4️⃣ Output the plan id for the caller
+# ----------------------------------------------------------------
+echo "$PLAN_ID"

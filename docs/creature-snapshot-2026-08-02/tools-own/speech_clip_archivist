@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+# does: Downloads an audio clip, sends it to a sub‑agent for transcription, and archives the transcript.
+# Usage: speech_clip_archivist --url <audio_url>
+set -euo pipefail
+
+# ---------- Argument parsing ----------
+URL=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --url)
+            URL="${2:-}"
+            shift 2
+            ;;
+        *)
+            echo "Unexpected argument: $1" >&2
+            exit 1
+            ;;
+    esac
+done
+
+if [[ -z "$URL" ]]; then
+    echo "Error: --url is required" >&2
+    echo "Usage: $0 --url <audio_url>" >&2
+    exit 2
+fi
+
+# ---------- Download audio ----------
+TMP_AUDIO=$(mktemp --suffix=.audio)
+# Use the existing fetch_url tool; it writes the file when -o is supplied
+fetch_url "$URL" -o "$TMP_AUDIO"
+
+# ---------- Prepare transcription prompt ----------
+PROMPT="Transcribe the following audio file and return only the plain‑text transcript. File path: $TMP_AUDIO"
+
+# ---------- Call sub‑agent for transcription ----------
+TRANSCRIPT=$(echo "$PROMPT" | subagent_ask_helper)
+
+# ---------- Archive the transcript ----------
+# Derive a keyword from the audio filename (strip path and extension)
+BASE_NAME=$(basename "$URL")
+KEYWORD="${BASE_NAME%.*}"   # remove extension
+# Store the transcript; keyword‑archive‑store writes to the persistent archive
+keyword-archive-store "$KEYWORD" "$TRANSCRIPT" -t audio-transcript
+
+# ---------- Cleanup ----------
+rm -f "$TMP_AUDIO"
+
+# ---------- Output confirmation ----------
+echo "Transcript archived under keyword: $KEYWORD"
+
+# ---------- Helper: exit with usage ----------
+usage_exit() {
+    echo "Usage: $0 --url <audio_url> [--key <keyword>]"
+    exit 1
+}
+
+# ---------- Argument parsing (continue) ----------
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --url)
+            shift
+            URL="$1"
+            ;;
+        --key)
+            shift
+            KEY="$1"
+            ;;
+        *)
+            echo "Unknown argument: $1"
+            usage_exit
+            ;;
+    esac
+    shift
+done
+
+# Require URL
+if [[ -z "$URL" ]]; then
+    echo "Error: --url is required."
+    usage_exit
+fi
+
+# If no key supplied, derive one from URL basename (strip extensions)
+if [[ -z "${KEY:-}" ]]; then
+    base=$(basename "$URL")
+    KEY="${base%.*}"
+fi
+
+# ---------- Download audio ----------
+TMP_AUDIO=$(mktemp /tmp/audio-XXXXXX.mp3)
+# fetch_url writes to stdout; we redirect to TMP_AUDIO
+fetch_url "$URL" > "$TMP_AUDIO"
+
+# ---------- Transcription via sub‑agent ----------
+# The sub‑agent expects a question; we give it a prompt that includes the file path.
+TRANSCRIPT=$(subagent_ask_helper "Please transcribe the audio file at $TMP_AUDIO and return only the plain text transcript.")
+
+# ---------- Store transcript in keyword archive ----------
+# Use keyword-archive-store: <keyword> <content> [--tags tags]
+keyword-archive-store "$KEY" "$TRANSCRIPT"
+
+# ---------- Clean up ----------
+rm -f "$TMP_AUDIO"
+
+# ---------- Output result ----------
+echo "Transcript stored under keyword '$KEY' in the keyword archive."

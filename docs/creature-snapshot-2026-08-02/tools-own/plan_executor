@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+# does: Execute pending steps of a persistent plan, running appropriate existing tools,
+#       archiving results, and marking steps as done. Can run a single step (--once) or all.
+
+set -euo pipefail
+
+# Helper: print usage
+usage() {
+    echo "Usage: plan_executor [--once] <plan_id>"
+    echo "  --once   Execute only the next pending step and exit."
+    echo "  <plan_id>  ID of the plan created by step-planner-tracker."
+    exit 1
+}
+
+# Parse arguments
+once_mode=false
+if [[ $# -eq 2 && $1 == "--once" ]]; then
+    once_mode=true
+    plan_id=$2
+elif [[ $# -eq 1 ]]; then
+    plan_id=$1
+else
+    usage
+fi
+
+# Verify the plan exists (step-planner-tracker can list plans)
+if ! step-planner-tracker list | grep -q "^${plan_id}\b"; then
+    echo "Error: Plan ID '${plan_id}' not found."
+    exit 1
+fi
+
+# Main loop: run steps until none remain or until --once is set
+while true; do
+    # Get the next pending step (JSON) for the plan
+    next_step_json=$(step-planner-tracker next "${plan_id}" || true)
+
+    if [[ -z "${next_step_json}" ]]; then
+        echo "No pending steps for plan ${plan_id}."
+        break
+    fi
+
+    # Extract fields
+    step_id=$(echo "${next_step_json}" | jq -r '.step_id // .id')
+    description=$(echo "${next_step_json}" | jq -r '.description // .desc // ""')
+    echo "Executing step ${step_id}: ${description}"
+
+    # Determine action type based on simple keywords in the description
+    #   fetch <url>          -> run fetch_url
+    #   ask <question>      -> run subagent_ask_helper
+    #   summarize <url>     -> run fetch_and_summarize
+    #   archive <text>      -> store via keyword-archive-store
+    #   other                -> treat as generic sub‑agent question
+
+    lower_desc=$(echo "${description}" | tr 'A-Z' 'a-z')
+
+    if [[ "${lower_desc}" =~ ^fetch[[:space:]]+(https?://[^[:space:]]+) ]]; then
+        url="${BASH_REMATCH[1]}"
+        echo "-> Fetching URL: ${url}"
+        fetch_url "${url}"
+        # Archive raw fetched content under a derived keyword
+        keyword="fetched-$(date +%s)"
+        keyword-archive-store "${keyword}" "$(cat "${url##*/}")" --tags fetched
+    elif [[ "${lower_desc}" =~ ^ask[[:space:]]+(.+) ]]; then
+        question="${BASH_REMATCH[1]}"
+        echo "-> Asking sub‑agent: ${question}"
+        answer=$(subagent_ask_helper "${question}")
+        echo "Answer: ${answer}"
+        # Archive the Q&A pair
+        keyword="qa-$(date +%s)"
+        keyword-archive-store "${keyword}" "Q: ${question}
+A: ${answer}" --tags qa
+    elif [[ "${lower_desc}" =~ ^summarize[[:space:]]+(https?://[^[:space:]]+) ]]; then
+        url="${BASH_REMATCH[1]}"
+        echo "-> Summarising URL: ${url}"
+        fetch_and_summarize "${url}"
+        # Summarise tool already archives its result; no extra step needed
+    else
+        # Fallback: treat the whole description as a sub‑agent query
+        echo "-> Fallback: sending description to sub‑agent"
+        answer=$(subagent_ask_helper "${description}")
+        echo "Answer: ${answer}"
+        keyword="fallback-$(date +%s)"
+        keyword-archive-store "${keyword}" "Prompt: ${description}
+Response: ${answer}" --tags fallback
+    fi
+
+    # Mark the step as completed
+    step-planner-tracker complete "${plan_id}" "${step_id}"
+    echo "Step ${step_id} marked as done."
+
+    # If we are in --once mode, stop after the first step
+    if $once_mode; then
+        break
+    fi
+done
+
+echo "Plan execution finished for ${plan_id}."

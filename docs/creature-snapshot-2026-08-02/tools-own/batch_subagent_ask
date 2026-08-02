@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# does: Runs a list of queries through subagent_ask_helper and prints each answer.
+# Usage: batch_subagent_ask [file]
+#   If a file is supplied, read queries from the file (one per line).
+#   Otherwise read queries from stdin.
+# Each non‑empty line is treated as a separate query.
+set -euo pipefail
+
+# Determine source of queries
+if [[ $# -gt 0 ]]; then
+  src_file="$1"
+else
+  src_file="/dev/stdin"
+fi
+
+# Process each query
+while IFS= read -r query; do
+  # Skip empty lines
+  [[ -z "$query" ]] && continue
+  echo "Q: $query"
+  # Call the existing subagent_ask_helper tool
+  answer=$(subagent_ask_helper "$query")
+  echo "A: $answer"
+  echo "---"
+done < "$src_file"

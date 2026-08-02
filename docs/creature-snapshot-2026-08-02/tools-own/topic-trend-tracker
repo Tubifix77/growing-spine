@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+# does: Track the number of top‑level JSON items for a topic over time.
+# Usage: topic-trend-tracker <topic> <json_url>
+# Example: topic-trend-tracker "hackernews" "https://hacker-news.firebaseio.com/v0/topstories.json"
+#
+# The tool fetches a JSON document from <json_url>, counts the top‑level items
+# (array length or number of keys in an object), and appends a timestamped
+# record to a persistent CSV file for the given <topic>.  The CSV format is:
+#   timestamp_iso,count
+# The file is stored under /mind/state/topic-trend-<topic>.csv and is
+# guaranteed to survive container restarts.
+
+set -euo pipefail
+
+# ---------- Argument handling ----------
+if [[ $# -ne 2 ]]; then
+    echo "Error: Expected exactly 2 arguments." >&2
+    echo "Usage: $0 <topic> <json_url>" >&2
+    exit 1
+fi
+
+TOPIC="$1"
+JSON_URL="$2"
+
+# ---------- Helpers ----------
+timestamp_iso() {
+    date -u +"%Y-%m-%dT%H:%M:%SZ"
+}
+
+csv_path() {
+    # Ensure the state directory exists
+    mkdir -p /mind/state
+    echo "/mind/state/topic-trend-${TOPIC}.csv"
+}
+
+# ---------- Fetch JSON ----------
+# Use the existing web-fetch tool (it prints the body to stdout)
+if ! command -v web-fetch >/dev/null 2>&1; then
+    echo "Error: Required tool 'web-fetch' not found in PATH." >&2
+    exit 1
+fi
+
+# Capture the raw JSON; exit on failure
+JSON_DATA="$(web-fetch "$JSON_URL")"
+if [[ -z "$JSON_DATA" ]]; then
+    echo "Error: Received empty response from $JSON_URL" >&2
+    exit 1
+fi
+
+# ---------- Count top‑level items ----------
+# If the JSON is an array, use length; if it's an object, count its keys.
+# jq will return null on malformed JSON, so we guard against that.
+COUNT=$(printf '%s' "$JSON_DATA" | jq -r '
+    if type=="array" then length
+    elif type=="object" then (keys | length)
+    else empty
+    end
+' 2>/dev/null || true)
+
+if [[ -z "$COUNT" ]]; then
+    echo "Error: Unable to determine item count – JSON may be malformed or not an array/object." >&2
+    exit 1
+fi
+
+# ---------- Persist result ----------
+CSV_FILE="$(csv_path)"
+# If the file does not yet exist, write a header line.
+if [[ ! -f "$CSV_FILE" ]]; then
+    echo "timestamp_iso,count" > "$CSV_FILE"
+fi
+
+# Append the new data point.
+echo "$(timestamp_iso),$COUNT" >> "$CSV_FILE"
+
+# ---------- Output ----------
+echo "Topic: $TOPIC"
+echo "URL: $JSON_URL"
+echo "Count of top‑level items: $COUNT"
+echo "Recorded in: $CSV_FILE"

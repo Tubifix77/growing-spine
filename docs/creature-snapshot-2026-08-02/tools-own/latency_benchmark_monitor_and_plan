@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# tool: latency_benchmark_monitor_and_plan
+# does: Fetch recent latency benchmark JSON reports, fill any knowledge gaps, notify if latency exceeds threshold, and create remediation tasks in the persistent planner.
+# Usage: latency_benchmark_monitor_and_plan <url>
+#   <url> – HTTP(S) endpoint that returns a JSON array of benchmark objects, each with at least `name` and `latency_ms`.
+
+set -euo pipefail
+
+# ---- Helper: print a short notification ---------------------------------
+notify() {
+  local msg="$1"
+  # For now, just echo – the cousin can capture stdout.
+  echo "🔔 Notification: $msg"
+}
+
+# ---- Main workflow --------------------------------------------------------
+url="${1:-}"
+if [[ -z "$url" ]]; then
+  echo "Error: URL argument required" >&2
+  exit 1
+fi
+
+# 1️⃣ Fetch the raw benchmark JSON using the existing fetcher.
+# wake_catchup_fetcher returns fresh items; we can reuse it by feeding the URL.
+# It prints JSON to stdout, so capture it.
+raw_json=$(wake_catchup_fetcher "$url")
+
+# 2️⃣ For each benchmark entry, run knowledge_gap_filler to ensure the archive has context.
+# We'll assume each entry is a JSON object with `name` and `latency_ms`.
+# Using jq (ensure it's installed) to iterate.
+entries=$(echo "$raw_json" | jq -c '.[]')
+while IFS= read -r entry; do
+  name=$(echo "$entry" | jq -r '.name')
+  latency=$(echo "$entry" | jq -r '.latency_ms')
+
+  # Fill knowledge gaps for this benchmark name (e.g., service description).
+  # knowledge_gap_filler expects a query string; we pass the name.
+  knowledge_gap_filler "$name" >/dev/null 2>&1 || true
+
+  # 3️⃣ Notify if latency exceeds a threshold (hard‑coded 20 ms here).
+  if (( $(echo "$latency > 20" | bc -l) )); then
+    notify "Latency for $name is high: ${latency} ms"
+  fi
+
+  # 4️⃣ Create a remediation task via the notifier tool – it also adds a high‑priority alert.
+  # latency_benchmark_notifier_compose expects the same URL, but we give it the single entry JSON.
+  # We'll pipe the entry as a temporary file.
+  tmp=$(mktemp)
+  echo "[$entry]" > "$tmp"
+  latency_benchmark_notifier_compose "$tmp"
+  rm -f "$tmp"
+
+  # 5️⃣ Additionally, add a concrete remediation step to the persistent planner.
+  # e.g., “Investigate $name latency issue”.
+  step-planner-tracker add "Investigate latency for $name (observed ${latency} ms)" high
+done <<<"$entries"
+
+# End of script

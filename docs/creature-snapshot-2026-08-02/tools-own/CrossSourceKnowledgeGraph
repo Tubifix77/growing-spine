@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+# tool: CrossSourceKnowledgeGraph
+# call: CrossSourceKnowledgeGraph <keyword>
+# does: Build a knowledge graph from archive search results and LLM‑extracted relationships,
+#       then persist the graph in memstore under the key "graph:<keyword>".
+# Usage: CrossSourceKnowledgeGraph "some keyword"
+
+set -euo pipefail
+
+# ---------- Helper functions ----------
+json_escape() {
+  # Escape a string for safe inclusion in JSON double quotes
+  # Uses jq for robust escaping
+  printf '%s' "$1" | jq -R .
+}
+
+# ---------- Input ----------
+if [[ $# -lt 1 ]]; then
+  echo "Usage: $0 <keyword>" >&2
+  exit 1
+fi
+KEYWORD="$*"
+
+# ---------- Step 1: Search the keyword‑archive ----------
+# We ask for the top 20 matching notes (adjustable)
+SEARCH_RESULTS=$(keyword-archive-search "${KEYWORD}" --top 20 || true)
+
+if [[ -z "$SEARCH_RESULTS" ]]; then
+  echo "No archive entries found for '${KEYWORD}'." >&2
+  exit 0   # Not an error – just an empty graph
+fi
+
+# ---------- Step 2: Extract relationships via LLM ----------
+# We'll accumulate triples in a JSON array
+TRIPLES="[]"
+
+while IFS= read -r line; do
+  # Each line is a JSON object; extract the raw text (prefer 'content' then 'text')
+  TEXT=$(printf '%s' "$line" | jq -r '.content // .text // .summary // empty' || true)
+  [[ -z "$TEXT" ]] && continue
+
+  # Prompt for LLM
+  PROMPT=$'Extract all factual relationships from the following text. Return a JSON array of objects, each with keys "subject", "predicate", "object". Do not add any extra text.\n\n'"$TEXT"
+
+  # Call subagent_ask_helper – returns ONLY the answer (the JSON)
+  LLM_ANSWER=$(printf '%s' "$PROMPT" | subagent_ask_helper || true)
+
+  # Validate that the answer looks like a JSON array; if not, skip
+  if printf '%s' "$LLM_ANSWER" | jq -e . >/dev/null 2>&1; then
+    # Concatenate arrays safely
+    TRIPLES=$(printf '%s' "$TRIPLES" "$LLM_ANSWER" | jq -s 'add')
+  else
+    # If LLM didn't return proper JSON, ignore this note
+    continue
+  fi
+done <<<"$SEARCH_RESULTS"
+
+# If no triples were extracted, store an empty graph
+if [[ "$(printf '%s' "$TRIPLES" | jq 'length')" -eq 0 ]]; then
+  echo "No relationships extracted for '${KEYWORD}'. Storing empty graph."
+  EMPTY_GRAPH='{"nodes":{}, "edges":[]}'
+  memstore add "graph:${KEYWORD}" "$EMPTY_GRAPH"
+  echo "Graph stored under key graph:${KEYWORD}"
+  exit 0
+fi
+
+# ---------- Step 3: Build graph structure ----------
+# Build a set of unique nodes
+NODES=$(printf '%s' "$TRIPLES" | jq -r '.[].subject, .[].object' | sort -u | jq -R 'split("\n")[:-1] | map({(.):{}}) | add')
+
+# Build edges array (keep as‑is)
+EDGES=$(printf '%s' "$TRIPLES" | jq -c '.')
+
+GRAPH=$(jq -n --argjson nodes "$NODES" --argjson edges "$EDGES" '{nodes:$nodes, edges:$edges}')
+
+# ---------- Step 4: Persist graph in memstore ----------
+memstore add "graph:${KEYWORD}" "$GRAPH"
+
+# ---------- Step 5: Output summary ----------
+NODE_COUNT=$(printf '%s' "$GRAPH" | jq '.nodes | length')
+EDGE_COUNT=$(printf '%s' "$GRAPH" | jq '.edges | length')
+echo "Knowledge graph for '${KEYWORD}' stored under key graph:${KEYWORD}"
+echo "Nodes: $NODE_COUNT, Edges: $EDGE_COUNT"

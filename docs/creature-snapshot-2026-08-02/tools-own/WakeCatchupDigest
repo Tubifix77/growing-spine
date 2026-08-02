@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ------------------------------------------------------------
+# WakeCatchupDigest – one‑shot daily news briefing
+# ------------------------------------------------------------
+# 1. fetch fresh Hacker News items (JSON)
+# 2. generate a short “what changed” digest
+# 3. ask the LLM to turn the digest into a concise briefing
+# 4. write the briefing to /workspace/daily_digest.md
+# ------------------------------------------------------------
+
+# Output file (persistent location)
+OUTPUT="/workspace/daily_digest.md"
+
+# Step 1: fetch fresh items
+# wake_catchup_fetcher.real prints a JSON array to stdout
+FETCHED_JSON="$(wake_catchup_fetcher.real 2>/dev/null || true)"
+if [[ -z "$FETCHED_JSON" ]]; then
+    echo "No new items fetched; aborting." >&2
+    exit 1
+fi
+
+# Step 2: produce a raw digest of the items
+# wake_orient_digest expects the JSON on stdin and writes a short summary
+RAW_DIGEST="$(echo "$FETCHED_JSON" | wake_orient_digest 2>/dev/null || true)"
+if [[ -z "$RAW_DIGEST" ]]; then
+    echo "wake_orient_digest returned empty output; aborting." >&2
+    exit 1
+fi
+
+# Step 3: ask the LLM for a concise briefing
+# subagent_ask_helper expects a question/prompt on stdin and returns only the answer
+BRIEFING_PROMPT="Summarise the following news digest in a short, punchy briefing suitable for a daily email:\n$RAW_DIGEST"
+BRIEFING="$(echo "$BRIEFING_PROMPT" | subagent_ask_helper 2>/dev/null || true)"
+if [[ -z "$BRIEFING" ]]; then
+    echo "subagent_ask_helper returned no answer; aborting." >&2
+    exit 1
+fi
+
+# Step 4: write the result
+{
+    echo "# Daily Digest – $(date '+%Y-%m-%d')"
+    echo
+    echo "$BRIEFING"
+} > "$OUTPUT"
+
+# Provide a friendly stdout for debugging / pipelines
+echo "Digest written to $OUTPUT"
+exit 0

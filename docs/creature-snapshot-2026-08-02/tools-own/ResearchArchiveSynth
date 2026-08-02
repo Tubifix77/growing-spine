@@ -1,0 +1,83 @@
+#!/usr/bin/env python3
+"""
+tool: ResearchArchiveSynth
+call: ResearchArchiveSynth <research_query>
+does: Executes a research query, archives the raw HTML source with searchable tags,
+      and registers a searchable entry in the keyword‑archive for later retrieval.
+"""
+
+import sys
+import os
+import json
+import hashlib
+import datetime
+import subprocess
+import urllib.parse
+import urllib.request
+import uuid
+
+# ---------- Configuration ----------
+# Where raw HTML archives live
+HTML_ARCHIVE_DIR = "/mind/archives"
+# Keyword‑archive file used by the existing tools
+KEYWORD_ARCHIVE_FILE = "/mind/keyword-archive.jsonl"
+
+def ensure_dirs():
+    os.makedirs(HTML_ARCHIVE_DIR, exist_ok=True)
+    os.makedirs(os.path.dirname(KEYWORD_ARCHIVE_FILE), exist_ok=True)
+
+def fetch_search_html(query: str) -> str:
+    """Fetch DuckDuckGo HTML search results for the query."""
+    base = "https://duckduckgo.com/html/"
+    params = {"q": query}
+    url = f"{base}?{urllib.parse.urlencode(params)}"
+    try:
+        with urllib.request.urlopen(url, timeout=15) as resp:
+            return resp.read().decode("utf-8", errors="ignore")
+    except Exception as e:
+        sys.stderr.write(f"Error fetching search results: {e}\\n")
+        sys.exit(1)
+
+def save_html(content: str) -> str:
+    """Save raw HTML to a file and return its path."""
+    # Use a stable hash of the content for filename uniqueness
+    h = hashlib.sha256(content.encode("utf-8")).hexdigest()[:12]
+    filename = f"{h}.html"
+    path = os.path.join(HTML_ARCHIVE_DIR, filename)
+    # Only write if not already present
+    if not os.path.isfile(path):
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(content)
+    return path
+
+def register_in_archive(query: str, source_url: str, html_path: str):
+    """Append a JSON‑L entry compatible with keyword‑archive‑store."""
+    entry = {
+        "id": str(uuid.uuid4()),
+        "keyword": query,
+        "source_url": source_url,
+        "html_path": html_path,
+        "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+        # Simple tags: split on whitespace, dedupe, lower‑case
+        "tags": list({t.lower() for t in query.split()}),
+    }
+    # Append as a single line JSON
+    with open(KEYWORD_ARCHIVE_FILE, "a", encoding="utf-8") as f:
+        f.write(json.dumps(entry, ensure_ascii=False) + "\\n")
+    # Friendly output for the caller
+    print(f"Note archived under keyword(s): {query} with ID: {entry['id']}")
+
+def main():
+    if len(sys.argv) < 2:
+        sys.stderr.write("Usage: ResearchArchiveSynth <research_query>\\n")
+        sys.exit(1)
+
+    query = " ".join(sys.argv[1:]).strip()
+    ensure_dirs()
+    html = fetch_search_html(query)
+    html_path = save_html(html)
+    source_url = f"https://duckduckgo.com/html/?q={urllib.parse.quote_plus(query)}"
+    register_in_archive(query, source_url, html_path)
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# tool: memory_gap_alert
+# call: memory_gap_alert <topic>
+# does: Searches the archive for a topic, detects missing critical info,
+#       fetches relevant sources, synthesises a concise alert, and stores it.
+
+set -euo pipefail
+
+# ----- Input -----
+topic="${1:?Missing topic argument}"
+
+# ----- Helper: count archive notes for the topic -----
+search_output=$(keyword-archive-search "$topic" 5 || true)
+
+# Determine if we have enough knowledge.
+# If we have fewer than 2 notes, treat it as a gap.
+if [[ -z "$search_output" ]]; then
+    have_enough="no"
+else
+    note_count=$(echo "$search_output" | wc -l)
+    if (( note_count < 2 )); then
+        have_enough="no"
+    else
+        have_enough="yes"
+    fi
+fi
+
+# ----- Gap handling -----
+if [[ "$have_enough" == "no" ]]; then
+    # Fill the gap – fetch missing info and store it in the archive.
+    filler_output=$(knowledge_gap_filler "$topic" || true)
+
+    # If the filler produced nothing, fall back to a generic fetch.
+    if [[ -z "$filler_output" ]]; then
+        filler_output=$(web-fetch "https://en.wikipedia.org/wiki/$(python -c "import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1]))" "$topic")" || true)
+    fi
+
+    # Synthesize an alert from the filler output.
+    alert=$(subagent_ask_helper "Summarize the most important missing knowledge about $topic using the following information:\n$filler_output" || true)
+else
+    # We have some notes – just summarise them.
+    alert=$(subagent_ask_helper "Create a short alert that describes the current knowledge state for $topic based on these notes:\n$search_output" || true)
+fi
+
+# ----- Persist the alert -----
+# Store under a dedicated alert key so it can be retrieved later.
+alert_key="alert:${topic}"
+keyword-archive-store "$alert_key" "$alert" --tags alert,gap
+
+# ----- Output -----
+echo "=== Memory Gap Alert for \"$topic\" ==="
+echo "$alert"

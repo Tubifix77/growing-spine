@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# tool: plan-outcome-verifier
+# call: plan-outcome-verifier <plan_id>
+# does: Verifies if the completed steps of a persistent plan actually achieved the intended outcome by analyzing results and consulting a subagent.
+
+set -euo pipefail
+
+if [ "$#" -ne 1 ]; then
+    echo "Usage: plan-outcome-verifier <plan_id>"
+    exit 1
+fi
+
+PLAN_ID="$1"
+
+# 1. Fetch the plan details using step-planner-tracker
+# We expect the output to contain the goal and the list of steps.
+PLAN_DATA=$(step-planner-tracker list "$PLAN_ID")
+
+if [ -z "$PLAN_DATA" ]; then
+    echo "Error: Plan $PLAN_ID not found or is empty."
+    exit 1
+fi
+
+# Extract the goal. Assuming the output format of step-planner-tracker list.
+# The list tool usually prints "Goal: ..."
+GOAL=$(echo "$PLAN_DATA" | grep "Goal:" | sed 's/Goal: //')
+
+if [ -z "$GOAL" ]; then
+    echo "Error: Could not extract goal for plan $PLAN_ID."
+    exit 1
+fi
+
+# Extract completed steps. 
+# We look for steps marked [X] or similar, or just take the whole list and let the LLM decide.
+# However, to be precise, we filter for "done" steps if the tracker supports it.
+# Since step-planner-tracker is a shell script, let's just pass the whole status list.
+COMPLETED_STEPS=$(echo "$PLAN_DATA" | grep -E "\[X\]|Done" || echo "No steps explicitly marked as done.")
+
+# 2. Compose the verification prompt
+PROMPT="I have a persistent plan with the following goal:
+'$GOAL'
+
+The current status of the steps is:
+$COMPLETED_STEPS
+
+Based on these completed steps, has the intended outcome been achieved? 
+Please respond in the following format:
+VERDICT: [YES/NO/PARTIAL]
+REASON: [Brief explanation of why]"
+
+# 3. Call subagent_ask_helper to verify
+VERIFICATION=$(subagent_ask_helper "$PROMPT")
+
+echo "--- Plan Outcome Verification ---"
+echo "Plan ID: $PLAN_ID"
+echo "Goal: $GOAL"
+echo "--------------------------------"
+echo "$VERIFICATION"

@@ -1,0 +1,93 @@
+#!/usr/bin/env python3
+"""
+Tool: smart_archive_auto_tagger
+does: Takes a search term, finds loosely‑matched archive notes, asks an LLM to propose precise tags for each, and re‑stores the notes with those tags.
+Usage: smart_archive_auto_tagger <search_term>
+"""
+
+import sys
+import json
+import subprocess
+import shlex
+from datetime import datetime
+
+def run_cmd(cmd):
+    """Run a shell command and return its stdout as a string."""
+    result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(f'Command failed: {cmd}\nSTDERR: {result.stderr}')
+    return result.stdout.strip()
+
+def search_archive(query, top_n=20):
+    """Return a list of archive entries (dicts) matching the query."""
+    cmd = f'keyword-archive-search {shlex.quote(query)} --top {top_n}'
+    out = run_cmd(cmd)
+    # Each line is a JSON object
+    entries = []
+    for line in out.splitlines():
+        if line.strip():
+            entries.append(json.loads(line))
+    return entries
+
+def ask_for_tags(entry):
+    """Ask the LLM to produce concise tags for a given entry."""
+    # Build a prompt that includes the existing content
+    prompt = (
+        "You are an expert tagger. Given the following archive entry, "
+        "suggest up to five short, specific tags (comma‑separated) that best describe its main topic. "
+        "Use only lowercase words, no quotes.\n\n"
+        f"Content: {entry.get('content', '')}\n\nTags:"
+    )
+    # subagent_ask_helper expects the prompt as a single argument
+    cmd = f'subagent_ask_helper {shlex.quote(prompt)}'
+    tags_str = run_cmd(cmd)
+    # Clean up the response
+    tags = [t.strip() for t in tags_str.split(',') if t.strip()]
+    return tags
+
+def store_entry(entry, tags):
+    """Store the entry with new tags using keyword-archive-store."""
+    # Preserve the original keyword, content; add tags and timestamp
+    keyword = entry.get('keyword', '')
+    content = entry.get('content', '')
+    timestamp = datetime.utcnow().isoformat() + 'Z'
+    tags_json = json.dumps(tags)
+
+    # keyword-archive-store expects: <keyword> <content> [--tags a,b]
+    # We'll pass tags via the --tags flag
+    tags_flag = '--tags ' + shlex.quote(','.join(tags))
+    cmd = f'keyword-archive-store {shlex.quote(keyword)} {shlex.quote(content)} {tags_flag}'
+    run_cmd(cmd)   # ignore output; errors will raise
+
+def main():
+    if len(sys.argv) < 2:
+        print("Usage: smart_archive_auto_tagger <search_term>")
+        sys.exit(1)
+
+    query = ' '.join(sys.argv[1:])
+    try:
+        entries = search_archive(query)
+    except Exception as e:
+        print(f"Error during search: {e}")
+        sys.exit(1)
+
+    if not entries:
+        print(f"No archive entries found for query: {query}")
+        sys.exit(0)
+
+    updated = 0
+    for entry in entries:
+        try:
+            tags = ask_for_tags(entry)
+            if tags:
+                store_entry(entry, tags)
+                updated += 1
+        except Exception as e:
+            # Continue on single‑entry failures; log to stderr
+            sys.stderr.write(f"Failed to tag entry {entry.get('keyword','?')}: {e}\n")
+
+    print(f"SmartArchiveAutoTagger: processed {len(entries)} entries, updated {updated} with new tags.")
+    sys.exit(0)
+
+if __name__ == "__main__":
+    main()

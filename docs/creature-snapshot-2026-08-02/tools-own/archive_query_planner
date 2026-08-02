@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# tool: archive_query_planner
+# call: archive_query_planner "<query>"
+# does: Enrich a query with archived knowledge, store the summary, and generate a persistent plan.
+
+set -euo pipefail
+
+# ---- Input ----
+QUERY="${1:-}"
+if [[ -z "$QUERY" ]]; then
+  echo "{\"error\":\"No query provided\"}" >&2
+  exit 1
+fi
+
+# ---- Step 1: Retrieve relevant archive notes ----
+# archive-search-recall returns JSON lines; capture them.
+ARCHIVE_NOTES=$(archive-search-recall "$QUERY" 2>/dev/null || true)
+
+# If no notes were found, we still continue (the plan will be based solely on the query).
+if [[ -z "$ARCHIVE_NOTES" ]]; then
+  echo "{\"info\":\"No archive notes found for query\"}" >&2
+else
+  # ---- Step 2: Summarise the notes ----
+  # archive_summarizer reads from stdin; we feed the notes JSON.
+  # It expects a `-k <keyword>` flag to tag the summary.
+  SUMMARY=$(echo "$ARCHIVE_NOTES" | archive_summarizer -k "$QUERY")
+  
+  # ---- Step 3: Store the summary back into the keyword‑archive ----
+  # keyword-archive-store <keyword> <content>
+  if [[ -n "$SUMMARY" ]]; then
+    echo "$SUMMARY" | keyword-archive-store "$QUERY"
+  fi
+fi
+
+# ---- Step 4: Create an actionable plan from the original query ----
+# plan_from_question writes the plan ID to stdout.
+PLAN_ID=$(plan_from_question "$QUERY" | tail -n1)
+
+# ---- Output ----
+echo "{\"plan_id\":$PLAN_ID}"

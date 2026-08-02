@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# does: Answer a question using archive, fetch missing info, then LLM, storing result
+set -euo pipefail
+
+# -------------------------------------------------
+# INPUT: the natural‑language question (all args)
+# OUTPUT: the final answer printed to stdout
+# -------------------------------------------------
+
+question="$*"
+
+# 1️⃣ Search the keyword‑archive for existing notes about the question
+search_result=$(keyword-archive-search "$question" 2>/dev/null || true)
+
+# 2️⃣ If nothing useful was found, fetch missing information
+if [[ -z "$search_result" ]]; then
+  # GapDrivenFetch will fetch relevant info (e.g., Wikipedia) and store it
+  GapDrivenFetch "$question"
+  # Re‑run the search after the fetch
+  search_result=$(keyword-archive-search "$question")
+fi
+
+# 3️⃣ Build a short context for the LLM (take the top few lines)
+#    Trim whitespace and limit size to keep the prompt reasonable
+context=$(printf "%s" "$search_result" | head -n 5 | tr -s '[:space:]' ' ')
+
+# 4️⃣ Ask the sub‑agent LLM for an answer using the context
+answer=$(printf "Context:\n%s\n\nQuestion: %s" "$context" "$question" | subagent_ask_helper)
+
+# 5️⃣ Persist the answer in the keyword‑archive for future reuse
+keyword-archive-store "$question" "$answer"
+
+# 6️⃣ Emit the answer for the caller
+printf "%s\n" "$answer"

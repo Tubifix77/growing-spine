@@ -1,0 +1,115 @@
+#!/usr/bin/env python3
+"""
+tool: plan_fetcher
+does: Create a persistent plan from a goal (or use an existing plan ID), then fetch required data
+      for each pending step using wake_catchup_fetcher.real, archive the fetched data, and mark steps done.
+"""
+
+import sys
+import json
+import subprocess
+from pathlib import Path
+
+def run_cmd(cmd, input_data=None):
+    """Run a shell command, capture stdout, and return stripped output."""
+    result = subprocess.run(
+        cmd,
+        input=input_data,
+        shell=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"Command failed: {cmd}\\nSTDERR: {result.stderr}")
+    return result.stdout.strip()
+
+def create_plan(goal_text):
+    """Use plan_from_question to generate a persistent plan and return its ID."""
+    # plan_from_question prints the new plan ID on stdout
+    out = run_cmd(f"plan_from_question \"{goal_text}\"")
+    # The output may contain extra text; the plan ID is the first numeric token
+    for token in out.split():
+        if token.isdigit():
+            return token
+    raise ValueError(f"Could not extract plan ID from output: {out}")
+
+def load_plan_steps(plan_id):
+    """Return a list of step dicts from step‑planner‑tracker for the given plan."""
+    out = run_cmd(f"step-planner-tracker list {plan_id}")
+    # The planner prints JSON lines – each line is a JSON object representing a step
+    steps = []
+    for line in out.splitlines():
+        try:
+            steps.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    return steps
+
+def mark_step_done(plan_id, step_num):
+    """Mark a step as completed."""
+    run_cmd(f"step-planner-tracker done {plan_id} {step_num}")
+
+def fetch_and_archive(step):
+    """Fetch data for a step (expects the step description to contain a URL) and archive it."""
+    description = step.get("description", "")
+    # Very simple heuristic: the first token that looks like a URL
+    url = None
+    for token in description.split():
+        if token.startswith("http://") or token.startswith("https://"):
+            url = token
+            break
+    if not url:
+        # If no URL, we just store the description as is
+        data = description
+    else:
+        # Use wake_catchup_fetcher.real which returns JSON with a "content" field
+        raw = run_cmd(f"wake_catchup_fetcher.real \"{url}\"")
+        try:
+            payload = json.loads(raw)
+            data = payload.get("content", raw)
+        except json.JSONDecodeError:
+            data = raw
+
+    # Archive under a keyword derived from the plan ID and step number
+    keyword = f"plan-{step['plan_id']}-step-{step['step_num']}"
+    # Use keyword-archive-store: stores a note with a keyword and optional tags
+    # Escape double quotes in data
+    safe_data = data.replace('"', '\\"')
+    run_cmd(f'keyword-archive-store "{keyword}" "{safe_data}"')
+    return {"keyword": keyword, "url": url, "data_snippet": data[:200]}
+
+def main():
+    if len(sys.argv) < 2:
+        print("Usage: plan_fetcher <goal-text-or-plan-id>")
+        sys.exit(1)
+
+    arg = sys.argv[1]
+
+    # Determine whether arg is a numeric plan ID or a free‑text goal
+    if arg.isdigit():
+        plan_id = arg
+    else:
+        plan_id = create_plan(arg)
+
+    # Load steps; we only act on steps that are not yet marked done
+    steps = load_plan_steps(plan_id)
+    pending = [s for s in steps if s.get("status") != "done"]
+
+    results = []
+    for step in pending:
+        fetched = fetch_and_archive(step)
+        mark_step_done(plan_id, step["step_num"])
+        results.append(fetched)
+
+    # Output a compact JSON summary
+    summary = {
+        "plan_id": plan_id,
+        "processed_steps": len(results),
+        "details": results,
+    }
+    print(json.dumps(summary, ensure_ascii=False))
+
+if __name__ == "__main__":
+    main()

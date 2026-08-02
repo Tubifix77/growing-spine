@@ -1,0 +1,63 @@
+#!/usr/bin/env python3
+import json
+import subprocess
+import sys
+import shlex
+import os
+import uuid
+
+def run_cmd(cmd, input_data=None):
+    """Run a shell command, capture stdout, raise on error."""
+    result = subprocess.run(
+        cmd, input=input_data, capture_output=True, text=True, shell=True, check=False
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"Command failed: {cmd}\nstderr: {result.stderr}")
+    return result.stdout.strip()
+
+def main():
+    if len(sys.argv) < 2:
+        print("Usage: research_pipeline_planner \"<research question>\"")
+        sys.exit(1)
+
+    question = " ".join(sys.argv[1:]).strip('"\'')
+    # 1️⃣ Create a persistent research plan
+    plan_output = run_cmd(f'plan_from_question "{question}"')
+    # plan_from_question prints something like: "Created plan ID <id>"
+    # Extract the numeric ID (last token)
+    plan_id = plan_output.split()[-1]
+    print(f"[ResearchPipeline] Created plan ID {plan_id}")
+
+    # 2️⃣ Get the list of steps for this plan
+    # step-planner-tracker list <plan_id>
+    steps_json = run_cmd(f'step-planner-tracker list {plan_id} --json')
+    steps = json.loads(steps_json)  # list of {"id":..., "description":..., "status":"pending"}
+
+    # 3️⃣ For each step, run knowledge_gap_filler and collect any gaps
+    gaps_added = 0
+    for step in steps:
+        step_id = step["id"]
+        step_desc = step["description"]
+        # Run knowledge_gap_filler on the step description; it reads JSON on stdin.
+        # We'll feed a minimal JSON with the step description.
+        filler_input = json.dumps({"title": step_desc})
+        try:
+            gap_output = run_cmd('knowledge_gap_filler', input_data=filler_input)
+        except RuntimeError as e:
+            # If the filler fails (e.g., no LLM), just skip
+            gap_output = ""
+        if gap_output:
+            # Assume the filler returns a textual description of the missing knowledge.
+            gap_task = f"Investigate gap for step {step_id}: {gap_output}"
+            # Add a new sub‑step to the SAME plan (after current step)
+            run_cmd(f'step-planner-tracker add {plan_id} "{gap_task}"')
+            gaps_added += 1
+            print(f"[GapAdded] {gap_task}")
+
+    # 4️⃣ Summary
+    print(f"[ResearchPipeline] Plan {plan_id} now has {len(steps)} original steps "
+          f"+ {gaps_added} gap‑investigation steps.")
+    sys.exit(0)
+
+if __name__ == "__main__":
+    main()

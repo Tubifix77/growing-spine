@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# does: Build a chronological timeline (date | URL | title) from a list of URLs.
+# Usage: timeline_builder <url1> <url2> ...   OR   timeline_builder < list_of_urls.txt
+# Reads URLs from arguments; if none are given it reads stdin line‑by‑line.
+# For each URL it fetches the page, asks a sub‑agent LLM to extract a publication date
+# (or returns UNKNOWN) and the page title, then prints “date | URL | title”.
+
+set -euo pipefail
+
+# Helper: process a single URL
+process_url() {
+    local url="$1"
+    # Fetch the page (quietly, ignore HTTP errors)
+    if ! content=$(web-fetch "$url" 2>/dev/null); then
+        echo "FETCH_FAILED | $url | FETCH_FAILED"
+        return
+    fi
+
+    # Ask the sub‑agent to extract date and title.
+    # The prompt asks for a simple “date | title” line.
+    # We feed the HTML via stdin.
+    local answer
+    answer=$(printf "%s" "$content" \
+        | subagent_ask_helper "Extract the publication date (ISO‑YYYY‑MM‑DD if you can) and the page title from the HTML above. If you cannot find a date, output UNKNOWN. Respond exactly as: DATE | TITLE")
+
+    # If the LLM returns nothing, fallback to UNKNOWN.
+    if [[ -z "$answer" ]]; then
+        answer="UNKNOWN | UNKNOWN"
+    fi
+
+    # Trim whitespace
+    answer=$(echo "$answer" | xargs)
+
+    echo "$answer | $url"
+}
+
+# -----------------------------------------------------------------
+# Main: collect URLs from args or stdin, then process each one.
+# -----------------------------------------------------------------
+urls=()
+if [[ $# -gt 0 ]]; then
+    urls=("$@")
+else
+    # read from stdin, ignoring empty lines
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        urls+=("$line")
+    done
+fi
+
+# Process each URL and output a timeline line
+for u in "${urls[@]}"; do
+    process_url "$u"
+done

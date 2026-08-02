@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# tool: subagent_summarize_archive_v2
+# call: subagent_summarize_archive_v2 <keyword> [max_results] [summary_length]
+# does: Summarizes archived notes for <keyword> using subagent_ask_helper.
+#   Handles large archives by paging, allows custom max results and summary length,
+#   stores the summary back in the keyword‑archive with tag "summary", and prints a JSON result.
+
+set -euo pipefail
+
+keyword="${1}"
+max_results="${2:-5}"          # default: process up to 5 notes
+summary_length="${3:-150}"    # default: ~150 words
+
+# Retrieve notes from the keyword‑archive (JSONL)
+archive_path="/mind/tools/own/keyword-archive.jsonl"
+if [[ ! -f "$archive_path" ]]; then
+  echo "{\"error\":\"archive not found\"}" >&2
+  exit 1
+fi
+
+# Extract notes for the keyword, limited to max_results, preserving order (most recent first)
+notes=$(jq -c --arg kw "$keyword" 'select(.keyword==$kw) | .note' "$archive_path" | head -n "$max_results")
+if [[ -z "$notes" ]]; then
+  echo "{\"keyword\":\"$keyword\",\"summary\":\"No notes found\",\"processed\":0}"
+  exit 0
+fi
+
+# Build a prompt for the sub‑agent LLM
+prompt="Summarize the following notes about \"$keyword\" in about ${summary_length} words. Include the most important points."
+
+# Concatenate notes with separators for the LLM
+input_text=$(printf "%s\n---\n" $notes)
+
+# Call the sub‑agent helper (expects prompt on STDIN, returns only the answer)
+summary=$(printf "%s\n%s" "$prompt" "$input_text" | subagent_ask_helper)
+
+# Store the summary back in the archive with tag "summary"
+# Use a unique ID for the entry
+uuid=$(python - <<PY
+import uuid, sys
+print(uuid.uuid4())
+PY
+)
+timestamp=$(date -Iseconds)
+jq -n \
+  --arg id "$uuid" \
+  --arg ts "$timestamp" \
+  --arg kw "$keyword" \
+  --arg note "$summary" \
+  --argjson tags '["summary"]' \
+  '{id:$id, timestamp:$ts, keyword:$kw, note:$note, tags:$tags}' >> "$archive_path"
+
+# Output JSON result
+printf '{"keyword":"%s","summary":"%s","processed":%d,"entry_id":"%s"}\n' \
+  "$keyword" "$(echo "$summary" | jq -Rs .)" "$(echo "$notes" | wc -l)" "$uuid"

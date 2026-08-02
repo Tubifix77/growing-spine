@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# does: Runs an autonomous learning loop for a high‑level goal.
+# Usage: LearningLoopOrchestrator "<high‑level learning objective>"
+# Example: LearningLoopOrchestrator "Python async programming"
+
+set -euo pipefail
+
+OBJ="${1:-}"
+if [[ -z "$OBJ" ]]; then
+  echo "Error: a high‑level learning objective is required"
+  exit 1
+fi
+
+# Ensure a persistent plan exists for this objective.
+# planify creates (or returns) a stored plan id and emits the plan steps.
+plan_id=$(planify "$OBJ" | jq -r .plan_id)
+
+echo "📚 Learning loop started for: $OBJ (plan $plan_id)"
+
+while true; do
+  # Get the next pending step (JSON) from the planner.
+  step_json=$(step-planner-tracker get-next "$plan_id" || true)
+
+  # No more steps?  Goal completed.
+  if [[ -z "$step_json" || "$step_json" == "null" ]]; then
+    echo "✅ All steps completed – learning goal achieved."
+    break
+  fi
+
+  # Extract the sub‑task description.
+  subtask=$(echo "$step_json" | jq -r .description)
+
+  echo "🔧 Processing sub‑task: $subtask"
+
+  # Ask the sub‑agent LLM to explain the sub‑task.
+  # subagent_ask_helper expects a prompt; we prepend a short directive.
+  explanation=$(subagent_ask_helper "Explain the following concept in clear, concise terms suitable for a beginner:\n\n$subtask")
+
+  # Archive the explanation for future recall.
+  # Use a keyword derived from the sub‑task (lower‑case, hyphenated).
+  keyword=$(echo "$subtask" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-' | sed 's/^-*//;s/-*$//')
+  keyword-archive-store "$keyword" "$explanation"
+
+  # Feed the freshly‑fetched item to the knowledge‑gap filler.
+  # It expects JSON on stdin; we construct a minimal JSON envelope.
+  echo "$step_json" | jq --arg exp "$explanation" '. + {explanation:$exp}' | knowledge_gap_filler
+
+  # Mark the step as done.
+  step-planner-tracker done "$plan_id" "$(echo "$step_json" | jq -r .step_id)"
+
+  echo "✅ Sub‑task completed and archived."
+done

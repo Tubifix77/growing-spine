@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# does: Monitors downstream tool errors, generates a human‑readable report, and creates a corrective task in the persistent planner.
+
+set -euo pipefail
+
+# Directory where downstream tools drop error markers
+ERROR_DIR="/mind/state/tool_errors"
+ARCHIVE_DIR="${ERROR_DIR}/processed"
+
+# Ensure directories exist
+mkdir -p "$ERROR_DIR"
+mkdir -p "$ARCHIVE_DIR"
+
+# Helper: create a brief report using subagent_ask_helper
+make_report() {
+    local tool_name="$1"
+    local error_msg="$2"
+    # Ask subagent to summarise the situation in a single sentence
+    # subagent_ask_helper expects a prompt on stdin and returns the answer
+    printf "Summarise the error from tool %s: %s\nProvide a short actionable sentence." "$tool_name" "$error_msg" \
+        | subagent_ask_helper
+}
+
+# Process each unprocessed error file
+for err_file in "$ERROR_DIR"/*.err; do
+    # Skip if no matching files
+    [ -e "$err_file" ] || continue
+
+    # Extract tool name from filename (e.g., wake_catchup_fetcher.err)
+    tool_name="$(basename "$err_file" .err)"
+
+    # Read the error content (might be empty – fallback to generic message)
+    error_msg="$(cat "$err_file" 2>/dev/null || echo "No details")"
+
+    # Build a report
+    report="$(make_report "$tool_name" "$error_msg")"
+
+    # Construct a corrective task description
+    task_desc="Investigate error in ${tool_name}: ${report}"
+
+    # Create a high‑priority task in the persistent planner
+    # step-planner-tracker usage: add --task "<desc>" --priority high
+    step-planner-tracker add --task "$task_desc" --priority high
+
+    # Move processed error file to archive
+    mv "$err_file" "$ARCHIVE_DIR/$(basename "$err_file" .err).$(date +%s).processed"
+done

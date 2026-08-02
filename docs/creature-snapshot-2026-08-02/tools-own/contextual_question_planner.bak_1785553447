@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# does: Generate a step‑by‑step plan for a question, enrich each step with relevant memories, and persist the enriched plan via step-planner-tracker.
+
+# -------------------------------------------------
+# 1️⃣  Create a base plan using the existing planner
+# -------------------------------------------------
+# The whole question is passed as ONE argument so the planner receives the full text.
+PLAN_OUTPUT=$(plan_from_question "$1")
+if [[ $? -ne 0 || -z "$PLAN_OUTPUT" ]]; then
+    echo "❌ Failed to create base plan" >&2
+    exit 1
+fi
+
+# The planner prints: "Plan <id> created:" then the list of steps.
+# Extract the numeric plan ID from the first line.
+PLAN_ID=$(echo "$PLAN_OUTPUT" | head -n1 | grep -oE '[0-9]+' )
+if [[ -z "$PLAN_ID" ]]; then
+    echo "❌ Could not parse plan ID" >&2
+    exit 1
+fi
+
+# -------------------------------------------------
+# 2️⃣  Enrich every step with relevant memories
+# -------------------------------------------------
+# Step‑list format from `plan_from_question` is:
+#   1. <step text>
+#   2. <step text>
+# We'll iterate over the numbered lines after the header.
+STEP_NUM=0
+while IFS= read -r line; do
+    # stop when we hit an empty line (end of steps)
+    [[ -z "$line" ]] && break
+    # ignore the header line that contains "Plan <id>"
+    [[ "$line" =~ ^Plan ]] && continue
+
+    # Grab the numeric prefix (e.g. "1.") and the step description.
+    if [[ "$line" =~ ^[[:space:]]*([0-9]+)[[:space:]]*\.\s*(.*) ]]; then
+        STEP_NUM=${BASH_REMATCH[1]}
+        STEP_TEXT=${BASH_REMATCH[2]}
+
+        # -------------------------------------------------
+        # 2a️⃣  Pull memories matching the step text
+        # -------------------------------------------------
+        # Use memstore (searches the durable key/value memory) to get the top 3 related entries.
+        MEM_JSON=$(memsearch "$STEP_TEXT" --limit 3)
+        # If memsearch fails or returns nothing, we keep the step unchanged.
+        if [[ -n "$MEM_JSON" ]]; then
+            # Convert the JSON list into a pretty bullet list.
+            MEM_SUMMARY=$(echo "$MEM_JSON" | jq -r '.[] | "    • " + .value')
+            # Append the memory summary to the step description.
+            ENRICHED_TEXT="${STEP_TEXT}\nRelevant past notes:\n${MEM_SUMMARY}"
+        else
+            ENRICHED_TEXT="${STEP_TEXT}"
+        fi
+
+        # -------------------------------------------------
+        # 2b️⃣  Update the step in the persistent tracker
+        # -------------------------------------------------
+        step-planner-tracker update-step "$PLAN_ID" "$STEP_NUM" "$ENRICHED_TEXT"
+    fi
+done < <(echo "$PLAN_OUTPUT" | tail -n +2)   # skip the header line
+
+# -------------------------------------------------
+# 3️⃣  Show a concise summary of the enriched plan
+# -------------------------------------------------
+echo "✅ Enriched plan $PLAN_ID created."
+step-planner-tracker show "$PLAN_ID"

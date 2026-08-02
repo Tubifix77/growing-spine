@@ -1,0 +1,7 @@
+#!/usr/bin/env python3
+# tool: refresh_and_plan
+# call: refresh_and_plan <arguments>
+# does: Update archive for a keyword, identify gaps, and create a persistent research plan to fill them.
+# Replace the body below with real executable code.
+import sys
+print('not implemented yet: ' + sys.argv[0])

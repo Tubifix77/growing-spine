@@ -1,0 +1,46 @@
+#!/bin/bash
+tool: ArchiveTruthMaintenance
+call: ArchiveTruthMaintenance <keyword>
+does: Detects contradictions in archived notes for a keyword, resolves them via external research, and stores a correction.
+
+set -euo pipefail
+
+if [ "$#" -ne 1 ]; then
+    echo "Usage: ArchiveTruthMaintenance <keyword>"
+    exit 1
+fi
+
+KEYWORD=$1
+
+echo "Step 1: Searching archive for $KEYWORD..."
+NOTES=$(keyword-archive-search "$KEYWORD" 10)
+
+if [ -z "$NOTES" ]; then
+    echo "No archived notes found for $KEYWORD. Nothing to maintain."
+    exit 0
+fi
+
+echo "Step 2: Analyzing for contradictions..."
+CONFLICTS=$(subagent_ask_helper "Below are archived notes regarding '$KEYWORD'. 
+Identify any contradictory claims, outdated facts, or internal inconsistencies. 
+If the notes are consistent, respond exactly with 'NO_CONFLICTS'.
+If contradictions exist, list them clearly.
+
+NOTES:
+$NOTES")
+
+if [[ "$CONFLICTS" == *"NO_CONFLICTS"* ]]; then
+    echo "No contradictions detected in the archive for $KEYWORD."
+    exit 0
+fi
+
+echo "Contradictions found: $CONFLICTS"
+echo "Step 3: Resolving contradictions via research..."
+RESOLUTION=$(knowledge_gap_filler "The following contradictions were found in the archive for '$KEYWORD'. Find the current ground truth and resolve them:
+$CONFLICTS")
+
+echo "Step 4: Persisting the resolution..."
+keyword-archive-store "$KEYWORD" "TRUTH_MAINTENANCE_RESOLUTION: $RESOLUTION" --tags correction
+
+echo "Truth maintenance complete. Correction stored in archive."
+echo "Resolution: $RESOLUTION"

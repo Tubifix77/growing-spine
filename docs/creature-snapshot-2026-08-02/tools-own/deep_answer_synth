@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+# does: Run a full question‑to‑answer synthesis by planning sub‑questions,
+#      asking each via the LLM, archiving Q/A pairs, and returning the
+#      combined final answer.
+# Usage: deep_answer_synth "<full natural language question>"
+
+set -euo pipefail
+
+# ---------- helpers ----------
+log() { echo "[deep_answer_synth] $*" >&2; }
+
+# Ensure a plan exists for the top‑level question; reuse if already present.
+create_plan() {
+    local question="$1"
+    # plan_from_question creates a persistent plan file under /workspace/plans/
+    # The tool expects the plan name; we use a hash of the question.
+    local plan_id="deep_$(echo -n "$question" | md5sum | cut -d' ' -f1)"
+    if [[ ! -f "/workspace/plans/${plan_id}.json" ]]; then
+        log "Creating plan for question: $question"
+        plan_from_question "$question" "$plan_id"
+    fi
+    echo "$plan_id"
+}
+
+# Retrieve the next pending step from the planner.
+next_step() {
+    local plan_id="$1"
+    step-planner-tracker next "$plan_id" || true   # returns empty if none
+}
+
+# Mark a step as completed.
+mark_done() {
+    local plan_id="$1" step_id="$2"
+    step-planner-tracker done "$plan_id" "$step_id"
+}
+
+# Archive a Q/A pair under useful keywords.
+archive_pair() {
+    local question="$1" answer="$2"
+    local title="Q: $question"
+    local kws="deep_answer_synth,qa"
+    # Write body to stdin for keyword-archive-store
+    echo "$answer" | keyword-archive-store "$title" "$kws"
+}
+
+# ---------- main ----------
+main() {
+    if [[ $# -ne 1 ]]; then
+        echo "Usage: $0 \"<question>\""
+        exit 1
+    fi
+
+    local top_question="$1"
+    local plan_id
+    plan_id=$(create_plan "$top_question")
+
+    # Collect answers in order
+    local synthesis=""
+    while true; do
+        # Get next step (returns: "<step_id> <subquestion>")
+        local step_line
+        step_line=$(next_step "$plan_id")
+        if [[ -z "$step_line" ]]; then
+            log "No more steps – synthesis complete."
+            break
+        fi
+
+        # Parse step ID and sub‑question
+        local step_id subquestion
+        step_id=$(echo "$step_line" | awk '{print $1}')
+        subquestion=$(echo "$step_line" | cut -d' ' -f2-)
+
+        log "Running sub‑question [$step_id]: $subquestion"
+        # Ask LLM for answer
+        local answer
+        answer=$(subagent_ask_helper "$subquestion")
+        log "Answer: $answer"
+
+        # Archive the pair
+        archive_pair "$subquestion" "$answer"
+
+        # Append to synthesis (simple newline‑separated concatenation)
+        synthesis+="${answer}\n"
+
+        # Mark step done
+        mark_done "$plan_id" "$step_id"
+    done
+
+    # Trim trailing newline
+    synthesis=$(echo -e "$synthesis" | sed '/^$/d')
+
+    # Final archive of the whole synthesis
+    log "Storing final synthesis."
+    echo -e "$synthesis" | keyword-archive-store "Synthesis: $top_question" "deep_answer_synth,synthesis"
+
+    # Output final answer
+    echo -e "$synthesis"
+}
+
+main "$@"

@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# does: Generate an ASCII histogram from a two‑column CSV (label,value).
+# Usage: ascii_histogram <path-to-csv>
+# The CSV must have a header line and then rows: label,value
+# Example output:
+#   Apple   ████████████
+#   Banana  ██████
+#   Cherry  ████████████████████
+
+set -euo pipefail
+
+if [[ $# -ne 1 ]]; then
+  echo "Usage: $0 <csv-file>"
+  exit 1
+fi
+
+csv_file="$1"
+
+# Verify file exists
+if [[ ! -f "$csv_file" ]]; then
+  echo "File not found: $csv_file"
+  exit 1
+fi
+
+# Read CSV, ignore empty lines, and compute the maximum numeric value
+max_val=$(awk -F',' 'NR>1 && $2 != "" { if ($2 > max) max=$2 } END { print max }' "$csv_file")
+if [[ -z "$max_val" || "$max_val" == "0" ]]; then
+  echo "No numeric values found in $csv_file"
+  exit 1
+fi
+
+# Define max width of a bar
+MAX_WIDTH=50
+
+# Print histogram
+awk -F',' -v max="$max_val" -v width="$MAX_WIDTH" '
+NR==1 {next}                     # skip header
+{
+  label=$1; value=$2+0;
+  # Scale value to bar length
+  bar_len = (value / max) * width;
+  # Round to nearest integer
+  bar_len = int(bar_len + 0.5);
+  bar = sprintf("%*s", bar_len, ""); 
+  gsub(/ /, "█", bar);
+  printf "%-20s %s\n", label, bar;
+}
+' "$csv_file"

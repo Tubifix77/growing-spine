@@ -1,0 +1,48 @@
+tool: search_or_fetch_and_archive
+call: search_or_fetch_and_archive <query> [keyword]
+does: Search the keyword‑archive for a query; if no results, fetch a Wikipedia summary, store it in the archive, and return the summary.
+
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ----- arguments -----
+query="${1:-}"
+keyword="${2:-$query}"
+
+if [[ -z "$query" ]]; then
+  echo "Error: missing query argument" >&2
+  exit 1
+fi
+
+# ----- 1. Try to recall from the keyword‑archive -----
+# The search tool returns JSON lines (one per note). We capture any output.
+search_output=$(keyword-archive-search "$query" || true)
+
+# If we got any result, just output it and exit.
+if [[ -n "$search_output" ]]; then
+  echo "$search_output"
+  exit 0
+fi
+
+# ----- 2. No archive result – fetch from Wikipedia -----
+# Encode the query for URL usage.
+encoded_query=$(python -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1]))" "$query")
+wiki_url="https://en.wikipedia.org/api/rest_v1/page/summary/${encoded_query}"
+
+# fetch_url returns the raw response (JSON). It exits non‑zero on failure, so we guard.
+wiki_json=$(fetch_url "$wiki_url" 2>/dev/null || true)
+
+# Extract the summary field; if missing, treat as failure.
+summary=$(echo "$wiki_json" | jq -r '.extract // empty' || true)
+
+if [[ -z "$summary" ]]; then
+  echo "No Wikipedia summary found for query: $query" >&2
+  exit 1
+fi
+
+# ----- 3. Archive the fetched summary -----
+# Store under the provided keyword (or the query itself) with a tag indicating it was auto‑fetched.
+keyword-archive-store "$keyword" "$summary" --tags "auto_fetched,wiki_summary"
+
+# ----- 4. Return the summary -----
+echo "$summary"

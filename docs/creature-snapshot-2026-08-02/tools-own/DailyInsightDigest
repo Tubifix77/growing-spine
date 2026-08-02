@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+# tool: DailyInsightDigest
+# call: DailyInsightDigest <topic>
+# does: Fetch today’s top headlines for <topic>, summarise each via subagent_ask_helper,
+#       combine into a one‑paragraph digest, and archive it with keyword-archive-store.
+
+# Exit on any error
+set -euo pipefail
+
+# ---------- Helper ----------
+log() { echo "[DailyInsightDigest] $*" >&2; }
+
+# ---------- Input ----------
+TOPIC="${1:-}"
+if [[ -z "$TOPIC" ]]; then
+    log "Error: No topic supplied."
+    echo "Usage: DailyInsightDigest <topic>"
+    exit 1
+fi
+
+# ---------- Fetch fresh headlines ----------
+# wake_catchup_fetcher.real returns newline‑delimited JSON items.
+# Example item: {"title":"...","url":"...","source":"...","time":"..."}
+FETCHED=$(wake_catchup_fetcher.real "$TOPIC" || true)
+
+if [[ -z "$FETCHED" ]]; then
+    log "No fresh items found for topic \"$TOPIC\"."
+    exit 0
+fi
+
+# ---------- Summarise each item ----------
+declare -a SUMMARIES
+while IFS= read -r line; do
+    # Guard against empty lines
+    [[ -z "$line" ]] && continue
+
+    # Extract fields safely with jq
+    TITLE=$(echo "$line" | jq -r '.title // empty')
+    URL=$(echo "$line" | jq -r '.url // empty')
+
+    # Build a prompt for the sub‑agent
+    if [[ -n "$URL" && "$URL" != "null" ]]; then
+        PROMPT="Summarise the article at $URL in one sentence."
+    else
+        PROMPT="Summarise the headline: $TITLE in one sentence."
+    fi
+
+    # Ask the LLM sub‑agent; fallback to title if LLM fails
+    SUMMARY=$(subagent_ask_helper "$PROMPT" 2>/dev/null || echo "$TITLE")
+    SUMMARIES+=("$SUMMARY")
+done <<< "$FETCHED"
+
+# ---------- Combine into a paragraph ----------
+if [[ ${#SUMMARIES[@]} -eq 0 ]]; then
+    log "No summaries could be generated."
+    exit 0
+fi
+
+# Join with spaces; ensure proper punctuation.
+DIGEST=$(printf "%s " "${SUMMARIES[@]}" | sed 's/ *$//')
+
+# ---------- Archive the digest ----------
+DATE=$(date +%Y-%m-%d)
+KEYWORD="daily-digest-${TOPIC}-${DATE}"
+# Store as a JSON line: {"keyword":"...","content":"...","tags":["topic:<topic>","date:<date>"]}
+
+# Use keyword-archive-store tool
+# It expects: keyword-archive-store <keyword> <content> [--tags tag1,tag2]
+keyword-archive-store "$KEYWORD" "$DIGEST" --tags "topic:${TOPIC},date:${DATE}"
+
+# ---------- Output ----------
+log "Created daily digest for \"$TOPIC\" ($DATE)."
+echo "$DIGEST"

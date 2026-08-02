@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+# graphfromfeed: Pull a JSON feed, enrich each item via knowledge_gap_filler, and store the nodes in memstore.
+# Usage: graphfromfeed <json_feed_url_or_path>
+#   The feed must be a JSON array of objects. Each object should contain at least an "id" and "title".
+#   Enrichment is performed using the "title" field as the query for knowledge_gap_filler.
+
+set -euo pipefail
+
+# ---------------------------------------------------------------------------
+# Arguments
+# ---------------------------------------------------------------------------
+FEED_SOURCE="${1:-}"
+if [[ -z "$FEED_SOURCE" ]]; then
+    echo "Error: missing feed source (URL or local file)." >&2
+    exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# Helper: fetch the JSON feed (remote or local)
+# ---------------------------------------------------------------------------
+fetch_feed() {
+    local src="$1"
+    if [[ "$src" =~ ^https?:// ]]; then
+        # Remote URL – use web-fetch (inherits built‑in retry logic)
+        web-fetch "$src"
+    else
+        # Local file – just cat it
+        cat "$src"
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# Main processing
+# ---------------------------------------------------------------------------
+JSON_DATA="$(fetch_feed "$FEED_SOURCE")"
+
+# Ensure the feed is a JSON array
+if ! echo "$JSON_DATA" | jq -e '.' >/dev/null 2>&1; then
+    echo "Error: feed is not valid JSON." >&2
+    exit 1
+fi
+
+# Tag prefix for memstore entries
+MEMSTORE_TAG="graphfromfeed_$(date +%Y%m%d%H%M%S)"
+
+# Iterate over each array element
+echo "$JSON_DATA" | jq -c '.[]' | while read -r ITEM_JSON; do
+    # Extract a stable identifier and a title (used as query)
+    ITEM_ID=$(echo "$ITEM_JSON" | jq -r '.id // .title // .url // empty')
+    TITLE=$(echo "$ITEM_JSON" | jq -r '.title // .name // empty')
+    URL=$(echo "$ITEM_JSON" | jq -r '.url // empty')
+
+    if [[ -z "$ITEM_ID" ]]; then
+        echo "Skipping item with no identifier."
+        continue
+    fi
+
+    echo "Processing item $ITEM_ID..."
+
+    # -----------------------------------------------------------------------
+    # Enrich the item via knowledge_gap_filler
+    # -----------------------------------------------------------------------
+    # The knowledge_gap_filler expects a query; we use the title.
+    # Its output is JSON on stdout.
+    ENRICHED_JSON=$(knowledge_gap_filler "$TITLE" 2>/dev/null || echo "$ITEM_JSON")
+
+    # Merge original item with enrichment (original fields win on conflict)
+    MERGED=$(echo "$ITEM_JSON" "$ENRICHED_JSON" | jq -s '.[0] * .[1]')
+
+    # -----------------------------------------------------------------------
+    # Store in memstore
+    # -----------------------------------------------------------------------
+    KEY="graphfromfeed_${ITEM_ID}"
+    echo "$MERGED" | memstore set "$KEY" --tag "$MEMSTORE_TAG"
+
+    echo "Stored node in memstore with key: $KEY"
+done
+
+echo "graphfromfeed completed successfully."

@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# tool: wikigraph_fortress
+# call: wikigraph_fortress <topic>
+# does: Builds a high-depth knowledge fortress by chaining wiki_faq_builder, cross_source_knowledge_graph, knowledge_gap_filler, and deep_answer_synth.
+
+set -euo pipefail
+
+if [ "$#" -ne 1 ]; then
+    echo "Usage: wikigraph_fortress <topic>"
+    exit 1
+fi
+
+TOPIC="$1"
+echo "Building knowledge fortress for: $TOPIC"
+
+# 1. Generate FAQ entries from Wikipedia
+echo "--- Step 1: Building FAQ base via wiki_faq_builder ---"
+wiki_faq_builder "$TOPIC"
+
+# 2. Build a knowledge graph (using Wikipedia as the primary source)
+# Construct a likely Wikipedia URL for the topic
+WIKI_URL="https://en.wikipedia.org/wiki/${TOPIC// /_}"
+echo "--- Step 2: Constructing knowledge graph via cross_source_knowledge_graph ($WIKI_URL) ---"
+cross_source_knowledge_graph "$WIKI_URL"
+
+# 3. Fill knowledge gaps
+echo "--- Step 3: Filling knowledge gaps via knowledge_gap_filler ---"
+knowledge_gap_filler "$TOPIC"
+
+# 4. Synthesize a deep answer
+echo "--- Step 4: Synthesizing deep answer via deep_answer_synth ---"
+deep_answer_synth "Provide a comprehensive and deep overview of $TOPIC based on the gathered data."
+
+echo "------------------------------------------------------------"
+echo "Knowledge fortress for '$TOPIC' is complete."

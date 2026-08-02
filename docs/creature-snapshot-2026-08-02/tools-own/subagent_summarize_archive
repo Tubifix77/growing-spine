@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# tool: subagent_summarize_archive
+# call: subagent_summarize_archive <keyword> [max_results]
+# does: Summarizes archived notes for <keyword> using subagent_ask_helper and stores the summary back in the keyword‑archive.
+# If max_results is omitted, defaults to 20. Handles empty archives and validates arguments.
+
+set -euo pipefail
+
+# ---- Argument parsing ----
+if [[ $# -lt 1 ]]; then
+  echo "Usage: subagent_summarize_archive <keyword> [max_results]" >&2
+  exit 1
+fi
+keyword="$1"
+max_results="${2:-20}"
+
+# ---- Retrieve notes from the keyword‑archive ----
+# Use keyword-archive-search to get up to max_results notes (JSON lines)
+search_output=$(keyword-archive-search "$keyword" "$max_results" 2>/dev/null || true)
+
+if [[ -z "$search_output" ]]; then
+  echo "No archived notes found for keyword '$keyword'." >&2
+  exit 0
+fi
+
+# ---- Prepare prompt for the sub‑agent ----
+# Concatenate notes into a single block for the LLM
+notes_text=$(echo "$search_output" | jq -r '.note // empty' | paste -sd "\n\n" -)
+
+prompt="You are summarizing the following notes about \"$keyword\". Produce a concise, 3‑sentence summary that captures the main ideas.\n\nNotes:\n$notes_text"
+
+# ---- Call the sub‑agent ----
+summary=$(echo "$prompt" | subagent_ask_helper)
+
+# ---- Store the summary back into the archive ----
+# Use the keyword‑archive-store tool; tags indicate this is a generated summary
+keyword-archive-store "$keyword" "$summary" --tags "generated_summary,subagent_summarize"
+
+# ---- Output the summary for the caller ----
+echo "$summary"

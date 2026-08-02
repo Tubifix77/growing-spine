@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# does: Improves a stored document by critiquing it with an LLM, rewrites it into the keyword archive, and creates a follow‑up maintenance task.
+# Usage: SelfImprovingDocsUpdater <doc_id>
+# Example: SelfImprovingDocsUpdater doc-123
+
+set -euo pipefail
+
+doc_id="${1:-}"
+if [[ -z "$doc_id" ]]; then
+  echo "Error: document ID required"
+  exit 1
+fi
+
+# 1️⃣ Retrieve the current note (first match) from the keyword archive
+current_note=$(keyword-archive-search "$doc_id" --limit 1 | jq -r '.[0].note // empty')
+if [[ -z "$current_note" ]]; then
+  echo "Error: No note found for ID $doc_id"
+  exit 1
+fi
+
+# 2️⃣ Ask the sub‑agent LLM to critique and rewrite the note
+# Prompt format: "Please critique the following text and provide an improved version.\n\n<text>"
+prompt="Please critique the following text and provide an improved version.\n\n${current_note}"
+improved_note=$(echo "$prompt" | subagent_ask_helper)
+
+# If the LLM returns nothing, bail out
+if [[ -z "$improved_note" ]]; then
+  echo "Error: LLM did not return an improved note"
+  exit 1
+fi
+
+# 3️⃣ Store the improved note back into the archive under the same ID
+# We add a tag `improved` to make the revision searchable.
+keyword-archive-store "$doc_id" "$improved_note" --tags improved
+
+# 4️⃣ Create a maintenance task to review the updated document in the future
+# The task description includes the doc ID and a short note.
+task_desc="Review updated document $doc_id for accuracy and completeness."
+step-planner-tracker add "$task_desc"
+
+echo "✅ Updated document $doc_id and created a follow‑up task."

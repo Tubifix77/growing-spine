@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# BatchGapFillScheduler
+# Usage: batchgapfillscheduler <query1> [query2 ...]
+# For each query, fills the knowledge gap using knowledge_gap_filler
+# and adds the result as a step in step-planner-tracker.
+
+if (( $# == 0 )); then
+  echo "Usage: $0 <query1> [query2 ...]"
+  exit 1
+fi
+
+for query in "$@"; do
+  # Fill the gap
+  answer=$(knowledge_gap_filler "$query")
+  # Create a step description
+  step_desc="Gap filled for \"$query\": $answer"
+  # Add to planner
+  step-planner-tracker add "$step_desc"
+done

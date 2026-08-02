@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# tool: topic_rss_monitor
+# call: topic_rss_monitor <rss_url> [keyword]
+# does: Fetch an RSS feed, extract each item title, archive each title under a keyword,
+#       and output a JSON summary of items processed / added.
+
+set -euo pipefail
+
+# ---------- Argument handling ----------
+if [[ $# -lt 1 ]]; then
+  echo "Usage: $0 <rss_url> [keyword]" >&2
+  exit 1
+fi
+RSS_URL=$1
+KEYWORD=${2:-rss}
+
+# ---------- Temporary files ----------
+TMP_RSS=$(mktemp /tmp/rss.XXXXXX)
+TMP_TITLES=$(mktemp /tmp/titles.XXXXXX)
+
+# Ensure cleanup on exit
+trap 'rm -f "$TMP_RSS" "$TMP_TITLES"' EXIT
+
+# ---------- Step 1: fetch the RSS feed ----------
+# reuse existing fetch_url tool
+fetch_url "$RSS_URL" > "$TMP_RSS"
+
+# ---------- Step 2: extract titles ----------
+# reuse existing extract_rss_titles tool (reads from stdin)
+extract_rss_titles < "$TMP_RSS" > "$TMP_TITLES"
+
+# ---------- Step 3: archive each title ----------
+added=0
+total=0
+while IFS= read -r title; do
+  ((total++))
+  # Store the title as a note; use the keyword supplied by the caller.
+  # keyword‑archive‑store expects: <keyword> "<note>" [tags...]
+  timestamp=$(date --iso-8601=seconds)
+  keyword-archive-store "$KEYWORD" "$title" "rss" "$timestamp" >/dev/null 2>&1 && ((added++))
+done < "$TMP_TITLES"
+
+# ---------- Output summary ----------
+jq -n --argurl "$RSS_URL" \
+      --argkw "$KEYWORD" \
+      --argjsontot "$total" \
+      --argjsonadded "$added" \
+      '{url:$url, keyword:$kw, total_items:$tot|tonumber, new_items:$added|tonumber}'

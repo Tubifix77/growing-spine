@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+# tool: news_faq_sync
+# call: news_faq_sync "<topic>"
+# does: Pull fresh news items for a topic, generate FAQ Q&A pairs from each article via LLM, and update the FAQ archive.
+set -euo pipefail
+
+# ---------- Helper: simple JSON parser ----------
+# Extract a field from a JSON object (very lightweight, works for our simple output)
+json_field() {
+  local key="$1"
+  grep -o "\"$key\":\"[^\"]*\"" | cut -d'"' -f4
+}
+
+# ---------- Argument validation ----------
+if [[ $# -ne 1 ]]; then
+  echo "Usage: $0 \"<topic>\"" >&2
+  exit 1
+fi
+
+TOPIC="$1"
+
+# ---------- Fetch fresh news items ----------
+# wake_catchup_fetcher returns a JSON array, one item per line.
+# We'll capture its output; if nothing is returned we treat it as zero items.
+NEWS_JSON=$(wake_catchup_fetcher "$TOPIC" || true)
+
+if [[ -z "$NEWS_JSON" ]]; then
+  echo "No fresh news items found for \"$TOPIC\"."
+  exit 0
+fi
+
+# ---------- Process each news item ----------
+added=0
+updated=0
+
+# Convert the JSON array into newline‑separated objects for easy looping
+# (the fetcher may output either a JSON array or newline JSON; we handle both)
+while IFS= read -r line; do
+  # Skip empty lines
+  [[ -z "$line" ]] && continue
+
+  # Extract title and URL
+  TITLE=$(echo "$line" | json_field title)
+  URL=$(echo "$line" | json_field url)
+
+  # If either field is missing, skip this entry
+  if [[ -z "$TITLE" || -z "$URL" ]]; then
+    continue
+  fi
+
+  # ---------- Generate FAQ via subagent ----------
+  # Prompt the sub‑agent to produce a list of "Q: ... A: ..." pairs
+  # We keep the prompt short to stay within free‑tier limits.
+  FAQ_TEXT=$(subagent_ask_helper <<PROMPT
+You are given a news article URL and a topic. Produce up to three FAQ‑style question and answer pairs that a reader might ask about the article, focusing on the given topic. Format each pair as:
+Q: <question>
+A: <answer>
+
+Article URL: $URL
+Topic: $TOPIC
+PROMPT
+) || {
+    echo "Subagent failed for \"$TITLE\" ($URL)" >&2
+    continue
+  }
+
+  # ---------- Update the FAQ archive ----------
+  # dynamic_faq_updater expects a JSON object with fields: question, answer, source, topic
+  # We'll parse the generated text line‑by‑line.
+  while IFS= read -r qline; do
+    # Look for lines starting with "Q:" and the following "A:"
+    if [[ "$qline" =~ ^Q:\ (.*) ]]; then
+      QUESTION="${BASH_REMATCH[1]}"
+      # Next line should be the answer
+      read -r aline
+      if [[ "$aline" =~ ^A:\ (.*) ]]; then
+        ANSWER="${BASH_REMATCH[1]}"
+        # Build a minimal JSON payload for dynamic_faq_updater
+        payload=$(printf '{"question":"%s","answer":"%s","source":"%s","topic":"%s"}' \
+                 "$(echo "$QUESTION" | sed 's/"/\\"/g')" \
+                 "$(echo "$ANSWER"   | sed 's/"/\\"/g')" \
+                 "$URL" "$TOPIC")
+        # Call the updater; it returns "added" or "updated"
+        result=$(dynamic_faq_updater "$payload")
+        case "$result" in
+          *added*) ((added++)) ;;
+          *updated*) ((updated++)) ;;
+        esac
+      fi
+    fi
+  done <<< "$FAQ_TEXT"
+
+done <<< "$(echo "$NEWS_JSON" | tr -d '[]' | tr ',' '\n')"
+
+# ---------- Summary ----------
+echo "FAQ sync complete for \"$TOPIC\"."
+echo "Added: $added  Updated: $updated"
+exit 0

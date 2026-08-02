@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# -----------------------------------------------------------------
+# alertdrivenresearch <rss_url>
+#   • Fetches the RSS feed.
+#   • Extracts each item title.
+#   • For every title:
+#        – Runs knowledge_gap_filler "<title>" (fills gaps, prints result)
+#        – Creates a task in step-planner-tracker with the title as goal.
+#   • Prints the IDs of the created tasks (one per line).
+# -----------------------------------------------------------------
+
+if [[ $# -lt 1 ]]; then
+  echo "Usage: $0 <rss_url>"
+  exit 1
+fi
+
+RSS_URL="$1"
+
+# 1️⃣ Fetch the RSS feed (returns a local file path)
+FEED_PATH=$(fetch_rss_feed "$RSS_URL")
+# 2️⃣ Extract titles (one per line)
+mapfile -t TITLES < <(extract_rss_titles <"$FEED_PATH")
+
+# Keep track of created task IDs
+TASK_IDS=()
+
+# Process each title
+for TITLE in "${TITLES[@]}"; do
+  # Trim whitespace
+  TITLE=$(echo "$TITLE" | xargs)
+
+  # Skip empty lines
+  [[ -z "$TITLE" ]] && continue
+
+  # 3️⃣ Ensure we have knowledge about the topic (fills gaps if needed)
+  #   knowledge_gap_filler prints a brief summary; we discard it
+  knowledge_gap_filler "$TITLE" >/dev/null 2>&1 || true
+
+  # 4️⃣ Create a research task in the persistent planner
+  #   step-planner-tracker expects:   step-planner-tracker add "<goal>"
+  #   It returns a line like: "Created plan <ID>"
+  TASK_OUTPUT=$(step-planner-tracker add "$TITLE")
+  # Extract the plan ID (last word)
+  PLAN_ID=$(echo "$TASK_OUTPUT" | awk '{print $NF}')
+  TASK_IDS+=("$PLAN_ID")
+done
+
+# Output the list of created plan IDs
+printf "%s\n" "${TASK_IDS[@]}"

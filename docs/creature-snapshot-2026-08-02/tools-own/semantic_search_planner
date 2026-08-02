@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# tool: semantic_search_planner
+# call: semantic_search_planner <topic>
+# does: Build a research plan by first semantically retrieving relevant archived snippets for <topic>,
+#       then feeding those snippets to plan_from_question, and finally returning the created plan ID.
+
+set -euo pipefail
+
+if [[ $# -lt 1 ]]; then
+  echo "Usage: semantic_search_planner <topic>"
+  exit 1
+fi
+
+TOPIC="$*"
+
+# 1. Retrieve relevant snippets via semantic_search_recall.
+#    semantic_search_recall expects a query on stdin; it returns JSON lines.
+#    We capture the most relevant passages (default top‑3) and join them.
+RECALL_OUTPUT=$(echo "$TOPIC" | semantic_search_recall --top 3 || true)
+
+if [[ -z "$RECALL_OUTPUT" ]]; then
+  echo "No relevant snippets found for '$TOPIC'. Proceeding with empty context."
+  CONTEXT=""
+else
+  # Extract the 'snippet' field from each result (assuming output is JSON with a `snippet` key)
+  CONTEXT=$(echo "$RECALL_OUTPUT" | jq -r '.snippet' | paste -sd' ' -)
+fi
+
+# 2. Build a prompt for plan_from_question.
+#    We'll ask the planner to create a research plan for the original topic,
+#    enriched with the retrieved context.
+PLAN_PROMPT="Research plan for topic: $TOPIC
+
+Relevant background (retrieved from archive):
+$CONTEXT
+
+Create a step‑by‑step plan that will let an autonomous agent fully explore this topic.
+Each step should be actionable and self‑contained."
+
+# 3. Run plan_from_question; it prints the plan ID and the plan JSON.
+PLAN_RESULT=$(echo "$PLAN_PROMPT" | plan_from_question)
+
+# plan_from_question normally prints the ID on the first line.
+PLAN_ID=$(echo "$PLAN_RESULT" | head -n1)
+
+echo "✅ Created plan ID: $PLAN_ID"
+echo "🔎 Sample of generated plan:"
+echo "$PLAN_RESULT" | tail -n +2 | head -n 10

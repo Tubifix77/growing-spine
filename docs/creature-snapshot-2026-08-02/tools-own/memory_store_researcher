@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Description for the tool catalogue
+# does: Combine memstore, keyword‑archive‑search, and knowledge_gap_filler to produce a research summary for given keywords.
+
+# ------------------------------------------------------------------
+# memory_store_researcher <keyword1> [keyword2 ...]
+# ------------------------------------------------------------------
+# Arguments:
+#   One or more space‑separated keywords.
+#
+# Output:
+#   JSON array where each element contains:
+#     - keyword
+#     - memstore: array of raw memstore lines that contain the keyword
+#     - archive: array of top archive notes (raw strings)
+#     - filled: array of notes produced by knowledge_gap_filler (if any)
+#
+# Exit codes:
+#   1 – no keywords supplied
+# ------------------------------------------------------------------
+
+if [[ $# -eq 0 ]]; then
+  echo "Usage: memory_store_researcher <keyword1> [keyword2 ...]" >&2
+  exit 1
+fi
+
+# Helper: safely JSON‑encode a multiline string as an array of strings
+json_encode_lines() {
+  # $1 = raw multiline string
+  # prints a JSON array of each line as a string
+  printf '%s' "$1" | jq -R -s 'split("\n") | map(select(length>0))'
+}
+
+results=()
+for kw in "$@"; do
+  # 1️⃣ Search memstore (simple grep; memstore list prints TAB‑separated key/value)
+  mem_raw=$(memstore list | grep -i "$kw" || true)
+
+  # 2️⃣ Search keyword‑archive for the top 5 notes
+  archive_raw=$(keyword-archive-search --top 5 "$kw" || true)
+
+  # 3️⃣ Run knowledge_gap_filler on each archive note (expects JSON per line)
+  #    The filler writes any newly discovered notes back to the keyword‑archive automatically.
+  filled_raw=$(printf '%s\n' "$archive_raw" | knowledge_gap_filler || true)
+
+  # Encode each multiline block as a JSON array
+  mem_json=$(json_encode_lines "$mem_raw")
+  archive_json=$(json_encode_lines "$archive_raw")
+  filled_json=$(json_encode_lines "$filled_raw")
+
+  # Assemble the JSON object for this keyword
+  results+=("{
+    \"keyword\": \"${kw}\",
+    \"memstore\": ${mem_json},
+    \"archive\": ${archive_json},
+    \"filled\": ${filled_json}
+  }")
+done
+
+# Output the final JSON array
+printf '[\n%s\n]\n' "$(IFS=,; echo "${results[*]}")"

@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# tool: knowledge_gap_resolver
+# call: knowledge_gap_resolver "<natural‑language query>"
+# does: Resolve a knowledge gap by searching the keyword‑archive, fetching fresh info if missing,
+#       synthesising a brief via a sub‑agent, and archiving the result.
+
+set -euo pipefail
+
+# ----------------------------------------------------------------------
+# Helper: URL‑encode a string (needed for Wikipedia API)
+urlencode() {
+    # Portable implementation using Python if available, else fallback.
+    if command -v python3 >/dev/null; then
+        python3 -c "import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1]))" "$1"
+    else
+        # Very basic fallback – replaces spaces with %20 only.
+        echo "$1" | sed 's/ /%20/g'
+    fi
+}
+
+# ----------------------------------------------------------------------
+# Main entry
+QUERY="${1:-}"
+if [[ -z "$QUERY" ]]; then
+    echo "[knowledge_gap_resolver] Error: no query supplied" >&2
+    exit 1
+fi
+
+# 1️⃣ Search the keyword‑archive
+SEARCH_RESULTS=$(keyword-archive-search "$QUERY" 2>/dev/null || true)
+
+if [[ -n "$SEARCH_RESULTS" ]]; then
+    echo "[knowledge_gap_resolver] Found existing archive entries:"
+    echo "$SEARCH_RESULTS"
+    exit 0
+fi
+
+echo "[knowledge_gap_resolver] No archive entries found – fetching fresh information."
+
+# 2️⃣ Fetch fresh information (Wikipedia summary fallback)
+# Build a Wikipedia API URL; if the query is very obscure the API returns a short page.
+ENCODED_QUERY=$(urlencode "$QUERY")
+WIKI_URL="https://en.wikipedia.org/api/rest_v1/page/summary/${ENCODED_QUERY}"
+RAW_WIKI=$(web-fetch "$WIKI_URL" | jq -r '.extract // empty' || true)
+
+if [[ -z "$RAW_WIKI" ]]; then
+    echo "[knowledge_gap_resolver] Warning: Wikipedia returned no extract; using raw HTML."
+    RAW_WIKI=$(web-fetch "$WIKI_URL")
+fi
+
+# 3️⃣ Ask a sub‑agent to synthesize a concise brief
+BRIEF=$(echo "$RAW_WIKI" | subagent_ask_helper "Summarize the above information in a short, technical paragraph suitable for a chemist." || true)
+
+if [[ -z "$BRIEF" ]]; then
+    echo "[knowledge_gap_resolver] Sub‑agent failed – falling back to raw fetched text."
+    BRIEF="$RAW_WIKI"
+fi
+
+# 4️⃣ Archive the brief
+# Use the original query as the keyword; add a tag indicating it was auto‑generated.
+keyword-archive-store "$QUERY" "$BRIEF" --tags auto_generated,knowledge_gap
+
+echo "[knowledge_gap_resolver] Successfully resolved and archived the gap."
+echo "----- Brief -----"
+echo "$BRIEF"

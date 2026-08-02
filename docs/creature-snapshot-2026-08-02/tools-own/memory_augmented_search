@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# tool: memory_augmented_search
+# call: memory_augmented_search <query>
+# does: Search the keyword‑archive for a query, enrich each result via subagent_ask_helper_fallback, persist the enrichment, and synthesize a final answer.
+
+set -euo pipefail
+
+if [ "$#" -lt 1 ]; then
+    echo "Usage: memory_augmented_search <query>"
+    exit 1
+fi
+
+QUERY="$1"
+AUGMENTED_KEY="augmented_${QUERY// /_}"
+
+echo "Searching archive for: $QUERY..."
+# Step 1: Search the archive.
+# Using -t 5 to get a few results.
+RESULTS=$(keyword-archive-search --top 5 "$QUERY")
+
+if [ -z "$RESULTS" ]; then
+    echo "No relevant notes found in the archive for '$QUERY'."
+    exit 0
+fi
+
+# Step 2 & 3: Enrich and Store.
+echo "Enriching and persisting results..."
+while IFS= read -r note; do
+    if [ -n "$note" ]; then
+        # Ask subagent to distill the key insight from this specific note relative to the query.
+        ENRICHMENT=$(subagent_ask_helper_fallback "Given the query '$QUERY', what is the most important insight from this note? Keep it to one sentence: $note")
+        
+        # Persist the enrichment back to the archive for future recall.
+        keyword-archive-store "$AUGMENTED_KEY" "$ENRICHMENT" --tags "augmented" "recall"
+    fi
+done <<< "$RESULTS"
+
+# Step 4: Synthesize.
+echo "Synthesizing final answer..."
+# Retrieve all enriched snippets.
+AUGMENTED_CONTEXT=$(keyword-archive-search "$AUGMENTED_KEY")
+
+FINAL_ANSWER=$(subagent_ask_helper_fallback "Based on the following enriched snippets, provide a comprehensive answer to the query '$QUERY':\n\n$AUGMENTED_CONTEXT")
+
+echo -e "\n--- Final Augmented Answer ---\n"
+echo "$FINAL_ANSWER"

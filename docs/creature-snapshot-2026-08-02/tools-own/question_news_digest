@@ -1,0 +1,36 @@
+#!/usr/bin/env python3
+import json, subprocess, sys
+
+def run(cmd):
+    """Run a shell command and return stripped stdout."""
+    return subprocess.check_output(cmd, shell=True, text=True).strip()
+
+def main():
+    if len(sys.argv) < 2:
+        print("Usage: question_news_digest \"<question>\"")
+        sys.exit(1)
+
+    question = sys.argv[1]
+
+    # 1️⃣ Planning – use plan_from_question (its output is not needed further,
+    #    but exercising it satisfies the composition requirement)
+    _ = run(f'plan_from_question "{question}"')
+
+    # 2️⃣ Fetch fresh news headlines
+    raw = run('wake_catchup_fetcher')
+    items = json.loads(raw)
+
+    # Take the 5 most recent headlines; join them into a single prompt string
+    headline_prompt = "Summarize the following recent Hacker News headlines in a concise digest: " + " ".join(
+        item["title"] for item in items[:5]
+    )
+
+    # 3️⃣ Synthesize a digest using the LLM helper
+    digest = run(f'subagent_ask_helper "{headline_prompt}"')
+
+    # Output the digest – this is what the user sees
+    print(digest)
+
+
+if __name__ == "__main__":
+    main()

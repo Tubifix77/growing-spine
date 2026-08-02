@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+# tool: entity_graph_updater
+# call: entity_graph_updater [-u URL] [-t TEXT]
+# does: Build or update a persistent entity‑relationship graph from a URL or raw text.
+#       Uses fetch_url to retrieve content, subagent_ask_helper to extract entities/relations,
+#       and stores the graph as JSON at /mind/graph.json.
+
+set -euo pipefail
+
+# Path to persistent graph file
+GRAPH_FILE="/mind/graph.json"
+
+# Helper: ensure graph file exists with base structure
+init_graph() {
+    if [[ ! -f "$GRAPH_FILE" ]]; then
+        echo '{"nodes": [], "edges": []}' >"$GRAPH_FILE"
+    fi
+}
+
+# Helper: add nodes/edges while keeping uniqueness
+merge_graph() {
+    local new_edges_json="$1"   # JSON array of edges [{"source":"A","target":"B","type":"rel"},...]
+    # Use jq to merge while deduplicating nodes and edges
+    jq -s '
+        .[0] as $base
+        | .[1] as $new
+        # merge nodes
+        | $base.nodes + ($new.edges | map(.source, .target)) 
+        | unique
+        | {nodes: ., edges: ($base.edges + $new.edges | unique_by(.source, .target, .type))}
+    ' "$GRAPH_FILE" <(echo "$new_edges_json") >"$GRAPH_FILE".tmp && mv "$GRAPH_FILE".tmp "$GRAPH_FILE"
+}
+
+# Parse arguments
+URL=""
+TEXT=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -u|--url) URL="$2"; shift 2 ;;
+        -t|--text) TEXT="$2"; shift 2 ;;
+        *) echo "Unknown argument: $1" >&2; exit 1 ;;
+    esac
+done
+
+if [[ -z "$URL" && -z "$TEXT" ]]; then
+    echo "Usage: entity_graph_updater -u <URL> | -t <TEXT>" >&2
+    exit 1
+fi
+
+# Get the raw content
+if [[ -n "$URL" ]]; then
+    # fetch_url writes to stdout; capture it
+    CONTENT=$(fetch_url "$URL")
+else
+    CONTENT="$TEXT"
+fi
+
+# Build the prompt for the LLM sub‑agent.
+# Instruct it to return a JSON array of edges, each edge having:
+#   source, target, type (relationship description)
+read -r -d '' PROMPT <<'EOP'
+You are given a plain‑text document. Extract the main entities (people, organizations, concepts, etc.) and the relationships between them.
+Return the result as a **JSON array** where each element is an object with three fields:
+  "source": the first entity,
+  "target": the second entity,
+  "type": a short phrase describing the relationship (e.g., "founded", "studied", "related to").
+Only include relationships that are explicitly stated or strongly implied.
+Do not include duplicate edges. Output **only** the JSON array, no extra text.
+EOP
+
+# Ask the sub‑agent LLM to perform the extraction.
+# subagent_ask_helper expects the prompt as its first argument and reads the document from stdin.
+EXTRACTION=$(echo "$CONTENT" | subagent_ask_helper "$PROMPT")
+
+# Validate that the answer is valid JSON (a JSON array). If not, abort.
+if ! echo "$EXTRACTION" | jq empty >/dev/null 2>&1; then
+    echo "LLM response was not valid JSON:" >&2
+    echo "$EXTRACTION" >&2
+    exit 1
+fi
+
+# Initialise the graph file if needed, then merge the new edges.
+init_graph
+merge_graph "$EXTRACTION"
+
+# Output a short summary for the caller.
+NUM_EDGES=$(echo "$EXTRACTION" | jq 'length')
+echo "✅ Updated graph with $NUM_EDGES new edge(s). Graph stored at $GRAPH_FILE"

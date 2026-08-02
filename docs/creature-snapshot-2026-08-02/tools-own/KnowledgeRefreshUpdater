@@ -1,0 +1,66 @@
+tool: KnowledgeRefreshUpdater
+call: KnowledgeRefreshUpdater <keyword>
+does: Fetch latest Wikipedia summary for a keyword, update the keyword‑archive if the summary changed, and add a review step to the persistent planner.
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ------------------------------
+# INPUT
+# ------------------------------
+if [[ $# -lt 1 ]]; then
+  echo "Usage: KnowledgeRefreshUpdater <keyword>"
+  exit 1
+fi
+KEYWORD="$1"
+
+# ------------------------------
+# 1. Get the most recent archived note (if any)
+# ------------------------------
+# The archive‑search tool returns JSON lines; we ask for the newest entry.
+EXISTING_NOTE_JSON=$(keyword-archive-search "$KEYWORD" --limit 1 --output json || true)
+
+# Extract the stored summary (if the note has a field called "content")
+if [[ -n "$EXISTING_NOTE_JSON" ]]; then
+  STORED_SUMMARY=$(echo "$EXISTING_NOTE_JSON" | jq -r '.content // empty')
+else
+  STORED_SUMMARY=""
+fi
+
+# ------------------------------
+# 2. Fetch the latest Wikipedia summary
+# ------------------------------
+# Wikipedia REST summary endpoint (URL‑encoded title)
+ENCODED=$(python -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1]))" "$KEYWORD")
+WIKI_URL="https://en.wikipedia.org/api/rest_v1/page/summary/$ENCODED"
+
+# fetch_url writes the raw response to a temporary file and prints the path
+WIKI_JSON_PATH=$(fetch_url "$WIKI_URL")
+# Extract the human‑readable summary
+WIKI_SUMMARY=$(jq -r '.extract // empty' "$WIKI_JSON_PATH")
+
+if [[ -z "$WIKI_SUMMARY" ]]; then
+  echo "Failed to obtain a Wikipedia summary for '$KEYWORD'." >&2
+  exit 1
+fi
+
+# ------------------------------
+# 3. Compare and maybe update the archive
+# ------------------------------
+if [[ "$WIKI_SUMMARY" != "$STORED_SUMMARY" ]]; then
+  echo "✅ New or changed summary detected for '$KEYWORD'. Updating archive..."
+
+  # Store the fresh summary (the tool stores a JSON line with fields: keyword, content, tags, timestamp)
+  # We add a tag so we can later filter refreshed entries.
+  keyword-archive-store "$KEYWORD" "$WIKI_SUMMARY" --tags refreshed
+
+  # ------------------------------
+  # 4. Add a review step to the planner
+  # ------------------------------
+  # The step‑planner‑tracker tool can add a new top‑level goal with a single step.
+  # We create a short goal description; the planner will assign it a persistent ID.
+  GOAL_DESC="Review refreshed knowledge for \"$KEYWORD\""
+  PLAN_ID=$(step-planner-tracker add "$GOAL_DESC" --description "Verify the new Wikipedia summary and incorporate it into downstream tasks.")
+  echo "🗓️ Created review plan ID $PLAN_ID for keyword '$KEYWORD'."
+else
+  echo "ℹ️ No change for '$KEYWORD'. Archive is up‑to‑date."
+fi

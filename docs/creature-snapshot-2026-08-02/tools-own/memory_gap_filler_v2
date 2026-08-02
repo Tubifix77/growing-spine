@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# does: Retrieve answer from memstore; if incomplete, auto‑fill via knowledge_gap_filler, merge, persisting result.
+# Usage: memory_gap_filler_v2 "<query>"
+set -euo pipefail
+
+QUERY="$1"
+
+# 1. Try to get existing answer from memstore
+EXISTING=$(memstore get "$QUERY" || echo "")
+if [[ -n "$EXISTING" ]]; then
+    # Check for completeness (heuristic: length > 50 and no ellipsis)
+    if [[ ${#EXISTING} -gt 50 && "$EXISTING" != *'...' ]]; then
+        echo "$EXISTING"
+        exit 0
+    fi
+fi
+
+# 2. Call knowledge_gap_filler to fetch missing data
+FRESH=$(knowledge_gap_filler "$QUERY")
+# sanity‑check: if still empty, abort with error
+if [[ -z "$FRESH" ]]; then
+    echo "Error: knowledge_gap_filler returned empty result" >&2
+    exit 1
+fi
+
+# 3. Merge existing partial data (if any) with fresh data
+if [[ -n "$EXISTING" ]]; then
+    # Simple concatenation with a newline separator, avoiding duplicate sentences
+    MERGED=$(printf "%s\n%s" "$EXISTING" "$FRESH" | awk '!seen[$0]++')
+else
+    MERGED="$FRESH"
+fi
+
+# 4. Persist the merged result back into memstore
+# Use remember with tags=gap_filled for traceability
+remember "$QUERY" "$MERGED" --tags gap_filled
+
+# 5. Return the merged answer
+echo "$MERGED"

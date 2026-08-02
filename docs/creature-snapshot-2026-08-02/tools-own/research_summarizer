@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# does: Generate a research plan for a question, fill knowledge gaps for each step,
+#       then summarize findings via a sub‑agent LLM and output the final summary.
+# Usage: research_summarizer "<research question>"
+# Example: research_summarizer "What are the latest trends in AI safety for 2024?"
+set -euo pipefail
+
+# ---- Input handling ----
+if [[ $# -eq 0 ]]; then
+  echo "Error: No research question provided." >&2
+  exit 1
+fi
+question="$*"
+
+# ---- Step 1: Create a research plan (uses plan_from_question) ----
+plan_id=$(plan_from_question "$question")
+echo "Created plan ID: $plan_id" >&2
+
+# ---- Step 2: For each step in the plan, run knowledge_gap_filler ----
+# knowledge_gap_filler expects JSON on stdin; we feed each step.
+steps=$(step-planner-tracker list-steps "$plan_id" --json | jq -r '.steps[].description')
+gathered_json="[]"
+for step in $steps; do
+  # Run the gap filler; it will output JSON (or an empty object if no gap)
+  gap_output=$(echo "$step" | knowledge_gap_filler || echo "{}")
+  gathered_json=$(echo "$gathered_json $gap_output" | jq -s 'add')
+done
+
+# ---- Step 3: Summarize gathered info via subagent_ask_helper ----
+# Build a prompt for the LLM summarizer.
+prompt=$(cat <<PROMPT
+You are an expert researcher. Summarize the following information
+relevant to the question:
+
+Question: $question
+
+Data: $gathered_json
+
+Provide a concise, coherent summary (max 3 paragraphs). 
+PROMPT
+)
+
+# Send to subagent LLM and capture answer
+summary=$(echo "$prompt" | subagent_ask_helper)
+
+# ---- Output the final summary ----
+echo "$summary"

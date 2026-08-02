@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# -------------------------------------------------
+# Parameters
+# -------------------------------------------------
+DEFAULT_RSS="http://feeds.bbci.co.uk/news/world/rss.xml"
+RSS_URL="${1:-$DEFAULT_RSS}"
+MAX_ITEMS="${2:-5}"
+QUESTION="${3:-}"
+
+# -------------------------------------------------
+# Helpers
+# -------------------------------------------------
+log() { echo "[wake_catchup_summarizer_v2] $*"; }
+
+# -------------------------------------------------
+# 1. Fetch RSS feed
+# -------------------------------------------------
+log "Fetching RSS feed: $RSS_URL"
+RSS_CONTENT=$(fetch_url "$RSS_URL")
+if [[ -z "$RSS_CONTENT" ]]; then
+  log "Failed to download RSS feed"
+  exit 1
+fi
+
+# -------------------------------------------------
+# 2. Extract article URLs (limit to MAX_ITEMS)
+# -------------------------------------------------
+log "Extracting up to $MAX_ITEMS article URLs"
+ARTICLE_URLS=$(echo "$RSS_CONTENT" | extract_rss_titles | head -n "$MAX_ITEMS")
+if [[ -z "$ARTICLE_URLS" ]]; then
+  log "No article URLs found"
+  exit 1
+fi
+
+# -------------------------------------------------
+# 3. Summarise each article
+# -------------------------------------------------
+declare -a SUMMARIES
+COUNT=0
+while IFS= read -r URL; do
+  ((COUNT++))
+  log "Summarising article $COUNT: $URL"
+  # Fetch article HTML
+  HTML=$(fetch_url "$URL")
+  # Summarise via subagent_ask_helper
+  SUMMARY=$(echo "$HTML" | subagent_ask_helper "Summarise the following news article, keeping the main facts and omitting any editorialising.")
+  # Store each summary in the keyword‑archive for later recall
+  keyword-archive-store "wake_catchup_summary" "$SUMMARY" --tags "feed:bbc_world" "item:$COUNT"
+  SUMMARIES+=("$SUMMARY")
+done <<<"$ARTICLE_URLS"
+
+# -------------------------------------------------
+# 4. Optional deep answer synthesis
+# -------------------------------------------------
+if [[ -n "$QUESTION" ]]; then
+  log "Answering question: $QUESTION"
+  # Combine all summaries into a single context
+  CONTEXT=$(printf "%s\n" "${SUMMARIES[@]}")
+  ANSWER=$(echo "$CONTEXT" | deep_answer_synth "$QUESTION")
+  log "Answer: $ANSWER"
+  echo '{"answer":'"$(printf %s "$ANSWER" | jq -R .)"'}'
+else
+  # Return JSON array of summaries
+  json=$(printf '%s\n' "${SUMMARIES[@]}" | jq -R . | jq -s .)
+  echo "$json"
+fi

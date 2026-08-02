@@ -1,0 +1,73 @@
+#!/usr/bin/env python3
+# tool: knowledge-integrity-audit
+# call: knowledge-integrity-audit <keyword>
+# does: Perform a systemic integrity audit of a knowledge domain, checking for contradictions and documenting the domain's health.
+
+import subprocess
+import sys
+import json
+
+def run_tool(args):
+    try:
+        result = subprocess.run(args, capture_output=True, text=True, check=True)
+        return result.stdout.strip()
+    except subprocess.CalledProcessError as e:
+        return f"Error running {' '.join(args)}: {e.stderr}"
+
+def main():
+    if len(sys.argv) < 2:
+        print("Usage: knowledge-integrity-audit <keyword>")
+        sys.exit(1)
+
+    keyword = sys.argv[1]
+    print(f"--- Starting Integrity Audit for domain: {keyword} ---")
+
+    # 1. Gather existing knowledge
+    print(f"Fetching existing knowledge for {keyword}...")
+    knowledge = run_tool(["keyword-archive-search", keyword])
+    
+    # 2. Run consistency check
+    # This tool checks archived knowledge against external data
+    print(f"Running consistency check for {keyword}...")
+    consistency_results = run_tool(["knowledge_consistency_checker", keyword])
+
+    # 3. Synthesize Health Report
+    print("Synthesizing health report...")
+    prompt = (
+        f"Perform a knowledge integrity audit for the domain: '{keyword}'.\n\n"
+        f"Existing Archive Knowledge:\n{knowledge}\n\n"
+        f"Consistency Check Results:\n{consistency_results}\n\n"
+        "Please provide a 'Domain Health Report' including:\n"
+        "1. Integrity Score (1-10): Based on contradictions found.\n"
+        "2. Consistency Analysis: Where are the gaps or conflicts?\n"
+        "3. Completeness: Is the domain well-covered or shallow?\n"
+        "4. Recommended Actions: What specific tasks are needed to fix integrity issues?"
+    )
+    
+    health_report = run_tool(["subagent_ask_helper", prompt])
+
+    # 4. Store the report in the archive
+    print(f"Storing audit report under audit-{keyword}...")
+    report_note = f"Domain Health Report for {keyword}:\n\n{health_report}"
+    run_tool(["keyword-archive-store", f"audit-{keyword}", report_note])
+
+    # 5. Schedule remediation if contradictions were found
+    if "contradiction" in consistency_results.lower() or "conflict" in consistency_results.lower():
+        print("Contradictions detected. Scheduling remediation tasks...")
+        # Create a plan to resolve the integrity issues
+        remediation_prompt = f"Based on this audit report, create 3 concrete, actionable research steps to resolve the contradictions in the domain '{keyword}':\n\n{health_report}"
+        steps = run_tool(["subagent_ask_helper", remediation_prompt])
+        
+        # We use step-planner-tracker to make it a persistent goal
+        goal = f"Remediate integrity issues in {keyword}"
+        # We'll use a simple shell call to the planner; since it's a tool, we call it via subprocess
+        # The steps might be a list, we'll try to pass them as a single block or iterate
+        run_tool(["step-planner-tracker", "add", goal, steps])
+    else:
+        print("No major contradictions detected. Domain is stable.")
+
+    print("\n--- Audit Complete ---")
+    print(health_report)
+
+if __name__ == "__main__":
+    main()

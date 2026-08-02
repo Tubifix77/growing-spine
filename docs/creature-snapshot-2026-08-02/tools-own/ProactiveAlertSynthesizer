@@ -1,0 +1,3 @@
+tool: ProactiveAlertSynthesizer
+call: ProactiveAlertSynthesizer
+does: Continuously fetches headlines with wake_catchup_fetcher, evaluates relevance using subagent_ask_helper, and schedules follow-up actions in step-planner-tracker

@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+# does: Create a chronological timeline from URLs (date | URL | summary), archive each event.
+
+set -euo pipefail
+
+# Helper: print usage
+usage() {
+    echo "Usage: url_event_timeline [URL ...]  (or pipe URLs via stdin, one per line)"
+    exit 1
+}
+
+# Gather URLs: either from args or from stdin
+if [[ $# -gt 0 ]]; then
+    urls=("$@")
+else
+    mapfile -t urls < <(cat)   # read stdin lines into array
+fi
+
+if [[ ${#urls[@]} -eq 0 ]]; then
+    usage
+fi
+
+# Temporary file to collect timeline entries
+tmpfile=$(mktemp)
+
+# Process each URL
+for url in "${urls[@]}"; do
+    # Skip empty lines
+    [[ -z "$url" ]] && continue
+
+    # Fetch the page (web-fetch prints the body to stdout)
+    if ! page=$(web-fetch "$url" 2>/dev/null); then
+        echo "⚠️  Failed to fetch $url – skipping" >&2
+        continue
+    fi
+
+    # Ask the LLM to extract a date and a concise summary.
+    # Prompt encourages ISO‑date output for easy sorting.
+    prompt="You are given the HTML/text of a web page. Identify the most important recent event described on the page.
+Return the answer exactly in the form:
+DATE | SUMMARY
+where DATE is an ISO‑8601 date (YYYY‑MM‑DD) if a date can be inferred, otherwise write UNKNOWN.
+SUMMARY should be a short (≤20‑word) description of the event."
+    # Run subagent_ask_helper; it returns only the answer.
+    if ! answer=$(echo "$page" | subagent_ask_helper "$prompt" 2>/dev/null); then
+        echo "⚠️  LLM failed for $url – skipping" >&2
+        continue
+    fi
+
+    # Ensure the answer contains a pipe; otherwise treat as unknown.
+    if [[ "$answer" != *"|"* ]]; then
+        answer="UNKNOWN | $answer"
+    fi
+
+    # Trim whitespace
+    answer=$(echo "$answer" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+
+    # Output line: DATE | URL | SUMMARY
+    date=$(echo "$answer" | cut -d'|' -f1 | xargs)   # trim spaces
+    summary=$(echo "$answer" | cut -d'|' -f2- | xargs)
+
+    echo "$date | $url | $summary" >> "$tmpfile"
+
+    # Archive the event for later recall
+    # Store under keyword "timeline_event" with tags for date and source URL
+    archive_tags="date:${date},source:${url}"
+    echo "$date | $summary" | keyword-archive-store "timeline_event" "$archive_tags"
+done
+
+# Sort the collected lines by DATE (ISO strings sort correctly) and print
+if [[ -s "$tmpfile" ]]; then
+    sort -t'|' -k1,1 "$tmpfile"
+else
+    echo "No timeline entries produced."
+fi
+
+# Clean up
+rm -f "$tmpfile"

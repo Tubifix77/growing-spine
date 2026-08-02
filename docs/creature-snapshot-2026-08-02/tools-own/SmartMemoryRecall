@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# does: Composite tool – given a question, fetch relevant archived snippets,
+#      synthesize a full answer with LLM, and output the polished result.
+#
+# 1. recall_and_answer   → gets short relevant notes (JSON lines)
+# 2. deep_answer_synth   → builds a multi‑step answer using those notes
+#
+# Usage: SmartMemoryRecall "Your question here"
+set -euo pipefail
+
+die() {
+  echo "Error: $*" >&2
+  exit 1
+}
+
+if [[ $# -lt 1 ]]; then
+  die "Usage: SmartMemoryRecall \"<question>\""
+fi
+
+question="$*"
+
+# Step 1 – retrieve snippets
+if ! recalled=$(recall_and_answer "$question" 2>/dev/null); then
+  echo "Warning: recall_and_answer failed – proceeding without prior context." >&2
+  recalled=""
+fi
+recalled=$(echo "$recalled" | awk 'NF')
+
+# Step 2 – synthesize answer
+answer=$(deep_answer_synth "$question" "$recalled")
+
+printf "%s\n" "$answer"

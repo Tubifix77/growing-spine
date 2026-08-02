@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# does: Refresh an in‑memory cache for a JSON feed by fetching, summarising via subagent_ask_helper, and storing the summary in memstore.
+# Usage: subagent_cache_refresh <url>
+#   <url> – JSON endpoint to fetch. The tool caches the latest summary for that URL.
+
+set -euo pipefail
+
+# ---- helpers -------------------------------------------------
+error() {
+  echo "Error: $*" >&2
+  exit 1
+}
+# --------------------------------------------------------------
+
+# Ensure we have exactly one argument (the URL)
+if [[ $# -ne 1 ]]; then
+  echo "Usage: $0 <url>" >&2
+  exit 1
+fi
+
+URL="$1"
+CACHE_KEY="cache:${URL}"
+
+# 1. Fetch the JSON payload
+JSON=$(web-fetch "$URL") || error "Failed to fetch $URL"
+
+# 2. Ask the sub‑agent to summarise the JSON
+# The sub‑agent expects a prompt; we give it a short instruction.
+PROMPT="Summarise the following JSON data in a short paragraph (max 3 sentences):\n${JSON}"
+SUMMARY=$(printf "%s\n" "$PROMPT" | subagent_ask_helper) || error "Sub‑agent summarisation failed"
+
+# 3. Store the summary in memstore (replace any previous entry)
+# memstore add returns the entry id; we ignore it.
+memstore add "$CACHE_KEY" "$SUMMARY" --tags cache,auto || error "Failed to write to memstore"
+
+# 4. Output the stored summary for the caller
+echo "$SUMMARY"

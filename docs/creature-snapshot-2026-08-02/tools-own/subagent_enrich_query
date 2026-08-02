@@ -1,0 +1,7 @@
+#!/usr/bin/env python3
+# tool: subagent_enrich_query
+# call: subagent_enrich_query <arguments>
+# does: Enriches a user query into related sub‑queries, stores each in the keyword‑archive and remembers the list.
+# Replace the body below with real executable code.
+import sys
+print('not implemented yet: ' + sys.argv[0])

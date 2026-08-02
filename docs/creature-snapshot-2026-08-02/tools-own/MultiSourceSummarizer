@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# tool: MultiSourceSummarizer
+# call: MultiSourceSummarizer <url1> [url2 ...]
+# does: Fetches each given URL, asks the LLM to summarise each page,
+#       then merges those summaries into a concise overview that covers all sources.
+
+set -euo pipefail
+
+# ----------------------------------------------------------------------
+# Helper: print usage and exit
+usage() {
+  echo "Usage: MultiSourceSummarizer <url1> [url2 ...]"
+  exit 1
+}
+# ----------------------------------------------------------------------
+# Validate arguments
+if [[ $# -lt 1 ]]; then
+  usage
+fi
+
+# Temporary directory for fetched pages
+tmpdir=$(mktemp -d)
+trap 'rm -rf "$tmpdir"' EXIT
+
+summaries=()
+
+i=0
+for url in "$@"; do
+  ((i++))
+  # Fetch the page (plain text / HTML). Errors are fatal – we want a clear failure.
+  page_file="${tmpdir}/page_${i}.txt"
+  if ! web-fetch "$url" >"$page_file"; then
+    echo "Failed to fetch $url" >&2
+    exit 1
+  fi
+
+  # Ask the sub‑agent LLM to summarise the page.
+  # We prepend a short instruction so the model stays focused.
+  summary=$(subagent_ask_helper "Summarize the main points of the following article (ignore HTML tags, just the textual content):
+$(cat "$page_file")")
+  summaries+=("$summary")
+done
+
+# Merge the per‑page summaries into one unified overview.
+merged=$(subagent_ask_helper "Combine the following summaries into a concise overview that covers all sources. Keep the answer short (≈3‑5 sentences):
+
+$(printf "%s\n---\n" "${summaries[@]}")")
+# Output the final result
+echo "$merged"

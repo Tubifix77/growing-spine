@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# does: Fetch fresh news items, use LLM to categorize them into specific keywords and summarize them, then archive.
+# Usage: catchup_memory_archiver
+set -euo pipefail
+
+# 1. Fetch fresh items as JSON
+ITEMS_JSON=$(wake_catchup_fetcher)
+
+if [[ "$ITEMS_JSON" == "[]" ]] || [[ -z "$ITEMS_JSON" ]]; then
+    echo "No new news items to archive."
+    exit 0
+fi
+
+# Count items
+COUNT=$(echo "$ITEMS_JSON" | jq '. | length')
+echo "Processing $COUNT new items..."
+
+# 2. Process each item
+echo "$ITEMS_JSON" | jq -c '.[]' | while read -r item; do
+    TITLE=$(echo "$item" | jq -r '.title')
+    URL=$(echo "$item" | jq -r '.url')
+
+    echo "Categorizing: $TITLE..."
+
+    # Ask LLM for a specific keyword and a concise summary
+    # We want a single word for the keyword to keep the archive clean.
+    PROMPT="Analyze this news title: '$TITLE'. 
+    Provide a response in exactly this format:
+    Keyword: <one_word_category>
+    Summary: <one_sentence_summary>
+    
+    Example:
+    Keyword: AI
+    Summary: OpenAI released a new model with improved reasoning capabilities."
+
+    LLM_RESPONSE=$(subagent_ask_helper "$PROMPT")
+
+    # Extract keyword and summary using grep/sed
+    KEYWORD=$(echo "$LLM_RESPONSE" | grep -i "Keyword:" | sed 's/[Kk]eyword: //;s/^[[:space:]]*//;s/[[:space:]]*$//')
+    SUMMARY=$(echo "$LLM_RESPONSE" | grep -i "Summary:" | sed 's/[Ss]ummary: //;s/^[[:space:]]*//;s/[[:space:]]*$//')
+
+    # Fallback if LLM failed to follow format
+    if [[ -z "$KEYWORD" ]]; then KEYWORD="news"; fi
+    if [[ -z "$SUMMARY" ]]; then SUMMARY="No summary provided. $TITLE"; fi
+
+    # 3. Store in keyword-archive
+    # Note: We store the summary and the URL
+    CONTENT="Summary: $SUMMARY | URL: $URL"
+    keyword-archive-store "$KEYWORD" "$CONTENT" --tags "catchup,automated"
+
+    echo "Archived under [$KEYWORD]: $SUMMARY"
+done
+
+echo "Catchup memory archival complete."

@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# tool: plan_from_question
+# call: plan_from_question "<natural language goal>"
+# does: Turn a vague goal into a persistent multi‑step plan by delegating step generation to subagent_ask_helper and storing the steps with step‑planner‑tracker.
+# Usage example:
+#   plan_from_question "Write a short summary of the latest AI safety research"
+
+set -euo pipefail
+
+# Ensure a goal was provided
+if [[ $# -eq 0 ]]; then
+  echo "Usage: $0 \"<natural language goal>\""
+  exit 1
+fi
+
+GOAL="$*"
+
+# 1️⃣ Generate step list via subagent_ask_helper.
+# We ask the sub‑agent to output one step per line, no extra formatting.
+STEP_TEXT=$(subagent_ask_helper "Break the following goal into a concise ordered list of steps, one per line, no numbering or extra text. Goal: $GOAL")
+
+# Defensive check
+if [[ -z "$STEP_TEXT" ]]; then
+  echo "subagent_ask_helper returned empty step list"
+  exit 1
+fi
+
+# 2️⃣ Convert the plain‑text list into a JSON array.
+# Trim empty lines and escape double quotes.
+MAPFILE -t steps <<<"$STEP_TEXT"
+json_steps=$(printf '%s\n' "${steps[@]}" | jq -R . | jq -s .)
+
+# 3️⃣ Create the persistent plan via step‑planner‑tracker.
+# step-planner-tracker expects: add "<goal>" "<json steps>"
+PLAN_ID=$(step-planner-tracker add "$GOAL" "$json_steps")
+
+# 4️⃣ Output the plan ID for downstream use.
+echo "$PLAN_ID"

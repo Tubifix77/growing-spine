@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# does: Detect step-planner-tracker failures, gather context from memstore,
+#       re‑generate a robust plan via plan_from_question, and resubmit it.
+# Usage: AutoPlanRecovery [optional: failure-id]
+
+# Helper: locate the latest failure record from the planner's JSON state
+FAILURE_JSON="/mind/state/step_planner_state.json"
+MEMSTORE="/mind/state/memstore.json"
+
+if [[ ! -f "$FAILURE_JSON" ]]; then
+  echo "{\"error\":\"planner state not found\"}" >&2
+  exit 1
+fi
+
+# Find the most recent step marked as "failed"
+FAILED_STEP=$(jq -r '
+  .steps[] | select(.status=="failed") |
+  {id:.id, goal:.goal, description:.description}
+  | @json' "$FAILURE_JSON" | tail -n1)
+
+if [[ -z "$FAILED_STEP" ]]; then
+  echo "{\"status\":\"no_failed_steps\"}"
+  exit 0
+fi
+
+# Parse fields
+STEP_ID=$(echo "$FAILED_STEP" | jq -r .id)
+STEP_GOAL=$(echo "$FAILED_STEP" | jq -r .goal)
+STEP_DESC=$(echo "$FAILED_STEP" | jq -r .description)
+
+# Pull any stored context from memstore tied to this step (key = step_id)
+CONTEXT=$(jq -r --arg id "$STEP_ID" '
+  .entries[] | select(.key==$id) | .value
+' "$MEMSTORE" | tr "\n" " ")
+
+# Combine original goal with any additional context
+COMBINED_PROMPT="${STEP_GOAL}"
+if [[ -n "$CONTEXT" ]]; then
+  COMBINED_PROMPT="${COMBINED_PROMPT}. Additional context: ${CONTEXT}"
+fi
+
+# Generate a new plan using the existing plan_from_question tool
+NEW_PLAN_OUTPUT=$(plan_from_question "$COMBINED_PROMPT")
+if [[ $? -ne 0 ]]; then
+  echo "{\"error\":\"plan generation failed\"}" >&2
+  exit 1
+fi
+
+# plan_from_question prints the new plan ID on the last line;
+# capture it (it is a numeric string)
+NEW_PLAN_ID=$(echo "$NEW_PLAN_OUTPUT" | tail -n1 | grep -E '^[0-9]+$')
+if [[ -z "$NEW_PLAN_ID" ]]; then
+  echo "{\"error\":\"could not parse new plan id\"}" >&2
+  exit 1
+fi
+
+# Register the new plan with the step-planner-tracker (reuse its CLI)
+# The tracker expects: step-planner-tracker add-plan <plan-id>
+step-planner-tracker add-plan "$NEW_PLAN_ID"
+
+# Output a succinct JSON for callers
+echo "{\"recovered_plan_id\":\"$NEW_PLAN_ID\",\"original_step_id\":\"$STEP_ID\"}"

@@ -1,0 +1,88 @@
+#!/usr/bin/env python3
+# tool: news_plan_synthesizer
+# call: news_plan_synthesizer <url> [--keyword <kw>]
+# does: Fetches a news article, summarises it, fills knowledge gaps, creates a persistent action plan, and archives the summary and plan.
+
+import subprocess
+import sys
+import json
+import argparse
+
+def run_tool(cmd, input_text=None):
+    try:
+        res = subprocess.run(
+            cmd, 
+            input=input_text, 
+            capture_output=True, 
+            text=True, 
+            check=True
+        )
+        return res.stdout.strip()
+    except subprocess.CalledProcessError as e:
+        print(f"Error running {' '.join(cmd)}: {e.stderr}")
+        return None
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("url", help="URL of the news article")
+    parser.add_argument("--keyword", default="news_plans", help="Keyword for archiving")
+    args = parser.parse_args()
+
+    print(f"[*] Fetching article: {args.url}")
+    content = run_tool(["web-fetch", args.url])
+    if not content:
+        print("Failed to fetch content.")
+        sys.exit(1)
+
+    print("[*] Summarizing and extracting actionable goal...")
+    prompt = (
+        f"Summarize the following news article in 2 sentences. "
+        f"Then, identify one clear, actionable research or implementation goal based on this news. "
+        f"Format your response as:\nSummary: <summary>\nGoal: <goal>\n\nContent:\n{content[:4000]}"
+    )
+    summary_goal = run_tool(["subagent_ask_helper"], input_text=prompt)
+    if not summary_goal:
+        print("Failed to get summary/goal.")
+        sys.exit(1)
+
+    # Parse goal
+    goal = "Research the implications of this news"
+    for line in summary_goal.split('\n'):
+        if line.startswith("Goal:"):
+            goal = line[5:].strip()
+            break
+
+    print(f"[*] Actionable Goal: {goal}")
+
+    print("[*] Identifying knowledge gaps...")
+    gaps = run_tool(["knowledge_gap_filler", goal])
+    
+    print("[*] Creating persistent plan...")
+    # plan_from_question usually returns the plan ID or a summary
+    plan_result = run_tool(["plan_from_question", goal])
+    
+    # We expect plan_from_question to output something like "Plan created: <id>"
+    plan_id = "unknown"
+    if plan_result:
+        # Basic extraction of a plan ID (often a UUID or number)
+        import re
+        match = re.search(r'Plan\s+ID:\s*(\S+)|ID:\s*(\S+)', plan_result)
+        if match:
+            plan_id = match.group(1) or match.group(2)
+
+    print(f"[*] Archiving results under keyword '{args.keyword}'...")
+    archive_text = (
+        f"URL: {args.url}\n"
+        f"Summary/Goal: {summary_goal}\n"
+        f"Plan ID: {plan_id}\n"
+        f"Knowledge Gaps: {gaps}"
+    )
+    run_tool(["keyword-archive-store", args.keyword, archive_text])
+
+    print("\n--- Process Complete ---")
+    print(f"Summary:\n{summary_goal}")
+    print(f"Plan ID: {plan_id}")
+    print(f"Archived under: {args.keyword}")
+
+if __name__ == "__main__":
+    main()

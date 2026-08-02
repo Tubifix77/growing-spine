@@ -1,0 +1,136 @@
+#!/usr/bin/env python3
+"""
+tool: AutoArchiveDigest
+call: AutoArchiveDigest --date <YYYY-MM-DD>
+does: Fetch fresh headlines for a given date, synthesize concise answers via deep_answer_synth,
+      archive the daily digest under keyword "digest-<date>", and return the archive path.
+"""
+
+import argparse
+import json
+import subprocess
+import sys
+from datetime import datetime
+
+def run_cmd(cmd, input_data=None):
+    """Run a shell command, capture stdout, and raise on error."""
+    result = subprocess.run(
+        cmd,
+        input=input_data,
+        capture_output=True,
+        text=True,
+        check=False,
+        shell=True,
+    )
+    if result.returncode != 0:
+        sys.stderr.write(f"Command failed: {cmd}\\n{result.stderr}\\n")
+        raise RuntimeError(f"Command failed: {cmd}")
+    return result.stdout.strip()
+
+def fetch_items(date_str):
+    """Get fresh items from wake_catchup_fetcher (or its .real version)."""
+    # The fetcher itself filters by date internally; we just pass the date as env var.
+    cmd = f"wake_catchup_fetcher.real --date {date_str}"
+    out = run_cmd(cmd)
+    try:
+        items = json.loads(out)
+    except json.JSONDecodeError:
+        sys.stderr.write(f"Invalid JSON from fetcher: {out}\\n")
+        raise
+    return items  # list of dicts with at least 'title' and 'url'
+
+def search_existing(title):
+    """Search the keyword archive for existing notes about this title."""
+    # Use a simple query; the archive tool returns up to 3 matches as JSON lines.
+    cmd = f"keyword-archive-search \"{title}\" --limit 3"
+    out = run_cmd(cmd)
+    # The tool prints each note on its own line (JSON). Collect them.
+    notes = []
+    for line in out.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            notes.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    return notes
+
+def synthesize_answer(title, context_notes):
+    """Run deep_answer_synth, feeding the title (and any context) via stdin."""
+    # deep_answer_synth expects a question on stdin; we give the headline.
+    # If we have context, we prepend it as a short pre‑amble.
+    question = title
+    if context_notes:
+        ctx = " ".join(note.get('summary', '') for note in context_notes)
+        if ctx:
+            question = f"{ctx}\\n\\n{title}"
+    cmd = "deep_answer_synth"
+    out = run_cmd(cmd, input_data=question)
+    # deep_answer_synth returns a JSON object with an 'answer' field.
+    try:
+        answer_obj = json.loads(out)
+        answer = answer_obj.get("answer", out)
+    except json.JSONDecodeError:
+        answer = out
+    return answer
+
+def store_digest(date_str, digest_entries):
+    """Store the whole digest as a single note under keyword digest-<date>."""
+    keyword = f"digest-{date_str}"
+    # Prepare a compact JSON‑L record.
+    note = {
+        "date": date_str,
+        "entries": digest_entries,
+    }
+    # Write to a temporary file then pipe to keyword-archive-store.
+    tmp_path = f"/tmp/digest_{date_str}.jsonl"
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        json.dump(note, f)
+        f.write("\\n")
+    cmd = f"keyword-archive-store \"{keyword}\" --file {tmp_path}"
+    out = run_cmd(cmd)
+    # The store tool prints the path of the stored record.
+    return out.strip()
+
+def main():
+    parser = argparse.ArgumentParser(description="AutoArchiveDigest")
+    parser.add_argument(
+        "--date",
+        type=str,
+        default=datetime.utcnow().strftime("%Y-%m-%d"),
+        help="Date of the digest (YYYY‑MM‑DD). Default: today UTC.",
+    )
+    args = parser.parse_args()
+
+    # Step 1 – fetch fresh items
+    items = fetch_items(args.date)
+
+    digest_entries = []
+    for item in items:
+        title = item.get("title", "")
+        url = item.get("url", "")
+        if not title:
+            continue
+
+        # Step 2 – see what we already know
+        existing = search_existing(title)
+
+        # Step 3 – synthesize a concise answer
+        answer = synthesize_answer(title, existing)
+
+        digest_entries.append(
+            {
+                "title": title,
+                "url": url,
+                "answer": answer,
+            }
+        )
+
+    # Step 4 – archive the whole digest
+    stored_path = store_digest(args.date, digest_entries)
+
+    print(f"Digest stored at: {stored_path}")
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# tool: curiosity-research-generator
+# call: curiosity-research-generator "<curiosity>"
+# does: Generates a full research plan for a curiosity by filling knowledge gaps and creating a persistent plan.
+
+set -euo pipefail
+
+CURIOSITY="${1:-}"
+
+if [ -z "$CURIOSITY" ]; then
+  echo "Usage: curiosity-research-generator \"<curiosity>\""
+  exit 1
+fi
+
+echo "[curiosity-research-generator] Curiosity: $CURIOSITY"
+
+# Phase 1: Seed the archive. 
+# Use knowledge_gap_filler to ensure we have some baseline facts before planning.
+echo "[curiosity-research-generator] Seeding archive via knowledge_gap_filler..."
+if ! knowledge_gap_filler "$CURIOSITY"; then
+  echo "[curiosity-research-generator] Warning: knowledge_gap_filler encountered an issue, proceeding to planning anyway."
+fi
+
+# Phase 2: Generate the plan.
+# Use plan_from_question_retry to handle potential LLM flakes.
+echo "[curiosity-research-generator] Generating persistent research plan..."
+PLAN_OUTPUT=$(plan_from_question_retry "$CURIOSITY" 2>&1)
+
+if [[ $? -ne 0 ]] || [[ "$PLAN_OUTPUT" == *"Error"* ]]; then
+  echo "[curiosity-research-generator] Critical Error: Failed to generate plan after retries."
+  echo "$PLAN_OUTPUT"
+  exit 1
+fi
+
+echo "[curiosity-research-generator] Success!"
+echo "$PLAN_OUTPUT"

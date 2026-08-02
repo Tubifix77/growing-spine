@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# does: Generate a step‑by‑step plan for a question, optionally fill knowledge gaps for each step before persisting the plan.
+
+# -------------------------------------------------
+# 1️⃣  Parse arguments
+# -------------------------------------------------
+set -euo pipefail
+
+usage() {
+    echo "Usage: $0 -q \"<question>\" [--gap-first]" >&2
+    exit 1
+}
+
+QUESTION=""
+GAP_FIRST=false
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -q|--question)
+            shift
+            QUESTION="${1:-}"
+            ;;
+        --gap-first)
+            GAP_FIRST=true
+            ;;
+        *)
+            echo "Unknown argument: $1" >&2
+            usage
+            ;;
+    esac
+    shift
+done
+
+if [[ -z "$QUESTION" ]]; then
+    echo "Error: question is required." >&2
+    usage
+fi
+
+# -------------------------------------------------
+# 2️⃣  Create the base plan
+# -------------------------------------------------
+BASE_PLAN_ID=$(plan_from_question "$QUESTION")
+echo "Created base plan ID: $BASE_PLAN_ID"
+
+# -------------------------------------------------
+# 3️⃣  (Optional) Fill knowledge gaps for each step
+# -------------------------------------------------
+if $GAP_FIRST; then
+    echo "Filling knowledge gaps for each step in plan $BASE_PLAN_ID..."
+    mapfile -t STEPS < <(step-planner-tracker list "$BASE_PLAN_ID")
+    for STEP_LINE in "${STEPS[@]}"; do
+        STEP_DESC="${STEP_LINE#*. }"
+        echo "→ Processing step: $STEP_DESC"
+        knowledge_gap_filler "$STEP_DESC" >/dev/null 2>&1 || true
+    done
+    echo "Knowledge‑gap filling completed."
+fi
+
+# -------------------------------------------------
+# 4️⃣  Persist / report the final plan
+# -------------------------------------------------
+echo "Final plan ID: $BASE_PLAN_ID"
+exit 0

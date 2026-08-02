@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# does: Fetch fresh news items, summarize each, archive the summary, and create a persistent action plan for every new item.
+set -euo pipefail
+
+# State files
+STATE_FILE="/mind/state/catchup_enhanced_state.json"
+LOG_FILE="/mind/state/catchup_enhanced_log.jsonl"
+
+# Ensure state file exists
+if [[ ! -f "$STATE_FILE" ]]; then
+  echo "{}" > "$STATE_FILE"
+fi
+
+# 1️⃣ Fetch fresh items using the real fetcher (it tracks seen IDs internally)
+items_json=$(wake_catchup_fetcher.real) || {
+  echo "Error: wake_catchup_fetcher.real failed" >&2
+  exit 1
+}
+
+# If no new items, exit gracefully
+if [[ -z "$items_json" ]] || [[ "$items_json" == "null" ]] || [[ "$items_json" == "[]" ]]; then
+  echo "No new items fetched – exiting."
+  exit 0
+fi
+
+# 2️⃣ Process each item
+echo "$items_json" | jq -c '.[]' | while read -r item; do
+  # Extract fields
+  title=$(echo "$item" | jq -r '.title')
+  url=$(echo "$item" | jq -r '.url')
+  tags=$(echo "$item" | jq -r '.tags // empty' | jq -r 'join(",")' || echo "")
+
+  # Summarize the item via subagent_ask_helper
+  summary=$(echo "$url" | subagent_ask_helper "Summarise the content of this URL in one concise sentence.") || {
+    echo "Failed to summarise $url – skipping." >&2
+    continue
+  }
+
+  # 3️⃣ Archive the summary
+  keyword="news"
+  note="Title: $title\nURL: $url\nSummary: $summary"
+  keyword-archive-store "$keyword" "$note" --tags "$tags"
+  echo "Archived: $title"
+
+  # 4️⃣ Create an action prompt for planning
+  plan_prompt="Investigate the news item titled \"$title\". Use the summary: $summary. Produce a concrete, short‑term plan of up to three steps."
+
+  # Generate a persistent plan
+  plan_id=$(plan_from_question "$plan_prompt") || {
+    echo "Plan generation failed for $title – skipping." >&2
+    continue
+  }
+
+  # 5️⃣ Record the association (item → plan)
+  timestamp=$(date --iso-8601=seconds)
+  echo "{\"timestamp\":\"$timestamp\",\"title\":$(printf '%s' "$title" | jq -R .),\"url\":$(printf '%s' "$url" | jq -R .),\"plan_id\":\"$plan_id\"}" >> "$LOG_FILE"
+  echo "Created plan $plan_id for \"$title\""
+done
+
+exit 0

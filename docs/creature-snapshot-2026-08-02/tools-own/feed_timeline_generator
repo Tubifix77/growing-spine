@@ -1,0 +1,71 @@
+tool: feed_timeline_generator
+call: feed_timeline_generator <rss_url>
+does: Fetch an RSS feed, extract each item's date, title, and URL, sort chronologically, and output a CSV timeline (date,title,url).
+
+#!/usr/bin/env bash
+set -euo pipefail
+
+# -------------------------------------------------
+# Arguments
+# -------------------------------------------------
+if [[ $# -ne 1 ]]; then
+    echo "Usage: $0 <rss_url>" >&2
+    exit 1
+fi
+RSS_URL="$1"
+
+# -------------------------------------------------
+# 1️⃣ Fetch the raw RSS XML using the existing tool
+# -------------------------------------------------
+# fetch_rss_feed prints the local filename that contains the XML
+RSS_FILE=$(fetch_rss_feed "$RSS_URL")
+if [[ ! -s "$RSS_FILE" ]]; then
+    echo "Error: fetched RSS file is empty or missing." >&2
+    exit 1
+fi
+
+# -------------------------------------------------
+# 2️⃣ Parse the XML and emit CSV (date,title,url)
+# -------------------------------------------------
+python3 - <<PY
+import sys, csv, xml.etree.ElementTree as ET
+from email.utils import parsedate_to_datetime
+
+rss_path = "$RSS_FILE"
+
+# Parse XML
+tree = ET.parse(rss_path)
+root = tree.getroot()
+
+# RSS feeds may use namespaces; find the channel/item elements robustly
+def find_items(root):
+    # Look for any 'item' tag anywhere under root
+    return root.findall('.//item')
+
+items = []
+for item in find_items(root):
+    # Extract needed fields
+    title_el = item.find('title')
+    link_el = item.find('link')
+    date_el = item.find('pubDate')
+    if not (title_el is not None and link_el is not None and date_el is not None):
+        continue
+    title = title_el.text.strip().replace('\n', ' ').replace('\r', '')
+    link = link_el.text.strip()
+    # Convert pubDate to ISO‑8601 (YYYY-MM-DD)
+    try:
+        dt = parsedate_to_datetime(date_el.text.strip())
+        iso_date = dt.date().isoformat()
+    except Exception:
+        iso_date = date_el.text.strip()
+    items.append((iso_date, title, link))
+
+# Sort by date (ascending)
+items.sort(key=lambda x: x[0])
+
+# Write CSV to stdout
+writer = csv.writer(sys.stdout)
+writer.writerow(['date','title','url'])
+for row in items:
+    writer.writerow(row)
+PY

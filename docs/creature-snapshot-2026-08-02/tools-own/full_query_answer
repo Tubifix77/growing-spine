@@ -1,0 +1,43 @@
+#!/bin/bash
+# tool: full_query_answer
+# call: full_query_answer <query>
+# does: Answer a query using archive search, gap filling, LLM synthesis, and store the result
+
+set -euo pipefail
+
+if [ -z "${1:-}" ]; then
+    echo "Usage: full_query_answer <query>"
+    exit 1
+fi
+
+QUERY="$1"
+
+# 1. Search the archive for existing knowledge
+echo "Searching archive..." >&2
+ARCHIVE_RESULTS=$(keyword-archive-search "$QUERY")
+
+# 2. Fill knowledge gaps via external search/LLM
+echo "Filling knowledge gaps..." >&2
+GAP_RESULTS=$(knowledge_gap_filler "$QUERY")
+
+# 3. Synthesize the final answer using a subagent
+echo "Synthesizing answer..." >&2
+PROMPT="You are a research assistant. Using the provided context, answer the user's question concisely and accurately. 
+If the context is insufficient, use your internal knowledge but prioritize the provided context.
+
+Context from Archive:
+${ARCHIVE_RESULTS}
+
+Freshly fetched information:
+${GAP_RESULTS}
+
+Question: ${QUERY}"
+
+FINAL_ANSWER=$(subagent_ask_helper "$PROMPT")
+
+# 4. Store the synthesized answer back into the archive for future use
+echo "Archiving result..." >&2
+keyword-archive-store "$QUERY" "$FINAL_ANSWER" --tags "synthesized,full-query-answer"
+
+# Output the final answer
+echo "$FINAL_ANSWER"

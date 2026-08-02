@@ -1,0 +1,85 @@
+#!/usr/bin/env python3
+# tool: cross_domain_insight_synth
+# call: cross_domain_insight_synth <domain1> <domain2>
+# does: Fetches Wikipedia summaries for two domains, asks a sub‑agent LLM to synthesize a cross‑domain insight,
+#       archives the raw summaries and the insight, and adds a “publish brief” task to the persistent planner.
+import sys, subprocess, json, os, datetime, urllib.parse
+
+def fetch_wiki_summary(topic):
+    # Wikipedia REST summary endpoint
+    title = urllib.parse.quote(topic.replace(' ', '_'))
+    url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{title}"
+    # Use the existing web-fetch tool (which prints the raw response)
+    result = subprocess.run(["web-fetch", url], capture_output=True, text=True)
+    if result.returncode != 0:
+        sys.stderr.write(f"Failed to fetch Wikipedia for {topic}: {result.stderr}\n")
+        sys.exit(1)
+    return json.loads(result.stdout)
+
+def archive_json(data, key):
+    # Simple archive: store JSON line in a per‑key file under /workspace/archives/
+    os.makedirs("/workspace/archives", exist_ok=True)
+    path = f"/workspace/archives/{key}.jsonl"
+    with open(path, "a") as f:
+        f.write(json.dumps(data, ensure_ascii=False) + "\n")
+    return path
+
+def ask_llm(prompt):
+    # Call the existing subagent_ask_helper tool – it returns only the answer text.
+    result = subprocess.run(["subagent_ask_helper", prompt], capture_output=True, text=True)
+    if result.returncode != 0:
+        sys.stderr.write(f"LLM call failed: {result.stderr}\n")
+        sys.exit(1)
+    return result.stdout.strip()
+
+def add_planner_task(task_desc):
+    # Use the persistent planner (step-planner-tracker) – add a new step to the default plan.
+    subprocess.run(["step-planner-tracker", "add", task_desc])
+
+def main():
+    if len(sys.argv) != 3:
+        sys.stderr.write("Usage: cross_domain_insight_synth <domain1> <domain2>\n")
+        sys.exit(1)
+    dom1, dom2 = sys.argv[1], sys.argv[2]
+
+    # 1. Fetch summaries
+    sum1 = fetch_wiki_summary(dom1)
+    sum2 = fetch_wiki_summary(dom2)
+
+    # 2. Archive raw summaries
+    archive_json(sum1, f"{dom1}_wiki")
+    archive_json(sum2, f"{dom2}_wiki")
+
+    # 3. Build LLM prompt
+    prompt = (
+        f"You are an interdisciplinary analyst.\n"
+        f"Given the following two topic summaries, write a concise (<150 words) insight that links them.\n\n"
+        f"--- {dom1} summary ---\n{sum1.get('extract','')}\n\n"
+        f"--- {dom2} summary ---\n{sum2.get('extract','')}\n\n"
+        f"Insight:"
+    )
+
+    # 4. Ask LLM for the cross‑domain insight
+    insight = ask_llm(prompt)
+
+    # 5. Archive the insight (with timestamp and source topics)
+    record = {
+        "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+        "domains": [dom1, dom2],
+        "insight": insight,
+        "sources": {
+            dom1: sum1.get("content_url",""),
+            dom2: sum2.get("content_url","")
+        }
+    }
+    archive_json(record, "cross_domain_insights")
+
+    # 6. Add a follow‑up task so the cousin remembers to publish the brief
+    task = f"Publish brief for insight linking {dom1} and {dom2}"
+    add_planner_task(task)
+
+    # 7. Output the insight for immediate consumption
+    print(insight)
+
+if __name__ == "__main__":
+    main()

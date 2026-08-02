@@ -1,0 +1,84 @@
+tool: dynamic_faq_updater
+call: dynamic_faq_updater <faq-keyword>
+does: Refreshes an FAQ entry by searching the keyword‑archive, fetching fresh info, merging via LLM, storing the updated entry, and optionally scheduling a review task.
+
+# ---- Implementation (bash+Python wrappers) ----
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Helper: exit with usage
+usage() {
+    echo "Usage: dynamic_faq_updater <faq-keyword>"
+    exit 1
+}
+
+# Ensure a keyword is supplied
+if [ "$#" -ne 1 ]; then
+    usage
+fi
+
+FAQ_KEYWORD="$1"
+
+# 1️⃣ Retrieve existing FAQ entry (if any) from keyword‑archive
+#    We use the existing tool `keyword-archive-search` which returns JSON lines.
+existing_entry=$(keyword-archive-search "$FAQ_KEYWORD" --limit 1 | jq -r '.notes[0].content // empty')
+if [ -z "$existing_entry" ]; then
+    echo "No existing FAQ entry found for keyword '$FAQ_KEYWORD'. Creating a new one."
+fi
+
+# 2️⃣ Fetch fresh information.
+#    Use `wake_catchup_fetcher.real` to get recent items and then filter by relevance.
+#    We'll fetch the first fresh item that mentions the keyword (case‑insensitive).
+fresh_json=$(wake_catchup_fetcher.real --limit 20 | jq -c '.[]')
+fresh_content=""
+while IFS= read -r item; do
+    title=$(echo "$item" | jq -r '.title')
+    url=$(echo "$item" | jq -r '.url')
+    # Simple relevance check: keyword appears in title or URL
+    if [[ "$title" =~ $FAQ_KEYWORD ]] || [[ "$url" =~ $FAQ_KEYWORD ]]; then
+        # Fetch the URL (fallback chain inside fetch_url) and grab first 2000 chars
+        page=$(fetch_url "$url" | head -c 2000)
+        fresh_content="$page"
+        break
+    fi
+done <<< "$fresh_json"
+
+# If no fresh content was found, fall back to a generic web search via Wikipedia.
+if [ -z "$fresh_content" ]; then
+    echo "No fresh HN item matched. Falling back to Wikipedia summary."
+    # Use subagent_ask_helper to ask LLM for a short wiki summary.
+    fresh_content=$(subagent_ask_helper "Give a concise Wikipedia‑style summary of $FAQ_KEYWORD.")
+fi
+
+# 3️⃣ Merge existing entry with fresh content using LLM.
+#    Prompt the LLM to combine them, keep the FAQ format, and improve accuracy.
+merged_faq=$(cat <<PROMPT
+You are updating an FAQ entry for the topic: "$FAQ_KEYWORD".
+Existing entry (may be empty):
+---
+$existing_entry
+---
+New information retrieved:
+---
+$fresh_content
+---
+Please produce an updated FAQ answer that:
+- Retains the question (“What is …?”) if it exists, otherwise keep a clear heading.
+- Incorporates the newest facts.
+- Is concise (max 3 short paragraphs).
+- Uses plain text (no markdown formatting).
+Provide ONLY the final updated answer.
+PROMPT
+)
+
+updated_answer=$(echo "$merged_faq" | subagent_ask_helper)
+
+# 4️⃣ Store the refreshed FAQ back into the keyword‑archive.
+#    We tag it with `faq` and `updated`.
+keyword-archive-store "$FAQ_KEYWORD" "$updated_answer" --tags faq,updated
+
+# 5️⃣ Optionally schedule a review task for later verification.
+#    Create a short plan step that reminds the system to verify the FAQ in 7 days.
+plan_id=$(plan_from_question "Review the FAQ entry for $FAQ_KEYWORD in 7 days and ensure it is still accurate." | tail -n1)
+
+echo "✅ FAQ '$FAQ_KEYWORD' refreshed. Updated answer stored. Review plan ID: $plan_id"

@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# tool: TaskTriggerFromResearch
+# call: TaskTriggerFromResearch <research_question>
+# does: Detect knowledge gaps for <research_question>, create a plan for the gap, and add a top‑level task to step‑planner‑tracker.
+#
+# Workflow:
+#   1. Echo the question as JSON and pipe to knowledge_gap_filler.
+#   2. If knowledge_gap_filler outputs "gap_found", invoke plan_from_question to generate a plan.
+#   3. Use step-planner-tracker to add a high‑level task "Investigate <question> unanswered aspects".
+#   4. Print the created plan ID.
+
+set -euo pipefail
+
+# ---- Helpers ----------------------------------------------------
+json_escape() {
+  python3 -c "import json,sys; print(json.dumps(sys.argv[1]))" "$1"
+}
+
+# -----------------------------------------------------------------
+if [[ $# -lt 1 ]]; then
+  echo "Usage: TaskTriggerFromResearch <research_question>"
+  exit 1
+fi
+
+QUESTION="$*"
+
+# 1. Run knowledge_gap_filler – it expects a JSON line on stdin.
+#    We provide a minimal JSON with the question field.
+KGF_INPUT=$(json_escape "$QUESTION")
+echo "$KGF_INPUT" | knowledge_gap_filler > /tmp/kgf_out.txt 2>/dev/null || true
+
+# 2. Determine if a gap was detected.
+#    knowledge_gap_filler prints "gap_found" when no matching note exists,
+#    otherwise it prints nothing or "gap_filled".
+if grep -q "gap_found" /tmp/kgf_out.txt; then
+  # Gap detected – create a plan for investigating the missing aspect.
+  PLAN_ID=$(echo "$QUESTION" | plan_from_question | tail -n1 | awk '{print $NF}')
+  # 3. Add a high‑level task to the planner.
+  #    step-planner-tracker add <plan_id> "<task>"
+  step-planner-tracker add "$PLAN_ID" "Investigate \"$QUESTION\" unanswered aspects"
+  echo "Created plan $PLAN_ID for gap in \"$QUESTION\""
+else
+  echo "No knowledge gap detected for \"$QUESTION\"."
+fi

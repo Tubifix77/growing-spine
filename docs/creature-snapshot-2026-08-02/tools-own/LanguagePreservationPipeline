@@ -1,0 +1,116 @@
+#!/usr/bin/env python3
+# does: Downloads linguistic resources for a language, fills missing glossaries via knowledge_gap_filler,
+#       and archives the result as <lang>_resources.zip
+#
+# Usage: python LanguagePreservationPipeline --lang <LANGUAGE_NAME>
+#
+# The pipeline creates placeholder resource files, tries to enrich a glossary using the existing
+# `knowledge_gap_filler` tool, and finally zips the whole directory. The resulting zip is also
+# stored in the keyword‑archive for later retrieval.
+
+import argparse
+import os
+import subprocess
+import sys
+import shutil
+import json
+from pathlib import Path
+import tempfile
+
+def run_cmd(cmd, capture_output=False):
+    """Run a shell command, raising on failure."""
+    result = subprocess.run(
+        cmd,
+        shell=True,
+        check=False,
+        stdout=subprocess.PIPE if capture_output else None,
+        stderr=subprocess.PIPE if capture_output else None,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"Command failed ({cmd}): {result.stderr.strip()}")
+    return result.stdout.strip() if capture_output else None
+
+def create_placeholder_resources(workdir: Path, language: str):
+    """Create simple placeholder linguistic files."""
+    resources = {
+        "phonology.txt": f"Phonology overview for {language}\n(placeholder data)\n",
+        "grammar.txt": f"Grammar sketch for {language}\n(placeholder data)\n",
+        "vocabulary.txt": f"Sample vocabulary for {language}\n(placeholder data)\n",
+    }
+    for fname, content in resources.items():
+        (workdir / fname).write_text(content, encoding="utf-8")
+
+def fill_glossary(workdir: Path, language: str):
+    """Attempt to call the existing knowledge_gap_filler tool to enrich a glossary."""
+    glossary_path = workdir / "glossary.txt"
+    try:
+        # knowledge_gap_filler expects a query; we give the language name.
+        # It writes its result to stdout; we capture it.
+        output = run_cmd(f"knowledge_gap_filler {language}", capture_output=True)
+        glossary_path.write_text(output, encoding="utf-8")
+        print(f"[INFO] Glossary enriched via knowledge_gap_filler.")
+    except Exception as e:
+        # If the external tool fails (e.g., no network), fall back to a minimal placeholder.
+        print(f"[WARN] knowledge_gap_filler failed: {e}. Using placeholder glossary.")
+        glossary_path.write_text(f"Glossary placeholder for {language}\n", encoding="utf-8")
+
+def archive_resources(workdir: Path, language: str):
+    """Zip the entire workdir into <language>_resources.zip."""
+    zip_name = f"{language.lower()}_resources.zip"
+    zip_path = Path.cwd() / zip_name
+    # Use the system zip command; ensure it is installed.
+    try:
+        run_cmd(f"zip -r {zip_path} .", capture_output=False)
+    except RuntimeError as e:
+        # Fall back to Python's zipfile if the external zip command is missing.
+        import zipfile
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for root, _, files in os.walk(workdir):
+                for f in files:
+                    full_path = Path(root) / f
+                    arcname = full_path.relative_to(workdir.parent)
+                    zf.write(full_path, arcname)
+    print(f"[INFO] Created archive: {zip_path}")
+    return zip_path
+
+def store_in_archive(zip_path: Path, language: str):
+    """Store the zip file in the keyword‑archive for later recall."""
+    # keyword-archive-store expects: keyword‑archive‑store <keyword> <file>
+    # Use the language name as the keyword.
+    try:
+        run_cmd(f"keyword-archive-store {language} {zip_path}")
+        print(f"[INFO] Stored archive in keyword‑archive under key '{language}'.")
+    except Exception as e:
+        print(f"[WARN] Failed to store in keyword‑archive: {e}")
+
+def main():
+    parser = argparse.ArgumentParser(description="Language preservation pipeline")
+    parser.add_argument("--lang", required=True, help="Target language name")
+    args = parser.parse_args()
+    language = args.lang.strip()
+    if not language:
+        parser.error("Language name cannot be empty")
+
+    # Create a temporary working directory inside /workspace (persistent across cycles)
+    with tempfile.TemporaryDirectory(dir="/workspace", prefix=f"lp_{language}_") as tmp:
+        workdir = Path(tmp)
+        print(f"[INFO] Working directory: {workdir}")
+
+        # Step 1: create placeholder resource files
+        create_placeholder_resources(workdir, language)
+
+        # Step 2: attempt to enrich a glossary via the existing tool
+        fill_glossary(workdir, language)
+
+        # Step 3: archive everything
+        zip_path = archive_resources(workdir, language)
+
+        # Step 4: store the zip in the keyword‑archive for future recall
+        store_in_archive(zip_path, language)
+
+        # Print final success message
+        print(f"[DONE] LanguagePreservationPipeline completed for '{language}'. Archive: {zip_path}")
+
+if __name__ == "__main__":
+    main()

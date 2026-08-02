@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+# tool: memory_archive_search_helper
+# call: memory_archive_search_helper "<query>"
+# does: Search the keyword‑archive for a query; if no results are found, fill the gap via knowledge_gap_filler,
+#       synthesize an answer with subagent_ask_helper, cache the result for future calls.
+
+set -euo pipefail
+
+QUERY="${1:-}"
+if [[ -z "$QUERY" ]]; then
+  echo "Usage: memory_archive_search_helper \"<query>\"" >&2
+  exit 1
+fi
+
+# ---------- 1️⃣ Fast‑path: cached answer ----------
+CACHE_KEY="memory_archive_search_helper:${QUERY}"
+# Try to fetch a cached answer from the keyword‑archive (may be empty)
+CACHED=$(keyword-archive-search "$CACHE_KEY" --limit 1 | head -n1 || true)
+if [[ -n "$CACHED" ]]; then
+  # The cached entry already contains the synthesized answer
+  echo "$CACHED"
+  exit 0
+fi
+
+# ---------- 2️⃣ Search the archive ----------
+# Use the generic search tool; limit to 3 notes for brevity
+SEARCH_RESULTS=$(keyword-archive-search "$QUERY" --limit 3 || true)
+
+if [[ -n "$SEARCH_RESULTS" ]]; then
+  # Found some notes – return them directly (joined by newlines)
+  echo "$SEARCH_RESULTS"
+  exit 0
+fi
+
+# ---------- 3️⃣ No notes → fill knowledge gap ----------
+# Run the knowledge gap filler which stores fresh info in the archive
+# It prints a short summary of what it fetched
+GAP_OUTPUT=$(knowledge_gap_filler "$QUERY" || true)
+
+# If the filler failed to produce output, we still proceed but note it
+if [[ -z "$GAP_OUTPUT" ]]; then
+  GAP_OUTPUT="(no new information fetched)"
+fi
+
+# ---------- 4️⃣ Synthesize a final answer ----------
+# Build a prompt that includes the original query and any gap‑filled info
+PROMPT="You are a concise answer generator. Use the following information to answer the user's query.
+
+Query: $QUERY
+
+Info from knowledge gap filler:
+$GAP_OUTPUT
+
+Provide a short, factual answer (no fluff)."
+ANSWER=$(printf "%s" "$PROMPT" | subagent_ask_helper || true)
+
+if [[ -z "$ANSWER" ]]; then
+  echo "Unable to synthesize an answer." >&2
+  exit 1
+fi
+
+# ---------- 5️⃣ Cache the answer ----------
+# Store the synthesized answer under the cache keyword for fast future retrieval
+keyword-archive-store "$CACHE_KEY" "$ANSWER" --tags cached,helper
+
+# ---------- 6️⃣ Return the answer ----------
+echo "$ANSWER"
+exit 0

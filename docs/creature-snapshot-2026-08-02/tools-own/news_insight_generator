@@ -1,0 +1,49 @@
+tool: news_insight_generator
+call: news_insight_generator
+does: Generates actionable insight plans from fresh news items by fetching, filling knowledge gaps, synthesising an insight via a sub‑agent LLM, and storing the result as a persistent plan.
+
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Temporary directory for intermediate files (persisted across runs)
+TMPDIR="/workspace/tmp"
+mkdir -p "$TMPDIR"
+
+# 1. Fetch fresh news items (JSON lines) – each line contains at minimum {title, url, tags}
+#    wake_catchup_fetcher.real writes only new items since last call.
+#    If there are no new items, exit gracefully.
+if ! wake_catchup_fetcher.real > "$TMPDIR/news_raw.jsonl"; then
+    echo "Failed to fetch news items."
+    exit 1
+fi
+
+if [ ! -s "$TMPDIR/news_raw.jsonl" ]; then
+    echo "No new news items."
+    exit 0
+fi
+
+# 2. Enrich each item with missing background knowledge
+#    knowledge_gap_filler reads JSON lines on stdin and writes enriched JSON lines.
+knowledge_gap_filler < "$TMPDIR/news_raw.jsonl" > "$TMPDIR/news_enriched.jsonl"
+
+# 3. For each enriched item, ask a sub‑agent to produce a concise insight.
+#    We construct a prompt: "Provide a short actionable insight based on the following news item:\nTitle: <title>\nSummary: <summary>"
+#    The sub‑agent expects plain text on stdin and returns only the answer.
+while IFS= read -r line; do
+    # Extract fields safely with jq; fallback to empty string if missing.
+    title=$(echo "$line" | jq -r '.title // empty')
+    summary=$(echo "$line" | jq -r '.summary // empty')
+    url=$(echo "$line" | jq -r '.url // empty')
+    # Build prompt
+    prompt="Provide a short actionable insight based on the following news item.\nTitle: $title\nURL: $url\nSummary: $summary"
+    # Ask the sub‑agent; capture its answer.
+    insight=$(echo -e "$prompt" | subagent_ask_helper)
+
+    # 4. Create a persistent plan for this insight.
+    #    The plan goal is the title; the steps are the insight plus a follow‑up reminder.
+    #    Use step-planner-tracker to add the plan and output the plan ID.
+    plan_id=$(step-planner-tracker add "Insight from: $title" "$insight; Review and act on insight")
+
+    # Emit the plan ID together with the original title for traceability.
+    echo "$title -> PlanID: $plan_id"
+done < "$TMPDIR/news_enriched.jsonl"

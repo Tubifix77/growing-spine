@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# tool: wiki_faq_builder
+# call: wiki_faq_builder "<Wikipedia Article Title>"
+# does: Fetch a Wikipedia article, ask a sub‑agent to turn its sections into FAQ entries, and archive the FAQs.
+
+set -euo pipefail
+
+# ---------- Helper ----------
+slugify() {
+    # Convert title to URL slug: replace spaces with underscores, remove leading/trailing whitespace
+    echo "$1" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/ /_/g'
+}
+
+# ---------- Main ----------
+if [[ $# -lt 1 ]]; then
+    echo "Usage: $0 \"<Wikipedia Article Title>\""
+    exit 1
+fi
+
+TITLE="$*"
+SLUG=$(slugify "$TITLE")
+URL="https://en.wikipedia.org/wiki/${SLUG}"
+
+# 1. Fetch the Wikipedia page (HTML)
+PAGE_CONTENT=$(web-fetch "$URL")
+# If fetch failed, abort
+if [[ -z "$PAGE_CONTENT" ]]; then
+    echo "Failed to fetch Wikipedia page for '$TITLE'." >&2
+    exit 1
+fi
+
+# 2. Ask sub‑agent to generate FAQ JSONL
+# Prompt: produce a JSONL list of FAQ Q&A derived from the article.
+FAQ_JSONL=$(subagent_ask_helper <<PROMPT
+You are given the full HTML of a Wikipedia article about "$TITLE". Extract the most important sections and generate a concise FAQ. Output each entry on its own line as a JSON object with two keys:
+{
+  "question": "<FAQ question>",
+  "answer": "<Short answer (1‑2 sentences)>"
+}
+Only output valid JSON lines, no extra text.
+PROMPT
+"$PAGE_CONTENT")
+
+# Verify we got something that looks like JSON lines
+if [[ -z "$FAQ_JSONL" ]]; then
+    echo "Sub‑agent returned no FAQ data." >&2
+    exit 1
+fi
+
+# 3. Archive each FAQ entry
+# Use a consistent archive key: faq_<slug>
+ARCHIVE_KEY="faq_${SLUG}"
+# keyword-archive-store expects: <key> <json_line>
+while IFS= read -r line; do
+    # Skip empty lines
+    [[ -z "$line" ]] && continue
+    # Ensure it's valid JSON (quick check for curly braces)
+    if [[ "$line" != *\{* || "$line" != *\}* ]]; then
+        echo "Skipping malformed line: $line" >&2
+        continue
+    fi
+    keyword-archive-store "$ARCHIVE_KEY" "$line"
+done <<< "$FAQ_JSONL"
+
+echo "FAQ entries for \"$TITLE\" have been archived under key \"$ARCHIVE_KEY\"."

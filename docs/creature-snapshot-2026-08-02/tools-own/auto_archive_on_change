@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# does: Monitor given URLs for content changes; when a change is detected fetch the new page,
+#       summarize it with a sub‑agent LLM, archive the summary, and add a review plan.
+
+set -euo pipefail
+
+# State file (persistent across cycles)
+STATE_FILE="/mind/state/auto_archive_change_state.json"
+mkdir -p "$(dirname "$STATE_FILE")"
+# Initialise empty JSON if missing
+if [[ ! -f "$STATE_FILE" ]]; then
+  echo '{}' > "$STATE_FILE"
+fi
+
+# Helper: compute a deterministic hash of the content
+hash_content() {
+  # md5sum is guaranteed to exist; we only need the hex string
+  echo -n "$1" | md5sum | awk '{print $1}'
+}
+
+# Process each URL (either arguments or stdin)
+if [[ $# -gt 0 ]]; then
+  URLs=("$@")
+else
+  mapfile -t URLs < <(cat -)
+fi
+
+for url in "${URLs[@]}"; do
+  echo "▶️ Checking $url"
+  # Fetch the page (web-fetch prints the body; any HTTP error prints to stderr)
+  if ! page=$(web-fetch "$url"); then
+    echo "⚠️ Failed to fetch $url – skipping"
+    continue
+  fi
+
+  # Compute hash of current content
+  cur_hash=$(hash_content "$page")
+  # Retrieve old hash from state (empty if never seen)
+  old_hash=$(jq -r --arg u "$url" '.[$u] // empty' "$STATE_FILE")
+
+  if [[ "$cur_hash" == "$old_hash" ]]; then
+    echo "✅ No change detected."
+    continue
+  fi
+
+  echo "🔄 Change detected – processing."
+
+  # Summarise with LLM sub‑agent
+  summary=$(printf "%s" "$page" | subagent_ask_helper "Summarize the main information of this page in a short paragraph. Include a title and any date you can infer.")
+  if [[ -z "$summary" ]]; then
+    echo "⚠️ LLM returned empty summary – using raw snippet."
+    summary="[No summary produced]"
+  fi
+
+  # Derive a simple keyword from the URL host
+  host=$(printf "%s" "$url" | awk -F/ '{print $3}')
+  # Archive the summary
+  keyword-archive-store "$host" "$summary"
+
+  # Create a review plan (persistent) for the cousin
+  plan_id=$(plan_from_question "Review the newly‑updated content for $url and decide if any follow‑up actions are needed.")
+  echo "🗂️ Archived summary under keyword '$host' and created plan ID $plan_id."
+
+  # Update stored hash
+  tmp=$(mktemp)
+  jq --arg u "$url" --arg h "$cur_hash" '.[$u] = $h' "$STATE_FILE" > "$tmp" && mv "$tmp" "$STATE_FILE"
+done

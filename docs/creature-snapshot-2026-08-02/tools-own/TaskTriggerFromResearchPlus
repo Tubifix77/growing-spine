@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# does: Detect knowledge gaps for a research question, create a persistent task,
+#       enrich the keyword‑archive, update the entity graph, and schedule a review sub‑task.
+set -euo pipefail
+
+# Input: research question (single argument, possibly quoted)
+QUESTION="${1:?Missing research question}"
+
+# Step A: Run the original logic to create the base task
+BASE_OUTPUT=$(/mind/tools/own/_TaskTriggerFromResearch_helper "$QUESTION")
+echo "$BASE_OUTPUT"
+
+# Extract the created task ID (assume format "Created task ID: <id>")
+TASK_ID=$(echo "$BASE_OUTPUT" | grep -i "task id" | awk -F': ' '{print $2}' | tr -d '[:space:]')
+if [[ -z "$TASK_ID" ]]; then
+  echo "Failed to obtain task ID from base tool output" >&2
+  exit 1
+fi
+
+# Step B: Identify keywords associated with the task (stored in memstore)
+# Use memstore to get the task entry (assumes memstore JSON lines with key=task_id)
+TASK_ENTRY=$(memstore get "$TASK_ID")
+# Extract keywords field (JSON key "keywords")
+KEYWORDS=$(echo "$TASK_ENTRY" | jq -r '.keywords // empty')
+if [[ -z "$KEYWORDS" ]]; then
+  echo "No keywords found for task $TASK_ID; using generic placeholder" >&2
+  KEYWORDS="research"
+fi
+
+# Step C: For each keyword, fill gaps and update archive & graph
+IFS=',' read -ra KW_ARR <<<"$KEYWORDS"
+for KW in "${KW_ARR[@]}"; do
+  KW=$(echo "$KW" | xargs)   # trim whitespace
+  echo "Processing keyword: $KW"
+
+  # Fill any missing knowledge (writes to keyword‑archive if needed)
+  knowledge_gap_filler "$KW"
+
+  # Ensure the latest info is stored in the archive (force store)
+  # The filler may have already stored info; we re‑store to be safe.
+  # Grab the latest note for this keyword from the archive
+  NOTE=$(keyword-archive-search "$KW" --limit 1 | head -n1 | jq -r '.content // empty')
+  if [[ -n "$NOTE" ]]; then
+    keyword-archive-store "$KW" "$NOTE" --tags "auto,review"
+    echo "Archived note for $KW"
+  else
+    echo "No archive note found for $KW after gap fill"
+  fi
+
+  # Update the entity graph with new entities from the note
+  echo "$NOTE" | entity_graph_updater --keyword "$KW"
+  echo "Entity graph updated for $KW"
+done
+
+# Step D: Schedule a review sub‑task for the next cycle
+REVIEW_DESC="Review and validate knowledge for '$QUESTION' (keywords: $KEYWORDS)"
+plan_from_question "$REVIEW_DESC" | while read -r line; do
+  # The plan_from_question tool prints the new plan ID; we add it to the tracker
+  PLAN_ID=$(echo "$line" | grep -i "plan id" | awk -F': ' '{print $2}' | tr -d '[:space:]')
+  if [[ -n "$PLAN_ID" ]]; then
+    step-planner-tracker add "$PLAN_ID"
+    echo "Scheduled review plan $PLAN_ID"
+  fi
+done
+
+exit 0

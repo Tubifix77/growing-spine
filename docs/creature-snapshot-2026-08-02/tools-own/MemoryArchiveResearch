@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# tool: MemoryArchiveResearch
+# call: MemoryArchiveResearch <keyword1> <keyword2> ...
+# does: For each supplied keyword, searches the keyword‑archive, fills any gaps,
+#       stores new info, and returns a concise research‑plan JSON.
+
+set -euo pipefail
+
+# -------------------------------------------------
+# Helper: run a sub‑tool and capture its JSON output
+run_tool() {
+  local cmd="$1"
+  shift
+  "$cmd" "$@" || {
+    echo "{\"error\":\"$cmd failed\"}" >&2
+    exit 1
+  }
+}
+# -------------------------------------------------
+
+# Collect results per keyword
+declare -a results
+for kw in "$@"; do
+  # 1️⃣ Search the archive
+  search_out=$(run_tool keyword-archive-search "$kw" | jq -c '.[]')
+  if [[ -z "$search_out" ]]; then
+    # No notes → ask knowledge_gap_filler to fetch missing info
+    filler_out=$(run_tool knowledge_gap_filler "$kw")
+    # knowledge_gap_filler returns a JSON with fields: {found:bool, content:string}
+    found=$(echo "$filler_out" | jq -r '.found')
+    if [[ "$found" == "true" ]]; then
+      content=$(echo "$filler_out" | jq -r '.content')
+      # Store the newly fetched content
+      run_tool keyword-archive-store "$kw" "$content"
+    else
+      # Still nothing – mark as gap
+      content="<<GAP>>"
+    fi
+  else
+    # Use the first matching note as the content
+    content=$(echo "$search_out" | jq -r '.note')
+  fi
+
+  # Assemble per‑keyword result object
+  results+=("$(jq -n \
+    --arg kw "$kw" \
+    --arg content "$content" \
+    '{keyword:$kw, snippet:$content}')")
+done
+
+# 2️⃣ Build a tiny research plan summarising the findings
+plan=$(printf "%s\n" "${results[@]}" | jq -s '.')
+plan_json=$(jq -n \
+  --argjson items "$plan" \
+  '{type:"research_plan", items:$items, generated:now}')
+
+# Output the JSON plan
+echo "$plan_json"

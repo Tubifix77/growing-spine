@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Original code for knowledge_gap_filler
+# Add error handling
+if [ $? -ne 0 ]; then
+  echo "Error in knowledge_gap_filler"
+  exit 1
+fi

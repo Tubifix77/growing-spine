@@ -1,0 +1,102 @@
+#!/usr/bin/env python3
+"""
+tool: url_to_plan
+call: url_to_plan <url> [keyword] [plan_id]
+does: Fetch a URL, summarize its content via LLM, archive the summary under a keyword,
+      and add a step containing the summary to a persistent plan (creates a new plan if none given).
+"""
+
+import sys
+import subprocess
+import json
+import os
+import re
+import shlex
+from pathlib import Path
+
+def run_cmd(cmd):
+    """Run a command list, capture stdout, raise on error."""
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"Command {' '.join(cmd)} failed: {result.stderr}")
+    return result.stdout.strip()
+
+def fetch_page(url):
+    """Use existing web-fetch tool to get page text."""
+    return run_cmd(["web-fetch", url])
+
+def summarize(text):
+    """Summarize using subagent_ask_helper. Prompt is fixed for brevity."""
+    prompt = "Summarize the following text in 3-5 concise sentences: " + text
+    # subagent_ask_helper expects the prompt on stdin
+    proc = subprocess.run(
+        ["subagent_ask_helper"],
+        input=prompt,
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(f"subagent_ask_helper failed: {proc.stderr}")
+    return proc.stdout.strip()
+
+def store_summary(keyword, summary):
+    """Store the summary in the keyword‑archive."""
+    # keyword-archive-store <keyword> <json_payload>
+    payload = json.dumps({"summary": summary})
+    run_cmd(["keyword-archive-store", keyword, payload])
+
+def add_step_to_plan(plan_id, step_desc):
+    """Add a step to an existing plan."""
+    # step-planner-tracker expects: add-step <plan_id> <description>
+    run_cmd(["step-planner-tracker", "add-step", plan_id, step_desc])
+
+def create_plan(goal_desc):
+    """Create a new plan and return its ID."""
+    # step-planner-tracker expects: add-goal <goal_description>
+    # The tool prints the new plan ID on stdout.
+    out = run_cmd(["step-planner-tracker", "add-goal", goal_desc])
+    # The output format is: "Created plan <plan_id>"
+    m = re.search(r"(\d+)", out)
+    if not m:
+        raise RuntimeError(f"Unexpected plan creation output: {out}")
+    return m.group(1)
+
+def main():
+    if len(sys.argv) < 2:
+        print("Usage: url_to_plan <url> [keyword] [plan_id]")
+        sys.exit(1)
+
+    url = sys.argv[1]
+    keyword = sys.argv[2] if len(sys.argv) > 2 else None
+    plan_id = sys.argv[3] if len(sys.argv) > 3 else None
+
+    # Derive a default keyword from the domain if not supplied
+    if not keyword:
+        try:
+            keyword = re.sub(r"https?://", "", url).split("/")[0].replace(".", "_")
+        except Exception:
+            keyword = "url_summary"
+
+    # 1. Fetch page
+    page_text = fetch_page(url)
+
+    # 2. Summarize
+    summary = summarize(page_text)
+
+    # 3. Store summary
+    store_summary(keyword, summary)
+
+    # 4. Add to plan
+    step_desc = f"Review summary of {url}: {summary}"
+    if plan_id:
+        add_step_to_plan(plan_id, step_desc)
+    else:
+        # Create a new plan titled with the URL
+        new_plan_id = create_plan(f"Summaries from {url}")
+        add_step_to_plan(new_plan_id, step_desc)
+        plan_id = new_plan_id
+
+    print(f"Success. Plan ID: {plan_id}")
+
+if __name__ == "__main__":
+    main()

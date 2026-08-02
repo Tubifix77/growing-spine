@@ -1,0 +1,153 @@
+#!/usr/bin/env bash
+# tool: step-planner-tracker
+# does: Persistent step planner – add a goal with ordered steps, list them, get the next pending step, and mark steps done across cycles.
+
+# Path to the JSON file that stores the plan (persisted in /workspace)
+PLAN_FILE="/workspace/planner.json"
+
+# Ensure jq is available
+if ! command -v jq >/dev/null 2>&1; then
+  echo "Error: jq is required for step-planner-tracker."
+  exit 1
+fi
+
+# Initialize empty plan file if missing
+if [ ! -f "$PLAN_FILE" ]; then
+  echo '[]' > "$PLAN_FILE"
+fi
+
+# Helper: load plan as JSON array
+load_plan() {
+  cat "$PLAN_FILE"
+}
+
+# Helper: save plan array
+save_plan() {
+  jq -M . > "$PLAN_FILE"
+}
+
+# Helper: generate a unique plan ID (timestamp + random)
+generate_id() {
+  date +%s%N | cut -b1-13
+}
+
+# Sub‑command: add a new plan
+cmd_add() {
+  local goal="$1"
+  local steps_csv="$2"
+  if [ -z "$goal" ] || [ -z "$steps_csv" ]; then
+    echo "Usage: step-planner-tracker add <goal> <step1;step2;...>"
+    exit 1
+  fi
+
+  # Split steps on ';'
+  IFS=';' read -ra steps <<<"$steps_csv"
+  # Build steps array with status fields
+  local steps_json='[]'
+  local idx=0
+  for step in "${steps[@]}"; do
+    steps_json=$(printf '%s' "$steps_json" | jq ". + [{\"index\":$idx,\"text\":\"$step\",\"done\":false}]")
+    ((idx++))
+  done
+
+  local plan_id=$(generate_id)
+  local new_plan=$(jq -n \
+    --arg id "$plan_id" \
+    --arg goal "$goal" \
+    --argjson steps "$steps_json" \
+    '{id:$id, goal:$goal, steps:$steps, created:now, updated:now}')
+
+  # Append to existing plans
+  load_plan | jq ". + [$new_plan]" | save_plan
+
+  # Remember the plan ID for quick lookup (durable across cycles)
+  remember "current_plan_id" "$plan_id"
+
+  echo "Plan added (ID=$plan_id)."
+}
+
+# Sub‑command: list all stored plans
+cmd_list() {
+  load_plan | jq -r '
+    sort_by(.created)[] |
+    "\(.id) | Goal: \(.goal)\nSteps:" as $header |
+    ($header + (
+        .steps[] |
+        "  \(.index+1). [\(.done?\"✔\":\" \")] \(.text)"
+      )
+    ) + "\n---"
+  '
+}
+
+# Sub‑command: show the next pending step for a given plan (default uses remembered ID)
+cmd_next() {
+  local plan_id="${1:-$(recall current_plan_id)}"
+  if [ -z "$plan_id" ]; then
+    echo "No plan ID supplied and no remembered current_plan_id."
+    exit 1
+  fi
+
+  local plan=$(load_plan | jq -r --arg id "$plan_id" '
+    .[] | select(.id == $id)
+  ')
+  if [ -z "$plan" ]; then
+    echo "Plan $plan_id not found."
+    exit 1
+  fi
+
+  # Find first step where done == false
+  local next_step=$(printf '%s' "$plan" | jq -r '
+    .steps[] | select(.done == false) | .text
+  ' | head -n1)
+
+  if [ -z "$next_step" ]; then
+    echo "All steps completed for plan $plan_id."
+  else
+    echo "$next_step"
+  fi
+}
+
+# Sub‑command: mark the current (next) step as done and advance
+cmd_done() {
+  local plan_id="${1:-$(recall current_plan_id)}"
+  if [ -z "$plan_id" ]; then
+    echo "No plan ID supplied and no remembered current_plan_id."
+    exit 1
+  fi
+
+  # Load whole plan list
+  local all_plans=$(load_plan)
+
+  # Extract the target plan, update its steps
+  local updated=$(printf '%s' "$all_plans" | jq --arg id "$plan_id" '
+    map(
+      if .id == $id then
+        .steps |= (
+          # Find first not‑done step and set done:true
+          ( .[] | select(.done == false) | .done = true ) // .
+        ) |
+        .updated = now
+      else
+        .
+      end
+    )
+  ')
+
+  # Save back
+  echo "$updated" | save_plan
+
+  # Show the next step (or completion)
+  cmd_next "$plan_id"
+}
+
+# Main dispatcher
+case "$1" in
+  add)    shift; cmd_add "$1" "$2" ;;
+  list)   cmd_list ;;
+  next)   shift; cmd_next "$1" ;;
+  done)   shift; cmd_done "$1" ;;
+  *)
+    echo "Usage: step-planner-tracker {add <goal> <step1;step2;...>|list|next [plan_id]|done [plan_id]}"
+    exit 1
+    ;;
+esac

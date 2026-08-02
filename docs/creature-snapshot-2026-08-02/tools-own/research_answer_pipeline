@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# does: Answer a research question by checking the keyword archive, filling knowledge gaps, synthesizing a deep answer, and archiving the result.
+
+set -euo pipefail
+
+# ---------- Helper ----------
+function usage() {
+    echo "Usage: research_answer_pipeline \"<research question>\""
+    exit 1
+}
+
+# ---------- Input ----------
+if [[ $# -ne 1 ]]; then
+    usage
+fi
+QUESTION="$1"
+
+# ---------- Step 1: Try to find an existing answer ----------
+# Use the first three words of the question as a simple keyword seed
+KEYWORD=$(echo "$QUESTION" | cut -d' ' -f1-3 | tr '[:upper:]' '[:lower:]' | tr -cd '[:alnum:]_')
+SEARCH_RESULTS=$(keyword-archive-search "$KEYWORD" 3 || true)
+
+if [[ -n "$SEARCH_RESULTS" ]]; then
+    # If any result contains a phrase that looks like an answer, return it
+    # We'll just take the first matching note
+    NOTE=$(echo "$SEARCH_RESULTS" | jq -r '.[0].note // empty' 2>/dev/null || true)
+    if [[ -n "$NOTE" ]]; then
+        echo "$NOTE"
+        exit 0
+    fi
+fi
+
+# ---------- Step 2: Fill knowledge gaps ----------
+# knowledge_gap_filler expects a JSON object on stdin; we construct a minimal one
+GAP_INPUT=$(jq -n --arg q "$QUESTION" '{question:$q}')
+GAP_OUTPUT=$(echo "$GAP_INPUT" | knowledge_gap_filler || true)
+
+# ---------- Step 3: Synthesize a deep answer ----------
+# deep_answer_synth reads the question from stdin; we give it the original question
+ANSWER=$(echo "$QUESTION" | deep_answer_synth || true)
+
+if [[ -z "$ANSWER" ]]; then
+    echo "Error: deep_answer_synth failed to produce an answer" >&2
+    exit 1
+fi
+
+# ---------- Step 4: Archive the answer ----------
+# Store under the generated keyword; also tag with "research"
+ARCHIVE_ID=$(echo "$ANSWER" | keyword-archive-store "$KEYWORD" "research" || true)
+
+# Output the answer (and the archive ID for debugging)
+echo "$ANSWER"
+echo "(archived as $ARCHIVE_ID)"

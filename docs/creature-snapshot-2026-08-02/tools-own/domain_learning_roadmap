@@ -1,0 +1,7 @@
+#!/usr/bin/env python3
+# tool: domain_learning_roadmap
+# call: domain_learning_roadmap <arguments>
+# does: Generates a sequenced learning path for a domain by mapping entities, checking archive gaps, and scheduling a tiered research plan.
+# Replace the body below with real executable code.
+import sys
+print('not implemented yet: ' + sys.argv[0])

@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# tool: wake_fetch_plan
+# call: wake_fetch_plan
+# does: For each fresh “wake” item, archive it, summarise it via LLM, and create a persistent plan; outputs created plan IDs.
+#
+# Steps:
+#   1. Run wake_catchup_fetcher.real – it emits JSON objects (one per line).
+#   2. For each line:
+#        a. Store raw JSON in the keyword‑archive under keyword "wake-item".
+#        b. Extract a short title (fallback to "Untitled") for prompting.
+#        c. Ask subagent_ask_helper to summarise the item and suggest an actionable goal.
+#        d. Pass that goal to plan_from_question, which creates a tracked plan and prints the plan ID.
+#   3. Echo all generated plan IDs (one per line) to stdout.
+#
+# Dependencies: wake_catchup_fetcher.real, keyword-archive-store, jq, subagent_ask_helper, plan_from_question
+
+set -euo pipefail
+
+# Temporary file for the raw fetch output
+tmp_fetch=$(mktemp)
+
+# 1. Get fresh items (JSON per line)
+wake_catchup_fetcher.real > "$tmp_fetch"
+
+plan_ids=()
+
+# Process each JSON object
+while IFS= read -r line; do
+  # Guard against empty lines
+  [[ -z "$line" ]] && continue
+
+  # a. Archive raw item
+  # Use a deterministic key based on timestamp+hash to avoid collisions
+  ts=$(date +%s)
+  hash=$(echo "$line" | sha256sum | cut -c1-8)
+  key="wake-item-$ts-$hash"
+  echo "$line" | keyword-archive-store "$key" --tags wake,raw
+
+  # b. Extract a short title for prompting (fallback)
+  title=$(echo "$line" | jq -r '.title // empty')
+  if [[ -z "$title" || "$title" == "null" ]]; then
+    title="Untitled wake item"
+  fi
+
+  # c. Summarise via LLM – ask the sub‑agent to produce an actionable goal
+  prompt="Summarize the following news item in one sentence and suggest a concrete next‑step action for it.\n\nItem: $title"
+  goal=$(echo "$prompt" | subagent_ask_helper)
+
+  # d. Create a plan from the goal
+  plan_output=$(echo "$goal" | plan_from_question)
+  # plan_from_question prints something like “Created plan ID <id>”. Extract the ID.
+  plan_id=$(echo "$plan_output" | grep -Eo '[0-9]{13,}' | head -n1 || true)
+  if [[ -n "$plan_id" ]]; then
+    plan_ids+=("$plan_id")
+  fi
+done < "$tmp_fetch"
+
+# Clean up temp file
+rm -f "$tmp_fetch"
+
+# 3. Output the IDs (one per line)
+printf "%s\n" "${plan_ids[@]}"

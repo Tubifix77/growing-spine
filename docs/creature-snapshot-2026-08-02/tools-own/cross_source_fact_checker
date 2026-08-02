@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+# tool: cross_source_fact_checker
+# call: cross_source_fact_checker <claim>
+# does: Checks a factual claim by fetching web info (Wikipedia), consulting the keyword‑archive, and storing a verification record.
+
+set -euo pipefail
+
+# ---------- Helper: URL‑encode a string ----------
+url_encode() {
+    python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1]))" "$1"
+}
+
+# ---------- Input ----------
+if [[ $# -lt 1 ]]; then
+    echo "Usage: cross_source_fact_checker <claim>"
+    exit 1
+fi
+CLAIM="$*"
+
+# ---------- Derive a searchable keyword ----------
+# Very simple heuristic: use the phrase before the word "founded" (if present)
+if [[ "$CLAIM" =~ (.*) founded ]]; then
+    KEYWORD="${BASH_REMATCH[1]}"
+else
+    KEYWORD="$CLAIM"
+fi
+KEYWORD=$(echo "$KEYWORD" | xargs)   # trim whitespace
+
+# ---------- Step 1: Search Wikipedia ----------
+ENCODED_QUERY=$(url_encode "$KEYWORD")
+SEARCH_URL="https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${ENCODED_QUERY}&format=json"
+SEARCH_JSON=$(web-fetch "$SEARCH_URL")
+# Extract first title
+TITLE=$(echo "$SEARCH_JSON" | jq -r '.query.search[0].title // empty')
+if [[ -z "$TITLE" ]]; then
+    echo "No Wikipedia result for keyword: $KEYWORD"
+    WIKI_SUMMARY=""
+else
+    # ---------- Step 2: Get Wikipedia summary ----------
+    SUMMARY_URL="https://en.wikipedia.org/api/rest_v1/page/summary/$(url_encode "$TITLE")"
+    SUMMARY_JSON=$(web-fetch "$SUMMARY_URL")
+    WIKI_SUMMARY=$(echo "$SUMMARY_JSON" | jq -r '.extract // empty')
+fi
+
+# ---------- Step 3: Consult the keyword‑archive ----------
+ARCHIVE_RESULTS=$(keyword-archive-search "$KEYWORD" 3 || true)
+
+# ---------- Step 4: Determine verification status ----------
+STATUS="unverified"
+# Try to extract a year from the claim
+if [[ "$CLAIM" =~ ([0-9]{4}) ]]; then
+    CLAIM_YEAR="${BASH_REMATCH[1]}"
+    if [[ "$WIKI_SUMMARY" =~ $CLAIM_YEAR ]]; then
+        STATUS="verified"
+    fi
+fi
+
+# ---------- Step 5: Build source list ----------
+SRC_LIST=()
+if [[ -n "$SUMMARY_URL" && -n "$WIKI_SUMMARY" ]]; then
+    SRC_LIST+=("$SUMMARY_URL")
+fi
+# Add any archive URLs that may have been returned (they are plain text lines)
+if [[ -n "$ARCHIVE_RESULTS" ]]; then
+    while IFS= read -r line; do
+        # The archive tool prints JSON lines; extract any "url" field if present
+        URL=$(echo "$line" | jq -r '.url // empty' 2>/dev/null || true)
+        [[ -n "$URL" ]] && SRC_LIST+=("$URL")
+    done <<<"$ARCHIVE_RESULTS"
+fi
+
+# ---------- Step 6: Store verification record ----------
+KEY="FactCheck:${CLAIM}"
+JSON_RECORD=$(jq -n \
+    --arg claim "$CLAIM" \
+    --arg status "$STATUS" \
+    --argjson sources "$(printf '%s\n' "${SRC_LIST[@]}" | jq -R . | jq -s .)" \
+    '{claim:$claim, status:$status, sources:$sources}')
+keyword-archive-store "$KEY" "$JSON_RECORD"
+
+# ---------- Output ----------
+echo "Claim: $CLAIM"
+echo "Status: $STATUS"
+if [[ ${#SRC_LIST[@]} -gt 0 ]]; then
+    echo "Sources:"
+    for u in "${SRC_LIST[@]}"; do echo " - $u"; done
+fi

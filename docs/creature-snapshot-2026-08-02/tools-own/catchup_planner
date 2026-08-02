@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+# does: Given a news URL (or uses wake_catchup_fetcher.real if none), fetches the article,
+#       summarises it, archives the summary, and creates a persistent actionable plan.
+
+set -euo pipefail
+
+log() {
+    echo "[catchup_planner] $*"
+}
+
+# 1. Get the target URL and Title
+if [ $# -gt 0 ]; then
+    TARGET_URL="$1"
+    TARGET_TITLE="Manually provided article"
+    log "Using provided URL: $TARGET_URL"
+else
+    log "No URL provided. Fetching fresh item via wake_catchup_fetcher.real..."
+    FETCH_RESULT=$(wake_catchup_fetcher.real)
+    
+    # Check if we got a valid array with at least one item
+    COUNT=$(echo "$FETCH_RESULT" | jq '. | length')
+    if [ "$COUNT" -eq 0 ]; then
+        log "No fresh items found. Nothing to plan."
+        exit 0
+    fi
+    
+    TARGET_URL=$(echo "$FETCH_RESULT" | jq -r '.[0].url')
+    TARGET_TITLE=$(echo "$FETCH_RESULT" | jq -r '.[0].title')
+    log "Found fresh item: $TARGET_TITLE ($TARGET_URL)"
+fi
+
+# 2. Fetch the content
+log "Fetching content from $TARGET_URL..."
+CONTENT=$(web-fetch "$TARGET_URL" | head -c 10000) # Limit size for LLM
+
+# 3. Use subagent to synthesize summary and plan
+log "Analyzing content and generating plan..."
+PROMPT="Analyze the following article:
+Title: $TARGET_TITLE
+Content: $CONTENT
+
+Please provide:
+1. A concise one-paragraph summary.
+2. A list of 2-3 concrete, actionable next steps (research tasks or actions) derived from this news.
+Format the output as:
+SUMMARY: <summary>
+PLAN:
+- <step 1>
+- <step 2>"
+
+ANALYSIS=$(subagent_ask_helper "$PROMPT")
+
+SUMMARY=$(echo "$ANALYSIS" | sed -n '/SUMMARY:/,/PLAN:/p' | sed 's/SUMMARY://' | xargs)
+PLAN_STEPS=$(echo "$ANALYSIS" | sed -n '/PLAN:/,$p' | sed 's/PLAN://' | sed 's/^- //')
+
+# 4. Archive the summary
+log "Archiving summary..."
+keyword-archive-store "catchup" "Summary of $TARGET_TITLE: $SUMMARY" "news,catchup"
+
+# 5. Create the persistent plan
+log "Creating persistent plan in step-planner-tracker..."
+# We create a goal based on the title
+GOAL="Follow up on: $TARGET_TITLE"
+# Create the plan. step-planner-tracker add expects "goal" then "step1" "step2"...
+# We'll pass the steps as arguments.
+step-planner-tracker add "$GOAL" $PLAN_STEPS
+
+log "Successfully processed $TARGET_TITLE."
+log "Plan created for: $GOAL"

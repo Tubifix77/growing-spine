@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# tool: research_backlog_synthesizer
+# does: For each line in a topics file, fill knowledge gaps, synthesize a deep answer,
+#       and store the answer in the keyword archive under a derived keyword.
+
+set -euo pipefail
+
+if [[ $# -ne 1 ]]; then
+  echo "Usage: research_backlog_synthesizer <topics_file>"
+  exit 1
+fi
+
+TOPICS_FILE="$1"
+
+if [[ ! -f "$TOPICS_FILE" ]]; then
+  echo "Error: file not found – $TOPICS_FILE"
+  exit 1
+fi
+
+# Helper: generate a safe keyword from a topic string
+keyword_from_topic() {
+  # Lower‑case, replace spaces with hyphens, strip non‑alphanumerics
+  echo "$1" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g' | sed -E 's/^-+|-$//g'
+}
+
+while IFS= read -r raw_topic || [[ -n "$raw_topic" ]]; do
+  # Skip empty lines
+  [[ -z "$raw_topic" ]] && continue
+  topic="$(echo "$raw_topic" | xargs)"   # trim whitespace
+
+  echo "=== Processing topic: $topic ==="
+
+  # 1️⃣ Fill knowledge gap – produces a JSON note if missing.
+  #   knowledge_gap_filler expects JSON on stdin with a "topic" field.
+  gap_input=$(printf '{"topic":"%s"}' "$topic")
+  echo "$gap_input" | knowledge_gap_filler >/dev/null || true   # ignore output; just ensure gaps are filled
+
+  # 2️⃣ Synthesize deep answer – deep_answer_synth reads a question from stdin.
+  #    We'll ask: "Provide a comprehensive answer for the topic: <topic>"
+  question=$(printf "Provide a comprehensive answer for the topic: %s" "$topic")
+  answer=$(printf '%s' "$question" | deep_answer_synth)
+
+  # 3️⃣ Store answer in keyword archive.
+  kw=$(keyword_from_topic "$topic")
+  # Store the raw answer; tags include "research-backlog"
+  echo "$answer" | keyword-archive-store "$kw" --tags research-backlog
+
+  echo "✅ Stored answer under keyword: $kw"
+done < "$TOPICS_FILE"
+
+echo "All topics processed."

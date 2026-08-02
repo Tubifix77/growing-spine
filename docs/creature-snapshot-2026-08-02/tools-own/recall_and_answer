@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# does: Answer a question by first recalling relevant archived notes and feeding them to the LLM via subagent_ask_helper.
+set -euo pipefail
+
+question="${1:-}"
+if [[ -z "$question" ]]; then
+  echo "Error: no question provided" >&2; exit 1
+fi
+
+# Search the archive (max 3 notes)
+archive_json=$(archive-search-recall "$question" 3 || true)
+
+# Build context from notes
+if [[ -n "$archive_json" ]] && [[ "$archive_json" != "null" ]]; then
+  context=$(echo "$archive_json" | jq -r '.[].content // .[].text // empty' | paste -sd "\n\n" -)
+else
+  context=""
+fi
+
+# Build prompt
+if [[ -n "$context" ]]; then
+  prompt="You are a helpful assistant. Use the following archived information to answer the question.
+
+Archived information:
+$context
+
+Question: $question
+Answer:"
+else
+  prompt="Answer the following question concisely:
+
+$question"
+fi
+
+# Call sub‑agent LLM
+subagent_ask_helper "$prompt"

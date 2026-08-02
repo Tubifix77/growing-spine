@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# does: Answer a question using archived notes + live Wikipedia summary, then archive the answer.
+# Usage: fetch_plan_answer "<question>"
+# Requires: keyword-archive-search, keyword-archive-store, web-fetch, subagent_ask_helper
+
+set -euo pipefail
+
+question="${1:-}"
+if [[ -z "$question" ]]; then
+  echo "Usage: fetch_plan_answer \"<question>\"" >&2
+  exit 1
+fi
+
+# 1️⃣  Search the keyword‑archive for existing notes about the question
+archive_output=$(keyword-archive-search "$question" 3 2>/dev/null || true)
+
+# 2️⃣  If the archive gave us nothing, fetch a fresh Wikipedia summary
+if [[ -z "$archive_output" ]]; then
+  # Encode the question for a URL‑safe Wikipedia title
+  encoded=$(python -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1]))" "$question")
+  wiki_url="https://en.wikipedia.org/api/rest_v1/page/summary/${encoded}"
+  web_content=$(web-fetch "$wiki_url" 2>/dev/null || true)
+
+  # If the Wikipedia API returns an error page, fall back to a generic web‐search summary
+  if [[ -z "$web_content" ]]; then
+    # Simple DuckDuckGo lite search as a last resort (returns HTML; we keep it raw)
+    search_url="https://duckduckgo.com/html/?q=$(python -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1]))" "$question")"
+    web_content=$(web-fetch "$search_url" 2>/dev/null || true)
+  fi
+else
+  web_content=""
+fi
+
+# 3️⃣  Build the LLM prompt: include any archive notes + the live fetch (if any)
+prompt="Context:
+$archive_output
+$web_content
+
+Question: $question
+
+Provide a concise, factual answer (no extra explanation)."
+# Send the prompt to the LLM via the sub‑agent helper
+answer=$(echo "$prompt" | subagent_ask_helper)
+
+# 4️⃣  Archive the answer for future reuse under a deterministic keyword
+keyword="answer:$(echo "$question" | tr '[:upper:]' '[:lower:]' | tr -d '[:punct:]' | tr ' ' '-')"
+keyword-archive-store "$keyword" "$answer"
+
+# 5️⃣  Output the answer to the caller
+echo "$answer"

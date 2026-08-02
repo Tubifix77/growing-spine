@@ -1,0 +1,54 @@
+#!/usr/bin/env python3
+# tool: catchup_research
+# call: catchup_research <news_url>
+# does: Takes a news URL, fetches the article, runs knowledge_gap_filler on it,
+#       archives the summary, and prints the generated plan ID and overview.
+
+import sys, subprocess, json, shlex
+from pathlib import Path
+
+def run_cmd(cmd, input_data=None):
+    """Run a shell command, optionally feeding stdin, and capture stdout."""
+    result = subprocess.run(cmd, input=input_data, capture_output=True, text=True, shell=True)
+    if result.returncode != 0:
+        sys.stderr.write(f"Command failed: {cmd}\\n")
+        sys.stderr.write(result.stderr)
+        sys.exit(1)
+    return result.stdout.strip()
+
+def main():
+    if len(sys.argv) != 2:
+        sys.stderr.write("Usage: catchup_research <news_url>\\n")
+        sys.exit(1)
+
+    url = sys.argv[1]
+
+    # 1) Fetch article text (web-fetch prints the raw body)
+    article_text = run_cmd(f"web-fetch {shlex.quote(url)}")
+    if not article_text:
+        sys.stderr.write("Failed to fetch article or empty body.\\n")
+        sys.exit(1)
+
+    # 2) Build a minimal JSON wake‑item for knowledge_gap_filler
+    wake_item = {
+        "title": url,
+        "content": article_text,
+        "source": "catchup_research",
+    }
+    wake_json = json.dumps(wake_item)
+
+    # 3) Pipe the JSON into knowledge_gap_filler
+    # knowledge_gap_filler expects a JSON line on stdin and prints a summary + plan ID.
+    # We'll capture its output.
+    filler_output = run_cmd("knowledge_gap_filler", input_data=wake_json)
+
+    # 4) Archive the filler output for future recall
+    # Use keyword-archive-store under keyword "catchup-research"
+    archive_cmd = f'keyword-archive-store "catchup-research" "{shlex.quote(filler_output)}"'
+    run_cmd(archive_cmd)
+
+    # 5) Print the filler output (includes overview & plan ID)
+    print(filler_output)
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+# tool: ProactiveKnowledgeUpdater
+# call: ProactiveKnowledgeUpdater --date <date>
+# does: Runs wake_orient_digest, fills knowledge gaps for each fresh item, merges results,
+#       stores a daily knowledge markdown file, and improves it via SelfImprovingDocsUpdater.
+
+set -euo pipefail
+
+# Helper: print usage
+usage() {
+  echo "Usage: $0 --date <YYYY-MM-DD>"
+  exit 1
+}
+
+# Parse arguments
+if [[ $# -ne 2 ]] || [[ $1 != "--date" ]]; then
+  usage
+fi
+DATE="$2"
+
+# Directories (ensure they exist)
+KNOWLEDGE_DIR="/workspace/knowledge"
+mkdir -p "$KNOWLEDGE_DIR"
+
+# Temporary files
+DIGEST_JSON=$(mktemp)
+NOTES_JSON=$(mktemp)
+MERGED_MD=$(mktemp)
+
+# ------------------------------------------------------------------
+# 1. Run wake_orient_digest for the requested date.
+#    The tool writes JSON lines (one per fresh item) to stdout.
+#    We capture them for further processing.
+# ------------------------------------------------------------------
+wake_orient_digest --date "$DATE" > "$DIGEST_JSON"
+
+# If no fresh items, exit gracefully.
+if [[ ! -s "$DIGEST_JSON" ]]; then
+  echo "No fresh items for $DATE – nothing to update."
+  rm -f "$DIGEST_JSON" "$NOTES_JSON" "$MERGED_MD"
+  exit 0
+fi
+
+# ------------------------------------------------------------------
+# 2. For each fresh item, run knowledge_gap_filler.
+#    The filler reads a JSON object on stdin and, if needed,
+#    produces a note JSON object on stdout.
+#    We collect all notes (whether new or existing) into NOTES_JSON.
+# ------------------------------------------------------------------
+# Initialise an empty JSON array
+echo "[]" > "$NOTES_JSON"
+
+while IFS= read -r line; do
+  # Pass the item through knowledge_gap_filler; it will output a note JSON.
+  note=$(echo "$line" | knowledge_gap_filler)
+  # Append the note to the array
+  jq ". + [$note]" "$NOTES_JSON" > "${NOTES_JSON}.tmp"
+  mv "${NOTES_JSON}.tmp" "$NOTES_JSON"
+done < "$DIGEST_JSON"
+
+# ------------------------------------------------------------------
+# 3. Build a markdown document that contains:
+#      • The raw digest (as a nicely formatted list)
+#      • The generated notes (as bullet points with titles)
+# ------------------------------------------------------------------
+{
+  echo "# Daily Knowledge Digest – $DATE"
+  echo ""
+  echo "## Fresh Items"
+  echo ""
+  # Transform the digest JSON lines into a markdown list.
+  jq -r '.title // "Untitled" | "- " + .' "$DIGEST_JSON"
+  echo ""
+  echo "## Knowledge Gaps Filled"
+  echo ""
+  # Extract titles from notes and list them.
+  jq -r '.title // "Untitled" | "- " + .' "$NOTES_JSON"
+} > "$MERGED_MD"
+
+# ------------------------------------------------------------------
+# 4. Improve the markdown via SelfImprovingDocsUpdater.
+#    This tool expects a path to a markdown file and writes an
+#    improved version back to the same path (in‑place).
+# ------------------------------------------------------------------
+SelfImprovingDocsUpdater "$MERGED_MD"
+
+# ------------------------------------------------------------------
+# 5. Persist the final markdown and archive it.
+# ------------------------------------------------------------------
+FINAL_MD="${KNOWLEDGE_DIR}/knowledge-${DATE}.md"
+mv "$MERGED_MD" "$FINAL_MD"
+
+# Archive the markdown content under a date‑based keyword.
+# The keyword‑archive‑store expects a JSON line with keys: keyword, content.
+# We store the whole markdown as the “content” field.
+content=$(cat "$FINAL_MD")
+printf '{"keyword":"knowledge-%s","content":%s}\n' "$DATE" "$(printf '%s' "$content" | jq -Rs .)" | keyword-archive-store
+
+echo "ProactiveKnowledgeUpdater completed – markdown saved to $FINAL_MD"

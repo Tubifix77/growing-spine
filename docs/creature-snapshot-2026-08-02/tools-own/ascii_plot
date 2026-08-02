@@ -1,0 +1,66 @@
+tool: ascii_plot
+call: ascii_plot <csv_path>
+does: Generate an ASCII bar chart from a two‑column CSV (label,value). Scales bars to a max width of 50 characters.
+
+# ---- implementation ----
+set -euo pipefail
+
+# Expect a single argument: path to a CSV file
+csv_path="${1:-}"
+if [[ -z "$csv_path" ]]; then
+  echo "Usage: ascii_plot <csv_path>"
+  exit 1
+fi
+
+if [[ ! -f "$csv_path" ]]; then
+  echo "File not found: $csv_path"
+  exit 1
+fi
+
+# Read the CSV, ignore empty lines and comment lines starting with #
+# Expect format: label,value
+declare -a labels
+declare -a values
+max_val=0
+
+while IFS=',' read -r label value; do
+  # Trim whitespace
+  label="$(echo "$label" | xargs)"
+  value="$(echo "$value" | xargs)"
+  # Skip blank or comment lines
+  [[ -z "$label" || "$label" == \#* ]] && continue
+  # Ensure numeric value
+  if ! [[ "$value" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+    echo "Invalid numeric value on line: $label,$value"
+    exit 1
+  fi
+  labels+=("$label")
+  values+=("$value")
+  # Track max for scaling
+  (( $(echo "$value > $max_val" | bc -l) )) && max_val=$value
+done < "$csv_path"
+
+if (( ${#labels[@]} == 0 )); then
+  echo "No data to plot."
+  exit 0
+fi
+
+# Determine scaling factor (max bar width = 50)
+scale=$(awk -v max="$max_val" 'BEGIN{printf "%.4f", (max>0?50/max:1)}')
+# If max_val is zero, keep scale = 0 to avoid division by zero
+[[ "$scale" == "nan" ]] && scale=0
+
+# Print header
+printf "\nASCII Bar Chart (%s)\n\n" "$(basename "$csv_path")"
+
+# Output each line
+for i in "${!labels[@]}"; do
+  lbl="${labels[i]}"
+  val="${values[i]}"
+  # Compute bar length (rounded)
+  bar_len=$(awk -v v="$val" -v s="$scale" 'BEGIN{printf "%d", v*s + 0.5}')
+  bar=$(printf "%0.s█" $(seq 1 $bar_len))
+  printf "%-20s %6s |%s\n" "$lbl" "$val" "$bar"
+done
+
+printf "\n"

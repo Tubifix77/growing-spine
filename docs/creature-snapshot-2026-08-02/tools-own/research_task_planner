@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+# does: Generate a persistent research plan for each input topic,
+#       run knowledge_gap_filler on every step, and output a JSON
+#       summary of plan IDs and any gaps filled.
+# Usage: research_task_planner [topics_file]
+#   - If topics_file is omitted, reads topics from STDIN (one per line).
+
+set -euo pipefail
+
+# Helper: read topics (from file or stdin)
+if [[ $# -ge 1 ]]; then
+    topics_file="$1"
+    mapfile -t topics < "$topics_file"
+else
+    mapfile -t topics
+fi
+
+# Ensure required tools exist
+for tool in plan_from_question step-planner-tracker knowledge_gap_filler; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+        echo "{\"error\":\"required tool $tool not found\"}" >&2
+        exit 1
+    fi
+done
+
+# Result accumulator
+declare -A result
+
+for topic in "${topics[@]}"; do
+    # Trim whitespace
+    topic=$(echo "$topic" | xargs)
+
+    # Skip empty lines
+    [[ -z "$topic" ]] && continue
+
+    # 1️⃣ Create a persistent plan for the topic
+    plan_id=$(plan_from_question "$topic")
+    if [[ -z "$plan_id" ]]; then
+        echo "{\"error\":\"plan_from_question failed for topic: $topic\"}" >&2
+        continue
+    fi
+
+    # 2️⃣ Pull all steps for this plan
+    steps_json=$(step-planner-tracker get-steps "$plan_id")
+    # steps_json is a JSON array of step objects
+    # We'll iterate over the array using jq
+    step_count=$(echo "$steps_json" | jq 'length')
+    filled_steps=()
+    for ((i=0; i<step_count; i++)); do
+        step=$(echo "$steps_json" | jq ".[$i]")
+        # Feed the step JSON to knowledge_gap_filler (expects JSON on stdin)
+        filler_out=$(echo "$step" | knowledge_gap_filler)
+        # knowledge_gap_filler returns JSON; check if a gap was filled
+        filled=$(echo "$filler_out" | jq -r '.filled // false')
+        if [[ "$filled" == "true" ]]; then
+            filled_steps+=("$i")
+        fi
+    done
+
+    # Store summary for this topic
+    result["$topic"]=$(jq -n \
+        --arg pid "$plan_id" \
+        --argjson fills "$(printf '%s\n' "${filled_steps[@]}" | jq -R 'split("\n") | map(select(. != "")) | map(tonumber)')" \
+        '{topic:$ARGV[0], plan_id:$pid, filled_steps:$fills}')
+done
+
+# Output final JSON array
+printf '['
+first=yes
+for key in "${!result[@]}"; do
+    if [[ $first == yes ]]; then
+        first=no
+    else
+        printf ','
+    fi
+    printf '%s' "${result[$key]}"
+done
+printf ']\n'

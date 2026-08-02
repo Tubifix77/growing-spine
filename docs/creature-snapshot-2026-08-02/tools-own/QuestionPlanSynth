@@ -1,0 +1,76 @@
+#!/usr/bin/env python3
+# tool: QuestionPlanSynth
+# call: QuestionPlanSynth "<question>"
+# does: Generate a detailed plan for a question, archive the plan, then synthesize a concise answer.
+
+import os
+import sys
+import json
+import subprocess
+import shlex
+import hashlib
+
+def run_cmd(cmd):
+    """Run a shell command, return (stdout, stderr, returncode)."""
+    result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+    return result.stdout.strip(), result.stderr.strip(), result.returncode
+
+def slugify(text):
+    """Create a short slug from the question for archiving."""
+    h = hashlib.sha1(text.encode()).hexdigest()[:8]
+    return f"qplan-{h}"
+
+def main():
+    if len(sys.argv) < 2:
+        print("Usage: QuestionPlanSynth \"<question>\"")
+        sys.exit(1)
+
+    question = sys.argv[1]
+
+    # 1️⃣ Create a plan
+    plan_cmd = f'plan_from_question {shlex.quote(question)}'
+    plan_out, plan_err, plan_rc = run_cmd(plan_cmd)
+
+    if plan_rc != 0:
+        print(f"ERROR: plan_from_question failed ({plan_rc})\n{plan_err}", file=sys.stderr)
+        sys.exit(1)
+
+    # plan_from_question usually prints the plan ID
+    plan_id = plan_out.strip()
+    print(f"[Info] Created plan ID: {plan_id}")
+
+    # 2️⃣ Load the plan JSON from planner storage
+    # The planner stores plans under /mind/state/planner/<plan_id>.json
+    plan_path = f"/mind/state/planner/{plan_id}.json"
+    if not os.path.isfile(plan_path):
+        print(f"ERROR: Plan file not found at {plan_path}", file=sys.stderr)
+        sys.exit(1)
+
+    with open(plan_path, "r") as f:
+        plan_json = json.load(f)
+
+    # 3️⃣ Archive the plan
+    slug = slugify(question)
+    archive_cmd = (
+        f'keyword-archive-store "{slug}" '
+        f'--tags "question-plan" '
+        f'--json \'{json.dumps(plan_json)}\''
+    )
+    arc_out, arc_err, arc_rc = run_cmd(archive_cmd)
+    if arc_rc != 0:
+        print(f"ERROR: keyword-archive-store failed ({arc_rc})\n{arc_err}", file=sys.stderr)
+        sys.exit(1)
+    print(f"[Info] Archived plan under keyword '{slug}'")
+
+    # 4️⃣ Synthesize a concise answer
+    answer_cmd = f'deep_answer_synth {shlex.quote(question)}'
+    ans_out, ans_err, ans_rc = run_cmd(answer_cmd)
+    if ans_rc != 0:
+        print(f"ERROR: deep_answer_synth failed ({ans_rc})\n{ans_err}", file=sys.stderr)
+        sys.exit(1)
+
+    # 5️⃣ Output the concise answer
+    print(ans_out)
+
+if __name__ == "__main__":
+    main()

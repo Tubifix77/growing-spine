@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# does: Create a persistent research plan from a query by searching the keyword‑archive,
+#       filling knowledge gaps when needed, and storing the plan via step‑planner‑tracker.
+
+set -euo pipefail
+
+# ---------------------------------------------------------------------------
+# Helper functions
+log()   { echo "[$(date +%H:%M:%S)] $*" >&2; }
+die()   { log "ERROR: $*"; exit 1; }
+
+# ---------------------------------------------------------------------------
+# Argument validation
+if [[ $# -ne 1 ]]; then
+  die "Usage: $0 \"<research query>\""
+fi
+QUERY="$1"
+log "🔎 Starting task_progress_from_research for query: $QUERY"
+
+# ---------------------------------------------------------------------------
+# 1. Search existing archive notes
+log "Searching keyword‑archive for existing notes..."
+SEARCH_RESULT=$(keyword-archive-search "$QUERY" 2>/dev/null || true)
+
+if [[ -n "$SEARCH_RESULT" ]]; then
+  log "✅ Found existing archive entries – will use them for context."
+else
+  log "📚 No archive entries found – invoking knowledge_gap_filler."
+  GAP_OUTPUT=$(printf '{"query":"%s"}\n' "$QUERY" | knowledge_gap_filler 2>/dev/null || true)
+  if [[ -z "$GAP_OUTPUT" ]]; then
+    die "knowledge_gap_filler failed to produce a result."
+  fi
+  log "✅ Knowledge gap filled and archived."
+fi
+
+# ---------------------------------------------------------------------------
+# 2. Create a research plan
+log "Generating a persistent research plan..."
+PLAN_ID=$(plan_from_question "$QUERY" 2>/dev/null || true)
+if [[ -z "$PLAN_ID" ]]; then
+  die "Failed to generate a plan via plan_from_question."
+fi
+
+log "🗂️ Research plan created with ID: $PLAN_ID"
+echo "$PLAN_ID"

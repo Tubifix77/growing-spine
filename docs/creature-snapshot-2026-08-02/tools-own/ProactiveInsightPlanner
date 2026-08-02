@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# does: Compose knowledge_gap_filler → plan_from_question → step-planner-tracker → ProactiveAlertSynthesizer.
+# Usage: ProactiveInsightPlanner "<topic>"
+# Output: Plan ID and a brief alert summary.
+
+set -euo pipefail
+
+# ----- Helper: ensure a clean argument -----
+TOPIC="${1:-}"
+if [[ -z "$TOPIC" ]]; then
+    echo "Error: No topic supplied." >&2
+    exit 1
+fi
+
+# ----- 1. Generate a research question from the topic -----
+# Use plan_from_question to turn a free‑form topic into a concrete question.
+# The tool returns a question string; we capture it.
+QUESTION=$(plan_from_question "Investigate $TOPIC" | tail -n1)
+
+# ----- 2. Run knowledge_gap_filler on the question -----
+# knowledge_gap_filler expects a JSON item on stdin.  We build the minimal JSON.
+JSON_ITEM=$(jq -n --arg q "$QUESTION" '{"title": $q, "url": "", "tags": []}')
+# The filler returns either "found" or "filled" plus optional note ID.
+FILL_RESULT=$(echo "$JSON_ITEM" | knowledge_gap_filler)
+
+# Capture any newly created note ID (if a gap was filled)
+NOTE_ID=$(echo "$FILL_RESULT" | grep -Eo 'note_id:[0-9]+' | cut -d: -f2 || true)
+
+# ----- 3. Create a persistent plan for the question -----
+# The plan will be stored via step-planner-tracker and its ID captured.
+PLAN_ID=$(plan_from_question "$QUESTION" | step-planner-tracker add --title "Research: $QUESTION")
+# The `add` command prints the new plan ID on the last line.
+
+# ----- 4. Schedule a proactive alert -----
+# ProactiveAlertSynthesizer expects a JSON with the plan ID and a short summary.
+ALERT_JSON=$(jq -n \
+    --arg pid "$PLAN_ID" \
+    --arg summ "$QUESTION" \
+    '{"plan_id": $pid, "summary": $summ}')
+# Run the synthesizer (it will enqueue an alert in the planner)
+ALERT_OUTPUT=$(echo "$ALERT_JSON" | python /mind/tools/own/ProactiveAlertSynthesizer.py)
+
+# ----- 5. Persist key artefacts in memory for future cycles -----
+# Store the relationship so the cousin can recall later.
+if [[ -n "$NOTE_ID" ]]; then
+    remember "insight:${TOPIC}" "plan_id=${PLAN_ID};note_id=${NOTE_ID}"
+else
+    remember "insight:${TOPIC}" "plan_id=${PLAN_ID}"
+fi
+
+# ----- 6. Report back to the caller -----
+echo "Created Plan ID: $PLAN_ID"
+echo "Alert: $ALERT_OUTPUT"

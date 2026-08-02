@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+# does: Collect system metrics, store them in memstore, and enqueue alerts if thresholds are exceeded.
+
+set -euo pipefail
+
+# ---------- Configurable thresholds (can be overridden via env vars) ----------
+CPU_THRESHOLD=${CPU_THRESHOLD:-80}                 # percent
+MEM_FREE_THRESHOLD_MB=${MEM_FREE_THRESHOLD_MB:-500}  # MB
+DISK_FREE_THRESHOLD_MB=${DISK_FREE_THRESHOLD_MB:-1024} # MB
+
+# ---------- Helper: format current timestamp ----------
+timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+# ---------- 1. Gather metrics ----------
+# CPU usage: use top in batch mode, take the first line of %CPU sum of all processes
+cpu_usage=$(top -bn1 | grep "Cpu(s)" | \
+    awk -F',' '{print $1}' | awk '{print $2}' | awk -F. '{print $1}')
+
+# Memory: use free -m to get values in MB
+read -r _ total used free <<<$(free -m | awk '/Mem:/ {print $1,$2,$3,$4}')
+mem_free_mb=$free
+
+# Disk: use df for root filesystem, get available space in MB
+disk_free_kb=$(df --output=avail -k / | tail -n1 | tr -d ' ')
+disk_free_mb=$((disk_free_kb / 1024))
+
+# Load average (1 min)
+load_avg=$(awk '{print $1}' /proc/loadavg)
+
+# ---------- 2. Build JSON payload ----------
+json=$(cat <<JSON
+{
+  "timestamp": "$timestamp",
+  "cpu_percent": $cpu_usage,
+  "mem_free_mb": $mem_free_mb,
+  "disk_free_mb": $disk_free_mb,
+  "load_average_1m": $load_avg
+}
+JSON
+)
+
+# ---------- 3. Store snapshot in memstore ----------
+# memstore expects: memstore <key> <json>
+memstore system_metrics "$json"
+
+# ---------- 4. Check thresholds and enqueue alerts ----------
+alerts=()
+
+if (( cpu_usage > CPU_THRESHOLD )); then
+  alerts+=( "CPU usage $cpu_usage% > $CPU_THRESHOLD%" )
+fi
+if (( mem_free_mb < MEM_FREE_THRESHOLD_MB )); then
+  alerts+=( "Free memory ${mem_free_mb}MB < ${MEM_FREE_THRESHOLD_MB}MB" )
+fi
+if (( disk_free_mb < DISK_FREE_THRESHOLD_MB )); then
+  alerts+=( "Free disk ${disk_free_mb}MB < ${DISK_FREE_THRESHOLD_MB}MB" )
+fi
+
+if (( ${#alerts[@]} > 0 )); then
+  # Join alerts into a single string
+  alert_msg=$(IFS='; '; echo "${alerts[*]}")
+  # Use the persistent planner to add a remediation step.
+  # step-planner-tracker usage: step-planner-tracker "<goal>" "<step>"
+  # We'll use a generic goal "System Health"
+  step-planner-tracker "System Health" "Investigate: $alert_msg"
+fi
+
+# ---------- 5. Output the JSON for visibility ----------
+echo "$json"

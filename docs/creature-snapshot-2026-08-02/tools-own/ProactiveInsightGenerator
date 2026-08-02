@@ -1,0 +1,115 @@
+#!/usr/bin/env bash
+# tool: ProactiveInsightGenerator
+# call: ProactiveInsightGenerator --feed <source>
+# does: Scans fresh items from a feed, detects knowledge gaps, proposes corrective actions,
+#       and enqueues them as high‑priority tasks in step‑planner‑tracker.
+
+set -eu
+
+# Simple logger
+log() {
+    echo "[ProactiveInsightGenerator] $*" >&2
+}
+
+# Help message
+usage() {
+    cat <<USAGE
+Usage: $0 --feed <source>
+
+<source> can be:
+  * "wake"                 – use the built‑in wake_catchup_fetcher (Hacker News)
+  * any URL pointing to an RSS/JSON feed
+USAGE
+    exit 1
+}
+
+# Parse arguments
+if [[ $# -lt 2 ]]; then
+    usage
+fi
+
+if [[ "$1" != "--feed" ]]; then
+    usage
+fi
+
+FEED_SOURCE="$2"
+
+# -------------------------------------------------------------------------
+# 1️⃣ Fetch fresh items
+# -------------------------------------------------------------------------
+fetch_items() {
+    local src="$1"
+    if [[ "$src" == "wake" ]]; then
+        # Use the built‑in fetcher that already tracks seen IDs
+        wake_catchup_fetcher.real
+    else
+        # Generic fetch – assume JSON array of items with at least title/url
+        fetch_url "$src"
+    fi
+}
+
+log "Fetching fresh items from source: $FEED_SOURCE"
+ITEMS_JSON="$(fetch_items "$FEED_SOURCE")"
+# Ensure we have a JSON array; if empty, exit quietly
+if [[ -z "$ITEMS_JSON" ]] || [[ "$(echo "$ITEMS_JSON" | jq 'type')" != "\"array\"" ]]; then
+    log "No items returned or not a JSON array – exiting."
+    exit 0
+fi
+
+# -------------------------------------------------------------------------
+# 2️⃣ Process each item
+# -------------------------------------------------------------------------
+processed=0
+added=0
+
+# Iterate over each JSON object in the array
+echo "$ITEMS_JSON" | jq -c '.[]' | while read -r item; do
+    processed=$((processed + 1))
+    title="$(echo "$item" | jq -r '.title')"
+    url="$(echo "$item" | jq -r '.url')"
+    log "Processing item #$processed – \"$title\""
+
+    # -----------------------------------------------------------------
+    # 2a️⃣ Detect knowledge gap
+    # -----------------------------------------------------------------
+    gap_output="$(echo "$item" | knowledge_gap_filler || true)"
+    # knowledge_gap_filler prints "GAP" if a gap is found, otherwise empty
+    if [[ -z "$gap_output" ]]; then
+        log "No knowledge gap for \"$title\" – skipping."
+        continue
+    fi
+
+    log "Knowledge gap detected for \"$title\"."
+
+    # -----------------------------------------------------------------
+    # 2b️⃣ Generate corrective action via sub‑agent
+    # -----------------------------------------------------------------
+    # Prepare a prompt for the sub‑agent: ask it to propose a concise task
+    # that would close the gap (e.g., research plan, summary, or fetch).
+    prompt="You are an autonomous research assistant. Based on the title and URL below, propose a single concrete task that would fill the missing knowledge.\nTitle: $title\nURL: $url\nTask:"
+    task="$(printf '%s' "$prompt" | subagent_ask_helper)"
+
+    # Guard against empty responses
+    if [[ -z "$task" ]]; then
+        log "Sub‑agent returned empty task – skipping."
+        continue
+    fi
+
+    # -----------------------------------------------------------------
+    # 2c️⃣ Enqueue the task as a high‑priority step‑planner entry
+    # -----------------------------------------------------------------
+    # Use a consistent goal label so related tasks can be inspected together.
+    GOAL="Proactive Insight – $(date +%Y-%m-%d)"
+    # Step‑planner expects: add <goal> <step1;step2;...>
+    # Here we add a single step containing the generated task.
+    step_planner_output="$(step-planner-tracker add "$GOAL" "$task" 2>/dev/null || true)"
+    if [[ -n "$step_planner_output" ]]; then
+        added=$((added + 1))
+        log "Enqueued task: $task"
+    else
+        log "Failed to add task to planner – maybe duplicate?"
+    fi
+done
+
+log "Finished processing $processed items – $added new tasks added to planner."
+exit 0

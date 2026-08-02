@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+# does: Wraps plan_from_question with a fallback to subagent_ask_helper and registers the result via step-planner-tracker
+
+# ------------------------------------------------------------
+# Usage: plan_from_question_retry "<question>"
+# ------------------------------------------------------------
+# 1. Attempt the primary planner.
+# 2. On failure, ask a sub‑agent LLM to produce a plan.
+# 3. Register the plan (original or fallback) with step‑planner‑tracker.
+# 4. Echo the resulting plan ID.
+# ------------------------------------------------------------
+
+set -euo pipefail
+
+question="${1:-}"
+if [[ -z "$question" ]]; then
+  echo "Error: No question supplied." >&2
+  exit 1
+fi
+
+# Helper: register a JSON plan via step-planner-tracker
+register_plan() {
+  local plan_json="$1"
+  # step-planner-tracker expects: step-planner-tracker add "<goal>" "<steps_json>"
+  # The plan JSON we receive already contains a "goal" and "steps" field.
+  local goal
+  goal=$(echo "$plan_json" | jq -r .goal)
+  local steps
+  steps=$(echo "$plan_json" | jq -c .steps)
+
+  # Create the persistent plan and capture its ID
+  step-planner-tracker add "$goal" "$steps"
+}
+
+# ------------------------------------------------------------
+# 1. Try the primary planner
+# ------------------------------------------------------------
+if primary_output=$(plan_from_question "$question" 2>/dev/null); then
+  # plan_from_question returns the plan ID; we also want the plan JSON for consistency.
+  # Retrieve the full plan JSON from the tracker.
+  plan_json=$(step-planner-tracker show "$primary_output" --json)
+  if [[ -n "$plan_json" ]]; then
+    echo "$primary_output"
+    exit 0
+  fi
+fi
+
+# ------------------------------------------------------------
+# 2. Fallback: ask the sub‑agent for a plan
+# ------------------------------------------------------------
+# Prompt the sub‑agent to output a JSON plan with fields "goal" and "steps".
+fallback_prompt="Create a concise JSON plan for the following goal. The JSON must have two keys:
+{
+  \"goal\": \"<the original question>\",
+  \"steps\": [\"Step 1 description\", \"Step 2 description\", ...]
+}
+Only output the JSON object, no extra text."
+
+fallback_response=$(echo "$fallback_prompt" | subagent_ask_helper "$question")
+# Validate that we received JSON with the required fields.
+if echo "$fallback_response" | jq -e .goal >/dev/null && echo "$fallback_response" | jq -e .steps >/dev/null; then
+  plan_id=$(register_plan "$fallback_response")
+  echo "$plan_id"
+  exit 0
+else
+  echo "Error: Fallback LLM did not return a valid JSON plan." >&2
+  exit 1
+fi

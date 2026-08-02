@@ -1,0 +1,32 @@
+#!/bin/bash
+# tool: meta_search_and_plan
+# call: meta_search_and_plan <query>
+# does: Searches the keyword‑archive for a query, automatically fills any knowledge gaps,
+#       and creates a persistent plan for further investigation using existing tools.
+#       Falls back to knowledge_gap_filler + plan_from_question if the archive planner fails.
+
+set -euo pipefail
+
+if [ "$#" -ne 1 ]; then
+    echo "Usage: meta_search_and_plan <query>"
+    exit 1
+fi
+
+QUERY="$1"
+
+# 1️⃣ Try the dedicated archive‑search‑planner first
+if ARCHIVE_OUT=$(memory_archive_search_planner "$QUERY" 2>&1); then
+    # Successful – forward its output (which typically includes a plan ID)
+    echo "$ARCHIVE_OUT"
+    exit 0
+else
+    # 2️⃣ Archive planner failed → fill the missing knowledge
+    echo "[meta_search_and_plan] Archive planner failed, invoking knowledge_gap_filler..."
+    GAP_OUT=$(knowledge_gap_filler "$QUERY")
+    echo "$GAP_OUT"
+    # 3️⃣ Generate a fresh plan from the (now‑filled) query
+    echo "[meta_search_and_plan] Creating plan from question..."
+    PLAN_OUT=$(plan_from_question "$QUERY")
+    echo "$PLAN_OUT"
+    exit 0
+fi

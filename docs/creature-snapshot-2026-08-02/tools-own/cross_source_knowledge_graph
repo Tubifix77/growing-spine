@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# does: Build a simple JSON knowledge‑graph from a list of URLs by extracting key concepts via the LLM.
+# Usage: cross_source_knowledge_graph <output_file.json> <url1> [<url2> ...]
+set -euo pipefail
+
+if [[ $# -lt 2 ]]; then
+  echo "Usage: $0 <output_file.json> <url1> [<url2> ...]" >&2
+  exit 1
+fi
+
+output=$1
+shift   # now $@ are the URLs
+
+declare -A nodes   # associative array for uniqueness
+
+# Helper: trim whitespace
+trim() {
+  local var="$*"
+  # remove leading/trailing whitespace
+  var="${var#"${var%%[![:space:]]*}"}"
+  var="${var%"${var##*[![:space:]]}"}"
+  echo -n "$var"
+}
+
+# Process each URL
+for url in "$@"; do
+  # Fetch the page (fallbacks handled by web-fetch)
+  content=$(web-fetch "$url")
+  # Ask LLM to list main concepts – we keep the prompt short for free‑tier usage
+  prompt="List the main concepts or entities mentioned in the following text, separated by commas. Only output the list."
+  concepts=$(echo "$content" | subagent_ask_helper "$prompt")
+  # Split on commas and add to the set
+  IFS=',' read -ra parts <<< "$concepts"
+  for part in "${parts[@]}"; do
+    clean=$(trim "$part")
+    if [[ -n $clean ]]; then
+      nodes["$clean"]=1
+    fi
+  done
+done
+
+# Build JSON
+{
+  echo "{"
+  echo '  "nodes": ['
+  first=1
+  for n in "${!nodes[@]}"; do
+    [[ $first -eq 0 ]] && echo ","
+    printf '    "%s"' "$(printf '%s' "$n" | sed 's/"/\\"/g')"
+    first=0
+  done
+  echo
+  echo '  ],'
+  echo '  "edges": []'
+  echo "}"
+} > "$output"
+
+echo "Graph written to $output"

@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# does: Fetch latest headlines from a news source, summarise via LLM, archive each, and write a combined digest file.
+
+# Simple argument parser
+SOURCE=""
+LIMIT=10
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --source) SOURCE="$2"; shift 2 ;;
+    --limit)  LIMIT="$2"; shift 2 ;;
+    *) echo "Unknown option: $1" >&2; exit 1 ;;
+  esac
+done
+
+if [[ -z "$SOURCE" ]]; then
+  echo "Error: --source required" >&2; exit 1
+fi
+
+# Prepare file for digest
+DATE=$(date +%F)
+DIGEST_PATH="/workspace/news_digest_${DATE}.txt"
+: > "$DIGEST_PATH"
+
+# Fetch headlines using wake_catchup_fetcher.real (supports --source & --limit)
+# The real fetcher outputs one JSON object per line: {"title":"...","url":"..."}
+FETCH_OUTPUT=$(wake_catchup_fetcher.real --source "$SOURCE" --limit "$LIMIT" 2>/dev/null)
+if [[ -z "$FETCH_OUTPUT" ]]; then
+  echo "No headlines fetched." >&2; exit 1
+fi
+
+# Process each headline
+echo "$FETCH_OUTPUT" | while IFS= read -r line; do
+  # Extract fields (use jq for safety)
+  TITLE=$(echo "$line" | jq -r .title)
+  URL=$(echo "$line" | jq -r .url)
+
+  # Summarise via subagent_ask_helper (LLM)
+  SUMMARY=$(printf "Summarize the following news headline in two sentences:\n%s\nURL: %s" "$TITLE" "$URL" \
+            | subagent_ask_helper)
+
+  # Archive the summary (keyword = source, tags include date)
+  keyword-archive-store "$SOURCE" "$SUMMARY" --tags "date:$DATE"
+
+  # Append to digest file
+  {
+    echo "Headline: $TITLE"
+    echo "URL: $URL"
+    echo "Summary: $SUMMARY"
+    echo "----"
+  } >> "$DIGEST_PATH"
+done
+
+# Inform user
+echo "News digest written to $DIGEST_PATH"

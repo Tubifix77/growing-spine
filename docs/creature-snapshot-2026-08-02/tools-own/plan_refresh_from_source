@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# tool: plan_refresh_from_source
+# call: plan_refresh_from_source <plan_id> <source_url>
+# does: Fetches <source_url>, summarizes it, fills any knowledge gaps,
+#       and appends the summary as a new step to the persistent plan <plan_id>.
+set -euo pipefail
+
+plan_id="$1"
+source_url="$2"
+
+# 1. Fetch the raw content
+content=$(fetch_url "$source_url" | head -c 20000)   # limit size for LLM prompt
+
+# 2. Summarize using subagent_ask_helper
+summary=$(echo "Summarize the following content in a single concise paragraph:" "$content" | subagent_ask_helper)
+
+# 3. Ensure any missing knowledge is filled (optional but adds depth)
+#    We feed the summary back into knowledge_gap_filler; its output is ignored
+#    – the side‑effect is that missing facts are stored in the keyword‑archive.
+knowledge_gap_filler "$summary" >/dev/null 2>&1 || true
+
+# 4. Append a new step to the existing plan
+#    step-planner-tracker add-step <plan_id> "<description>"
+step-planner-tracker add-step "$plan_id" "Review and act on new information: $summary"
+
+echo "Added new step to plan $plan_id"

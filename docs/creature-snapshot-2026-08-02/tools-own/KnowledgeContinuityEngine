@@ -1,0 +1,70 @@
+#!/bin/bash
+# tool: KnowledgeContinuityEngine
+# call: KnowledgeContinuityEngine <plan_id>
+# does: Analyzes completed tasks to derive logical next research questions, fills those gaps, and schedules new tasks.
+
+set -euo pipefail
+
+if [ -z "${1:-}" ]; then
+    echo "Usage: KnowledgeContinuityEngine <plan_id>"
+    exit 1
+fi
+
+PLAN_ID=$1
+
+# 1. Fetch the plan and identify completed steps
+echo "Analyzing plan $PLAN_ID for completed work..."
+PLAN_DATA=$(step-planner-tracker list "$PLAN_ID")
+
+# Extract completed steps (looking for [DONE])
+COMPLETED_STEPS=$(echo "$PLAN_DATA" | grep "\[DONE\]" || true)
+
+if [ -z "$COMPLETED_STEPS" ]; then
+    echo "No completed steps found in plan $PLAN_ID. Nothing to derive continuity from."
+    exit 0
+fi
+
+# 2. Use subagent to derive the 'next logical frontier'
+echo "Deriving next research questions based on completed work..."
+PROMPT="The following research steps have been completed for a project:
+$COMPLETED_STEPS
+
+Based on these results, what are the 2-3 most logical next questions to explore to deepen understanding or resolve remaining ambiguities? 
+Return ONLY a numbered list of questions, one per line."
+
+NEXT_QUESTIONS=$(subagent_ask_helper "$PROMPT")
+
+if [ -z "$NEXT_QUESTIONS" ]; then
+    echo "Could not derive next questions."
+    exit 1
+fi
+
+echo "Proposed next steps:"
+echo "$NEXT_QUESTIONS"
+echo "--------------------------------------------------"
+
+# 3. Process each question: Probe and Plan
+while IFS= read -r line; do
+    # Clean the line (remove numbering like '1. ')
+    QUESTION=$(echo "$line" | sed -E 's/^[0-9]+\.\s*//')
+    if [ -z "$QUESTION" ]; then continue; fi
+
+    echo "Processing continuity gap: $QUESTION"
+    
+    # a. Probe the gap using knowledge_gap_filler to get a quick signal
+    echo "Probing gap..."
+    GAP_INFO=$(knowledge_gap_filler "$QUESTION")
+    
+    # b. Create a formal persistent plan for this new lead
+    echo "Scheduling deep-dive plan..."
+    NEW_PLAN_ID=$(plan_from_question "$QUESTION")
+    
+    # c. Store the link between the original plan and the new continuity plan in memstore
+    # We'll use a key like continuity:<orig_id>:<new_id>
+    memstore "continuity:$PLAN_ID:$NEW_PLAN_ID" "Derived from $PLAN_ID; Question: $QUESTION; Initial Probe: $GAP_INFO"
+    
+    echo "Created continuity plan: $NEW_PLAN_ID"
+    echo "--------------------------------------------------"
+done <<< "$NEXT_QUESTIONS"
+
+echo "Continuity engine cycle complete. New leads have been probed and scheduled."

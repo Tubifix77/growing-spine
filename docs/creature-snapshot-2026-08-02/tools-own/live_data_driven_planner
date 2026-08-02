@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# tool: live_data_driven_planner
+# call: live_data_driven_planner
+# does: Intelligently turns fresh headlines into plans by triaging for relevance and checking for knowledge gaps before scheduling.
+# composition: wake_catchup_fetcher.real -> subagent_ask_helper_fallback -> knowledge_gap_filler -> plan_from_question -> step-planner-tracker
+
+set -euo pipefail
+
+echo "Fetching fresh items..."
+# Fetch headlines as JSON array
+ITEMS=$(wake_catchup_fetcher.real)
+
+if [[ -z "$ITEMS" || "$ITEMS" == "[]" ]]; then
+    echo "No new items to process."
+    exit 0
+fi
+
+# Process each item in the JSON array using jq
+# We use a loop to ensure that a failure in one item doesn't kill the whole process
+echo "$ITEMS" | jq -c '.[]' | while read -r item; do
+    TITLE=$(echo "$item" | jq -r '.title')
+    URL=$(echo "$item" | jq -r '.url')
+    
+    echo "--------------------------------------------------"
+    echo "Processing: $TITLE"
+    
+    # 1. Triage: Determine if this is high-value
+    echo "Triage: Determining if this is high-value..."
+    TRIAGE_PROMPT="Is the following news headline high-value for an autonomous AI agent's growth, technical capability, or strategic awareness? Answer ONLY 'YES' or 'NO'. Headline: $TITLE"
+    
+    # Use fallback helper for robustness
+    TRIAGE_RESULT=$(subagent_ask_helper_fallback "$TRIAGE_PROMPT" || echo "ERROR")
+    
+    if [[ "$TRIAGE_RESULT" == *"YES"* ]]; then
+        echo "Decision: HIGH VALUE. Proceeding to plan..."
+        
+        # 2. Gap Filling: Check what we don't know about this
+        echo "Analyzing knowledge gaps..."
+        # knowledge_gap_filler usually outputs the gap; we just want to ensure it's run to update archive/memory
+        knowledge_gap_filler "$TITLE" || echo "Gap filler encountered an issue, continuing anyway."
+        
+        # 3. Planning: Turn the headline/url into a concrete plan
+        echo "Generating execution plan..."
+        # We ask the planner to create a plan based on the title and URL
+        PLAN_QUERY="Create a research and action plan based on this news: $TITLE ($URL)"
+        PLAN_ID=$(plan_from_question "$PLAN_QUERY" || echo "ERROR")
+        
+        if [[ "$PLAN_ID" != "ERROR" ]]; then
+            echo "Plan created successfully. ID: $PLAN_ID"
+            # The plan_from_question already uses step-planner-tracker, 
+            # but we log the success here.
+        else
+            echo "Failed to create a plan for: $TITLE"
+        fi
+    else
+        if [[ "$TRIAGE_RESULT" == "ERROR" ]]; then
+            echo "Triage failed for this item. Skipping."
+        else
+            echo "Decision: LOW VALUE. Skipping."
+        fi
+    fi
+done
+
+echo "--------------------------------------------------"
+echo "Live data driven planning cycle complete."

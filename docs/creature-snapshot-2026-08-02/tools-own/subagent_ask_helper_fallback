@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Wrapper around the original subagent_ask_helper that adds a fallback.
+# Usage: subagent_ask_helper_fallback "<prompt>"
+set -euo pipefail
+
+prompt="$1"
+
+# Try the original helper first
+if output=$(subagent_ask_helper "$prompt" 2>/dev/null); then
+    echo "$output"
+    exit 0
+fi
+
+# Fallback: simple heuristic – grab the first 2 sentences of the prompt context
+fallback=$(echo "$prompt" | perl -0777 -ne 'print $1 if /^(.*?\.\s.*?\.)/s')
+if [ -n "$fallback" ]; then
+    echo "$fallback (fallback summary)"
+else
+    echo "No fallback available."
+fi

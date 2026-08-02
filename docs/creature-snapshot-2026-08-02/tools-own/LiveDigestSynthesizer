@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# tool: LiveDigestSynthesizer
+# call: LiveDigestSynthesizer <query>
+# does: Chains wake_catchup_fetcher (fetch) → subagent_ask_helper (LLM) → deep_answer_synth (answer) to produce a single‑sentence digest of live sources.
+
+set -euo pipefail
+
+# -------------------------------------------------------------------------
+# Usage check
+# -------------------------------------------------------------------------
+if [[ -z "${1:-}" ]]; then
+  echo "Usage: LiveDigestSynthesizer <query>"
+  exit 1
+fi
+
+QUERY="$1"
+
+# -------------------------------------------------------------------------
+# 1. Fetch fresh items from wake_catchup_fetcher
+# -------------------------------------------------------------------------
+# wake_catchup_fetcher prints a JSON array of items.
+# We capture the output to a temporary file for reuse.
+FETCH_OUTPUT="$(mktemp)"
+wake_catchup_fetcher >"$FETCH_OUTPUT"
+
+# If no new items were fetched, exit gracefully.
+if [[ ! -s "$FETCH_OUTPUT" ]] || [[ "$(jq length "$FETCH_OUTPUT")" -eq 0 ]]; then
+  echo "No fresh items to digest."
+  rm -f "$FETCH_OUTPUT"
+  exit 0
+fi
+
+# -------------------------------------------------------------------------
+# 2. Ask the LLM to summarise the fetched items in the context of the query
+# -------------------------------------------------------------------------
+# subagent_ask_helper expects a prompt on stdin and returns the LLM answer.
+# Build a prompt that includes the query and the raw fetched JSON (pretty‑printed).
+PROMPT=$(cat <<PROMPT_EOF
+You are given a short natural‑language query and a set of fresh news items (title, url, tags) in JSON format.
+Your task is to produce **one concise sentence** that answers the query using only the information present in the items.
+If the items do not contain enough information, respond with "Insufficient data".
+Query: $QUERY
+
+Items (pretty‑printed JSON):
+$(jq '.' "$FETCH_OUTPUT")
+PROMPT_EOF
+)
+
+# Run the LLM helper
+LLM_ANSWER="$(printf "%s" "$PROMPT" | subagent_ask_helper)"
+
+# -------------------------------------------------------------------------
+# 3. Generate a final answer with deep_answer_synth (fallback / refinement)
+# -------------------------------------------------------------------------
+# deep_answer_synth expects a question on stdin and returns a refined answer.
+# It also handles fallback when the LLM answer is empty.
+FINAL_ANSWER="$(printf "%s" "$LLM_ANSWER" | deep_answer_synth || true)"
+
+# If deep_answer_synth produced nothing, fall back to the raw LLM answer.
+if [[ -z "${FINAL_ANSWER// /}" ]]; then
+  FINAL_ANSWER="$LLM_ANSWER"
+fi
+
+# -------------------------------------------------------------------------
+# 4. Output the single‑sentence digest
+# -------------------------------------------------------------------------
+echo "$FINAL_ANSWER"
+
+# Clean up
+rm -f "$FETCH_OUTPUT"

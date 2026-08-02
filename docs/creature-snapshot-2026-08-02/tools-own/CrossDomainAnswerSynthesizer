@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+# tool: CrossDomainAnswerSynthesizer
+# call: CrossDomainAnswerSynthesizer <domain1> <domain2> <question...>
+# does: Answers a question by combining Wikipedia summaries of two domains,
+#       recent Hacker News items (via wake_catchup_fetcher.real),
+#       and an LLM sub‑agent (subagent_ask_helper).
+
+set -euo pipefail
+
+# ------------------------------------------------------------
+# Helper: URL‑encode a string (Python is guaranteed present)
+# ------------------------------------------------------------
+urlencode() {
+    python -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1]))" "$1"
+}
+
+# ------------------------------------------------------------
+# Helper: fetch Wikipedia summary via the REST API
+# ------------------------------------------------------------
+wiki_summary() {
+    local term="$1"
+    local encoded=$(urlencode "$term")
+    curl -s "https://en.wikipedia.org/api/rest_v1/page/summary/$encoded" \
+        | jq -r '.extract // empty'
+}
+
+# ------------------------------------------------------------
+# Argument parsing
+# ------------------------------------------------------------
+if [[ $# -lt 3 ]]; then
+    echo "Usage: $0 <domain1> <domain2> <question...>"
+    exit 1
+fi
+
+domain1=$1
+domain2=$2
+shift 2
+question="$*"
+
+# ------------------------------------------------------------
+# 1️⃣ Gather background information
+# ------------------------------------------------------------
+summary1=$(wiki_summary "$domain1")
+summary2=$(wiki_summary "$domain2")
+
+# ------------------------------------------------------------
+# 2️⃣ Pull fresh news items (Hacker News) and keep title+url
+# ------------------------------------------------------------
+wake_json=$(wake_catchup_fetcher.real)
+
+# If the fetcher fails or returns empty, guard against jq errors
+if [[ -z "$wake_json" ]]; then
+    news_items="(no recent items)"
+else
+    news_items=$(echo "$wake_json" | jq -r '.[] | "\(.title) – \(.url)"')
+fi
+
+# ------------------------------------------------------------
+# 3️⃣ Build the prompt for the LLM sub‑agent
+# ------------------------------------------------------------
+prompt=$'Background summaries:\n'
+prompt+="Domain 1 ($domain1): $summary1"$'\n\n'
+prompt+="Domain 2 ($domain2): $summary2"$'\n\n'
+prompt+="Recent news items:\n$news_items"$'\n\n'
+prompt+="Question: $question"$'\n\n'
+prompt+='Provide a concise, well‑reasoned answer that merges the information above.'
+
+# ------------------------------------------------------------
+# 4️⃣ Ask the sub‑agent and output the answer
+# ------------------------------------------------------------
+# subagent_ask_helper reads the prompt from STDIN and returns only the answer.
+answer=$(echo "$prompt" | subagent_ask_helper)
+
+echo "$answer"

@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# does: Extract <title> elements from an RSS XML feed on stdin, one per line.
+# Reads XML from stdin, prints each <title> (ignoring the first generic <title> of the channel).
+
+# Use xmllint if available, otherwise fall back to grep/sed.
+if command -v xmllint >/dev/null 2>&1; then
+    xmllint --xpath '//item/title/text()' - 2>/dev/null | while IFS= read -r line; do
+        echo "$line"
+    done
+else
+    # Simple grep/sed fallback – not perfect but works for most feeds.
+    grep -oPm1 '<title>\K[^<]+' | tail -n +2
+fi

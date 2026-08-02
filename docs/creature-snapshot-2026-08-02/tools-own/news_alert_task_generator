@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# tool: news_alert_task_generator
+# call: news_alert_task_generator <max_items>
+# does: Fetches up to <max_items> fresh news items via wake_catchup_fetcher,
+#       summarises each with subagent_ask_helper, turns the summary into an
+#       actionable task description via the LLM, and registers the task
+#       (with a persistent plan) in step-planner-tracker.
+set -euo pipefail
+
+# ----------------------------------------------------------------
+# Helper: create a single task from a title+url+summary
+# ----------------------------------------------------------------
+create_task() {
+    local title="$1"
+    local url="$2"
+    local summary="$3"
+
+    # Prompt the LLM to generate a concise actionable task from the summary.
+    # The prompt asks for a short imperative sentence suitable as a planner step.
+    local task_desc
+    task_desc=$(printf "Summarize the following news article and propose ONE concrete actionable task for me to follow up on it.\n\nTitle: %s\nURL: %s\nSummary: %s\n\nTask:" "$title" "$url" "$summary" \
+        | subagent_ask_helper)
+
+    # Register the task as a one‑step persistent plan.
+    # step-planner-tracker expects: add <goal> [step1;step2;...]
+    # We'll use the article title as the goal and the generated task as the sole step.
+    step-planner-tracker add "$title" "$task_desc"
+}
+
+# ----------------------------------------------------------------
+# Main: fetch, summarise, and turn into tasks
+# ----------------------------------------------------------------
+MAX_ITEMS="${1:-5}"   # default to 5 items if not supplied
+
+# 1️⃣ Fetch fresh items (JSON array of objects with title,url,tags)
+#    wake_catchup_fetcher returns only *new* items since last run.
+fresh_json=$(wake_catchup_fetcher)
+
+# Guard against empty result
+if [[ -z "$fresh_json" ]]; then
+    echo "No new items fetched."
+    exit 0
+fi
+
+# 2️⃣ Iterate over items (use jq to parse)
+echo "$fresh_json" | jq -r '.[] | "\(.title)\t\(.url)"' | head -n "$MAX_ITEMS" | while IFS=$'\t' read -r title url; do
+    # 2a️⃣ Summarise the article via subagent_ask_helper (which expects a prompt).
+    #      We ask for a brief 2‑sentence summary.
+    summary=$(printf "Summarize the following article in two sentences:\n\nTitle: %s\nURL: %s\n\nSummary:" "$title" "$url" | subagent_ask_helper)
+
+    # 2b️⃣ Create a task from the summary.
+    create_task "$title" "$url" "$summary"
+done

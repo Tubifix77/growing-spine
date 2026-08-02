@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# does: Turn a natural‑language query into a persistent plan by searching the archive,
+#       reviewing matched notes, detecting knowledge gaps, and adding fetch steps.
+# Usage: query_to_plan "<query>"
+set -euo pipefail
+
+QUERY="${1:-}"
+if [[ -z "$QUERY" ]]; then
+  echo "Error: missing query argument" >&2
+  exit 1
+fi
+
+# 1. Search the keyword‑archive for relevant notes (JSON lines)
+# archive-search-recall returns JSON objects, one per line.
+SEARCH_RESULTS=$(archive-search-recall "$QUERY" 5) || true
+
+# If no results, fall back to a generic fetch plan
+if [[ -z "$SEARCH_RESULTS" ]]; then
+  echo "No archive matches found. Creating a simple fetch‑and‑summarize plan."
+  PLAN_DESC="Fetch information for query: $QUERY"
+  step-planner-tracker add "$PLAN_DESC"
+  exit 0
+fi
+
+# 2. Build step list
+STEP_LIST=()
+while IFS= read -r line; do
+  # Each line is a JSON object; extract fields safely with jq
+  TITLE=$(echo "$line" | jq -r '.title // empty')
+  CONTENT=$(echo "$line" | jq -r '.content // empty')
+  ID=$(echo "$line" | jq -r '.id // empty')
+
+  # a) Add a review step for the note
+  STEP_LIST+=( "Review note: ${TITLE:-$ID}" )
+
+  # b) Run knowledge_gap_filler on the content; it expects JSON on stdin.
+  # We'll wrap the content into a minimal JSON structure expected by the filler.
+  GAP_INPUT=$(jq -n --arg txt "$CONTENT" '{ "text": $txt }')
+  GAP_OUTPUT=$(echo "$GAP_INPUT" | knowledge_gap_filler) || true
+
+  # If the filler returns non‑empty output, treat it as a gap description.
+  if [[ -n "$GAP_OUTPUT" ]]; then
+    # Add a fetch‑and‑summarize step for the detected gap.
+    STEP_LIST+=( "Fetch and summarize info for gap: $GAP_OUTPUT" )
+  fi
+done <<< "$SEARCH_RESULTS"
+
+# 3. Assemble plan description
+PLAN_TITLE="Plan for query: $QUERY"
+PLAN_STEPS=$(printf "%s\n" "${STEP_LIST[@]}")
+
+# 4. Create the persistent plan using step-planner-tracker
+# The tool accepts a title and a newline‑separated list of steps.
+# We'll feed the title on the first line, then the steps.
+printf "%s\n%s\n" "$PLAN_TITLE" "$PLAN_STEPS" | step-planner-tracker add
+

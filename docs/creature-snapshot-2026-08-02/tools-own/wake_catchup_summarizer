@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+# does: Summarise fresh items from a feed and optionally answer a question using deep_answer_synth.
+# Usage: wake_catchup_summarizer [--feed <url>] [--question "<question>"] [--max <N>]
+set -euo pipefail
+
+# ---------- parse arguments ----------
+FEED=""          # default = let wake_catchup_fetcher.real decide
+QUESTION=""      # optional
+MAX_ITEMS=3
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --feed)   FEED="$2"; shift 2 ;;
+    --question) QUESTION="$2"; shift 2 ;;
+    --max)    MAX_ITEMS="$2"; shift 2 ;;
+    *) echo "Unknown argument: $1" >&2; exit 1 ;;
+  esac
+done
+
+# ---------- fetch fresh items ----------
+if [[ -n "$FEED" ]]; then
+  # Let wake_catchup_fetcher.real accept a custom feed via env var
+  export WAKE_CATCHUP_FEED="$FEED"
+fi
+
+# The fetcher prints a JSON array; we capture it.
+FETCH_JSON=$(wake_catchup_fetcher.real)
+
+# Guard against empty fetch
+if [[ -z "$FETCH_JSON" ]]; then
+  echo "No fresh items fetched." >&2
+  exit 1
+fi
+
+# ---------- extract up to MAX_ITEMS ----------
+# Use jq (installed in the container) to pull title and url fields.
+ITEMS=$(echo "$FETCH_JSON" | jq -c ".[:$MAX_ITEMS]")
+
+# ---------- summarise each item ----------
+declare -a SUMMARIES
+INDEX=1
+echo "$ITEMS" | jq -c '.[]' | while read -r ITEM; do
+  URL=$(echo "$ITEM" | jq -r '.url')
+  TITLE=$(echo "$ITEM" | jq -r '.title')
+  echo "[wake_catchup_summarizer] Summarising $INDEX/$MAX_ITEMS: $TITLE ($URL)" >&2
+
+  # Ask the sub‑agent to summarise the article.
+  SUMMARY=$(printf "Summarise the article at %s" "$URL" | subagent_ask_helper)
+  SUMMARIES+=("$SUMMARY")
+  ((INDEX++))
+done
+
+# Concatenate summaries for later use
+JOINED_SUMMARY=$(printf "%s\n\n" "${SUMMARIES[@]}")
+
+# ---------- optional question answering ----------
+if [[ -n "$QUESTION" ]]; then
+  # deep_answer_synth expects a JSON payload with fields: question, context
+  # Build that payload and pipe to the tool.
+  PAYLOAD=$(jq -n \
+    --arg q "$QUESTION" \
+    --arg ctx "$JOINED_SUMMARY" \
+    '{question:$q, context:$ctx}')
+  echo "[wake_catchup_summarizer] Answering question via deep_answer_synth…" >&2
+  ANSWER=$(echo "$PAYLOAD" | deep_answer_synth)
+  echo "=== SUMMARY ==="
+  echo "$JOINED_SUMMARY"
+  echo "=== ANSWER ==="
+  echo "$ANSWER"
+else
+  echo "=== SUMMARY ==="
+  echo "$JOINED_SUMMARY"
+fi

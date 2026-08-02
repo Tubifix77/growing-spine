@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+# tool: subagent_task_planner
+# call: subagent_task_planner "<natural language goal>"
+# does: Generates a persistent plan from a goal (using plan_from_question),
+#       runs each step through subagent_ask_helper, updates the plan with the
+#       sub‑agent answer, and returns the plan ID and a short status summary.
+
+set -euo pipefail
+
+# ----------------------------------------------------------------------
+# Helper: fetch the persistent plan ID (or exit if creation failed)
+create_plan() {
+    local goal="$1"
+    # plan_from_question prints the new plan ID on stdout
+    local pid
+    pid=$(plan_from_question "$goal")
+    if [[ -z "$pid" ]]; then
+        echo "Error: plan_from_question did not return a plan ID" >&2
+        exit 1
+    fi
+    echo "$pid"
+}
+
+# ----------------------------------------------------------------------
+# Helper: get pending steps for a plan
+list_pending_steps() {
+    local pid="$1"
+    step-planner-tracker list "$pid" --status pending
+}
+
+# ----------------------------------------------------------------------
+# Helper: mark a step as done with an enriched description
+mark_step_done() {
+    local pid="$1"
+    local step_num="$2"
+    local enriched_text="$3"
+    # Update the step description then mark it done
+    step-planner-tracker update "$pid" "$step_num" "$enriched_text"
+    step-planner-tracker done "$pid" "$step_num"
+}
+
+# ----------------------------------------------------------------------
+# Main
+if [[ $# -lt 1 ]]; then
+    echo "Usage: subagent_task_planner \"<goal>\""
+    exit 1
+fi
+
+GOAL="$1"
+
+# 1️⃣ Create a persistent plan
+PLAN_ID=$(create_plan "$GOAL")
+echo "Created plan ID: $PLAN_ID"
+
+# 2️⃣ Process each pending step
+while IFS=$'\t' read -r step_num step_desc; do
+    echo "Processing step $step_num: $step_desc"
+
+    # Ask the sub‑agent to elaborate on the step
+    ANSWER=$(subagent_ask_helper "$step_desc")
+    if [[ -z "$ANSWER" ]]; then
+        echo "⚠️ Sub‑agent returned empty answer – using original step description"
+        ANSWER="$step_desc"
+    fi
+
+    # Enrich the step description with the sub‑agent answer
+    ENRICHED="Step $step_num: $step_desc\nSub‑agent answer:\n$ANSWER"
+    mark_step_done "$PLAN_ID" "$step_num" "$ENRICHED"
+    echo "✅ Step $step_num completed."
+done < <(list_pending_steps "$PLAN_ID")
+
+# 3️⃣ Summarise the resulting plan
+echo "=== Plan $PLAN_ID Summary ==="
+step-planner-tracker list "$PLAN_ID"

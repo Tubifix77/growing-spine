@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+# does: Generate an ordered sub‑task plan for a natural‑language goal, store it persistently, and print the steps.
+
+set -euo pipefail
+
+# ---------- Helpers ----------
+slugify() {
+    # Turn a string into a safe filename slug
+    echo "$1" | tr '[:upper:]' '[:lower:]' |
+    tr -c '[:alnum:]_' '_' |
+    sed 's/^_*//;s/_*$//' |
+    cut -c1-50
+}
+timestamp() {
+    date -u +"%Y-%m-%dT%H:%M:%SZ"
+}
+
+# ---------- Input ----------
+if [[ $# -lt 1 ]]; then
+    echo "Usage: $0 \"<goal description>\""
+    exit 1
+fi
+GOAL="$*"
+
+# ---------- Prepare plan file ----------
+PLAN_DIR="/workspace/plans"
+mkdir -p "$PLAN_DIR"
+PLAN_FILE="$PLAN_DIR/$(slugify "$GOAL").json"
+
+# If a plan already exists, just show it (useful for re‑runs)
+if [[ -f "$PLAN_FILE" ]]; then
+    echo "Existing plan found for this goal:"
+    jq -r '.steps[] | "\(.idx). \(.task) [\(.done|if . then "DONE" else "TODO" end)]"' "$PLAN_FILE"
+    exit 0
+fi
+
+# ---------- Call LLM ----------
+# Simple prompt: ask the LLM to break the goal into 3‑5 short steps, return a JSON array.
+LLM_ENDPOINT="https://api.openai.com/v1/chat/completions"
+# The API key is expected to be in the environment variable OPENAI_API_KEY.
+if [[ -z "${OPENAI_API_KEY:-}" ]]; then
+    echo "Error: OPENAI_API_KEY not set"
+    exit 1
+fi
+
+REQUEST=$(cat <<JSON
+{
+  "model": "gpt-3.5-turbo",
+  "temperature": 0.2,
+  "messages": [
+    {"role":"system","content":"You are a helpful assistant that converts a natural‑language goal into an ordered list of concise tasks. Return ONLY a JSON array of strings, e.g. [\"Step 1\", \"Step 2\"]."},
+    {"role":"user","content":"$GOAL"}
+  ]
+}
+JSON
+)
+
+LLM_RESPONSE=$(curl -sS -X POST "$LLM_ENDPOINT" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer $OPENAI_API_KEY" \
+    -d "$REQUEST")
+
+# Extract the assistant's message content (JSON array)
+STEP_ARRAY=$(echo "$LLM_RESPONSE" |
+    python -c "import sys, json, re; data=json.load(sys.stdin); \
+msg=data['choices'][0]['message']['content']; \
+print(msg.strip())")
+
+# Validate that we got a JSON array
+if ! echo "$STEP_ARRAY" | python -c "import sys, json; json.load(sys.stdin)" >/dev/null 2>&1; then
+    echo "LLM did not return a valid JSON array of steps."
+    echo "Raw response: $STEP_ARRAY"
+    exit 1
+fi
+
+# ---------- Build plan structure ----------
+STEP_COUNT=$(echo "$STEP_ARRAY" | python -c "import sys, json; arr=json.load(sys.stdin); print(len(arr))")
+if [[ $STEP_COUNT -eq 0 ]]; then
+    echo "LLM returned an empty step list."
+    exit 1
+fi
+
+PLAN_JSON=$(python - <<PY
+import json, sys, datetime
+steps = json.loads("""$STEP_ARRAY""")
+plan = {
+    "goal": "$GOAL",
+    "created": "$(timestamp)",
+    "steps": [{"idx": i+1, "task": s, "done": False} for i, s in enumerate(steps)]
+}
+print(json.dumps(plan, indent=2))
+PY
+)
+
+# Save plan
+echo "$PLAN_JSON" > "$PLAN_FILE"
+
+# ---------- Output ----------
+echo "Generated plan (saved to $PLAN_FILE):"
+echo "$PLAN_JSON" | jq -r '.steps[] | "\(.idx). \(.task) [TODO]"'

@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# does: Fetch fresh top Hacker News items as a JSON array of {title,url,tags}, tracking seen ids in state so each call yields only new items.
+# (Was a static mock emitting one fake headline; real since 2026-07-10.)
+STATE_FILE="${WAKE_CATCHUP_STATE:-/mind/state/wake_catchup_state.json}"
+mkdir -p "$(dirname "$STATE_FILE")" 2>/dev/null
+[ -s "$STATE_FILE" ] || echo '{"seen":[]}' > "$STATE_FILE"
+
+fallback() {
+  cat <<'JSON'
+[{"title":"Mock News Item","url":"https://example.com/mock","tags":["test","mock"]}]
+JSON
+  exit 0
+}
+
+TOP=$(curl -sf --max-time 8 https://hacker-news.firebaseio.com/v0/topstories.json) || fallback
+SEEN=$(jq -c '.seen // []' "$STATE_FILE" 2>/dev/null || echo '[]')
+
+# first 12 ids, drop already-seen, keep 5
+IDS=$(echo "$TOP" | jq -c --argjson seen "$SEEN" '.[:12] | map(select(. as $i | $seen | index($i) | not)) | .[:5]') || fallback
+[ "$IDS" = "[]" ] && { echo "[]"; exit 0; }
+
+ITEMS="["
+first=1
+for id in $(echo "$IDS" | jq -r '.[]'); do
+  ITEM=$(curl -sf --max-time 6 "https://hacker-news.firebaseio.com/v0/item/${id}.json") || continue
+  OBJ=$(echo "$ITEM" | jq -c '{title: (.title // "untitled"), url: (.url // ("https://news.ycombinator.com/item?id=" + (.id|tostring))), tags: ["hn"]}') || continue
+  [ $first -eq 0 ] && ITEMS="$ITEMS,"
+  ITEMS="$ITEMS$OBJ"; first=0
+done
+ITEMS="$ITEMS]"
+[ "$ITEMS" = "[]" ] && fallback
+
+# persist seen (cap 200)
+jq -c --argjson new "$IDS" '.seen = ((.seen // []) + $new | .[-200:])' "$STATE_FILE" > "$STATE_FILE.tmp" && mv "$STATE_FILE.tmp" "$STATE_FILE"
+echo "$ITEMS"

@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+# does: Execute the next pending step of a persistent plan, auto‑fill knowledge gaps,
+#       run the step via subagent_ask_helper, archive the answer, and mark the step done.
+
+set -euo pipefail
+
+# -------------------------------------------------
+# Helper functions
+# -------------------------------------------------
+log() { echo "[plan_step_executor] $*"; }
+
+# -------------------------------------------------
+# Parse arguments
+# -------------------------------------------------
+PLAN_ID="${1:-}"   # optional: explicit plan ID; if omitted, use the default (latest) plan
+MAX_RETRIES="${2:-3}"   # optional retry count for the sub‑agent call
+
+if [[ -z "$PLAN_ID" ]]; then
+  # If no plan ID provided, ask step‑planner‑tracker for the most recent plan with a pending step
+  log "No plan ID supplied – searching for a plan with a pending step."
+  # step-planner-tracker list-plans returns JSON; we extract the first pending plan ID
+  PLAN_ID=$(step-planner-tracker list-pending-plans | jq -r '.[0].plan_id')
+  if [[ -z "$PLAN_ID" || "$PLAN_ID" == "null" ]]; then
+    log "❌ No pending plans found."
+    exit 1
+  fi
+fi
+
+log "Using plan ID: $PLAN_ID"
+
+# -------------------------------------------------
+# 1️⃣ Get the next pending step description
+# -------------------------------------------------
+STEP_JSON=$(step-planner-tracker get-next-step "$PLAN_ID")
+STEP_DESC=$(echo "$STEP_JSON" | jq -r '.description')
+STEP_INDEX=$(echo "$STEP_JSON" | jq -r '.index')
+if [[ -z "$STEP_DESC" || "$STEP_DESC" == "null" ]]; then
+  log "❌ No pending step found for plan $PLAN_ID."
+  exit 1
+fi
+log "Next step #$STEP_INDEX: $STEP_DESC"
+
+# -------------------------------------------------
+# 2️⃣ Fill knowledge gaps for the step (if any)
+# -------------------------------------------------
+log "Running knowledge_gap_filler on the step description..."
+# knowledge_gap_filler prints a short summary of any fetched info; we capture it for archiving
+GAP_OUTPUT=$(knowledge_gap_filler "$STEP_DESC")
+log "Knowledge gap filler output:"
+log "$GAP_OUTPUT"
+
+# -------------------------------------------------
+# 3️⃣ Execute the step via subagent_ask_helper
+# -------------------------------------------------
+log "Executing step via subagent_ask_helper (with up to $MAX_RETRIES retries)..."
+# Use the retry wrapper already present: subagent_ask_helper (handles its own retries, but we add a simple loop)
+attempt=0
+while true; do
+  attempt=$((attempt + 1))
+  ANSWER=$(subagent_ask_helper "$STEP_DESC") && break || true
+  if (( attempt >= MAX_RETRIES )); then
+    log "❌ Sub‑agent failed after $attempt attempts."
+    exit 1
+  fi
+  log "Retry $attempt/$MAX_RETRIES..."
+  sleep 2
+done
+log "Sub‑agent answer obtained."
+
+# -------------------------------------------------
+# 4️⃣ Archive the answer (and any gap info) under the plan's keyword
+# -------------------------------------------------
+ARCHIVE_KEY="plan-$PLAN_ID-step-$STEP_INDEX"
+log "Archiving answer under keyword '$ARCHIVE_KEY'..."
+keyword-archive-store "$ARCHIVE_KEY" "$ANSWER" --tags "plan,$PLAN_ID,step,$STEP_INDEX,executed"
+
+# Also archive any gap info (optional, helpful for future recall)
+if [[ -n "$GAP_OUTPUT" ]]; then
+  keyword-archive-store "${ARCHIVE_KEY}-gap" "$GAP_OUTPUT" --tags "plan,$PLAN_ID,step,$STEP_INDEX,gap"
+fi
+
+# -------------------------------------------------
+# 5️⃣ Mark the step as completed
+# -------------------------------------------------
+log "Marking step $STEP_INDEX as DONE in the planner."
+step-planner-tracker mark-done "$PLAN_ID" "$STEP_INDEX"
+
+log "✅ Step $STEP_INDEX executed, archived, and marked complete."
+
+exit 0

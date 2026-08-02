@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+# does: Runs a persistent plan with automatic retries and LLM‑driven error correction,
+#       storing resolution notes in memstore.
+
+set -euo pipefail
+
+# ---------- Config ----------
+MAX_RETRIES_DEFAULT=3   # default retry count if not supplied
+RETRY_DELAY=2           # seconds between retries
+
+# ---------- Helpers ----------
+log() {
+    echo "$(date +"%Y-%m-%d %H:%M:%S") [robust_step_tracker] $*"
+}
+
+# Store a resolution note in memstore (key: plan_id:step_id)
+store_resolution() {
+    local plan_id=$1 step_id=$2 note=$3
+    # memstore expects JSON lines; we use its CLI interface
+    # Each entry is a JSON object with keys: plan_id, step_id, note, ts
+    local ts=$(date +"%s")
+    echo "{\"plan_id\":\"$plan_id\",\"step_id\":\"$step_id\",\"note\":$(printf '%s' "$note" | jq -R .),\"ts\":$ts}" >> /mind/memstore.jsonl
+}
+
+# Ask the sub‑agent to analyse an error and propose a fix
+suggest_fix() {
+    local error_msg=$1 goal=$2
+    local prompt="You are helping an autonomous planner that tried to run a step but got the following error:\n\n$error_msg\n\nThe overall goal is: \"$goal\".\n\nProvide a short (1‑2 sentence) suggestion on how to fix the problem or an alternative command that could achieve the same intent."
+    # subagent_ask_helper returns only the answer text
+    subagent_ask_helper "$prompt"
+}
+
+# ---------- Argument parsing ----------
+if [[ $# -lt 1 ]]; then
+    echo "Usage: $0 <plan_id> [--retries N]"
+    exit 1
+fi
+
+PLAN_ID=$1
+shift
+
+# optional retries override
+RETRIES=$MAX_RETRIES_DEFAULT
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --retries)
+            RETRIES=$2
+            shift 2
+            ;;
+        *)
+            echo "Unknown option: $1"
+            exit 1
+            ;;
+    esac
+done
+
+log "Starting robust execution for plan $PLAN_ID (max retries=$RETRIES)"
+
+# ---------- Main loop ----------
+while true; do
+    # Get the next pending step (returns empty line if none)
+    STEP_JSON=$(step-planner-tracker --plan-id "$PLAN_ID" --next-step)
+    if [[ -z "$STEP_JSON" ]]; then
+        log "No more pending steps – plan complete."
+        exit 0
+    fi
+
+    # The step JSON contains at least: id, command, description
+    STEP_ID=$(echo "$STEP_JSON" | jq -r '.id')
+    STEP_CMD=$(echo "$STEP_JSON" | jq -r '.command')
+    STEP_DESC=$(echo "$STEP_JSON" | jq -r '.description // empty')
+
+    log "Executing step $STEP_ID – $STEP_DESC"
+    ATTEMPT=0
+    while (( ATTEMPT <= RETRIES )); do
+        # Run the step command; capture stdout/stderr
+        if output=$(eval "$STEP_CMD" 2>&1); then
+            log "Step $STEP_ID succeeded."
+            # Mark step as done in the planner
+            step-planner-tracker --plan-id "$PLAN_ID" --mark-done "$STEP_ID"
+            # Optionally store successful output for traceability
+            store_resolution "$PLAN_ID" "$STEP_ID" "Success: $output"
+            break
+        else
+            ((ATTEMPT++))
+            log "Attempt $ATTEMPT for step $STEP_ID failed."
+            if (( ATTEMPT > RETRIES )); then
+                # All retries exhausted – ask LLM for a fix
+                log "All retries exhausted. Querying LLM for resolution."
+                FIX_NOTE=$(suggest_fix "$output" "$STEP_DESC")
+                log "LLM suggestion: $FIX_NOTE"
+                # Store the LLM suggestion
+                store_resolution "$PLAN_ID" "$STEP_ID" "Failure after $RETRIES retries. LLM suggestion: $FIX_NOTE"
+                # Mark step as failed (so the planner can move on or retry later)
+                step-planner-tracker --plan-id "$PLAN_ID" --mark-failed "$STEP_ID"
+                break
+            else
+                # Wait before next retry
+                sleep "$RETRY_DELAY"
+            fi
+        fi
+    done
+done

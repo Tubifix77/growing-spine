@@ -1,0 +1,97 @@
+#!/usr/bin/env python3
+"""
+research_gap_planner – Generate a research roadmap by:
+1. Running knowledge_gap_filler on the supplied question.
+2. For each identified gap, fetching related memstore entries.
+3. Building a detailed plan with plan_from_question (enriched with the context).
+4. Archiving the plan and returning its ID.
+"""
+
+import sys, json, subprocess, shlex, os, textwrap
+
+def run_cmd(cmd, input_data=None):
+    """Run a shell command, optionally feeding it stdin, and return stdout."""
+    result = subprocess.run(
+        cmd,
+        input=input_data,
+        capture_output=True,
+        text=True,
+        shell=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        sys.stderr.write(f"Command failed: {cmd}\\nStderr: {result.stderr}\\n")
+        sys.exit(1)
+    return result.stdout.strip()
+
+def main():
+    if len(sys.argv) != 2:
+        sys.stderr.write("Usage: research_gap_planner \"<research question>\"\\n")
+        sys.exit(1)
+
+    question = sys.argv[1]
+
+    # -------------------------------------------------
+    # 1️⃣ Identify knowledge gaps
+    # -------------------------------------------------
+    # knowledge_gap_filler reads a JSON object from stdin, so we wrap the question.
+    gap_input = json.dumps({"question": question})
+    gaps_json = run_cmd("knowledge_gap_filler", input_data=gap_input)
+
+    try:
+        gaps = json.loads(gaps_json)
+    except json.JSONDecodeError:
+        sys.stderr.write("knowledge_gap_filler did not return valid JSON.\\n")
+        sys.stderr.write(f"Raw output: {gaps_json}\\n")
+        sys.exit(1)
+
+    # Expected format: {"gaps": ["term1", "term2", ...]}
+    gap_terms = gaps.get("gaps", [])
+    if not isinstance(gap_terms, list):
+        sys.stderr.write("Unexpected gaps format – expected a list under key 'gaps'.\\n")
+        sys.exit(1)
+
+    # -------------------------------------------------
+    # 2️⃣ Pull related memstore context for each gap
+    # -------------------------------------------------
+    context_chunks = []
+    for term in gap_terms:
+        # memstore has a simple interface: `memstore query <term>`
+        # It prints matching JSON lines; we take the first 5 entries.
+        mem_out = run_cmd(f"memstore query {shlex.quote(term)}")
+        if mem_out:
+            # memstore output may be multiple JSON lines; keep them as‑is.
+            context_chunks.append(f"Context for '{term}':\\n{mem_out}")
+        else:
+            context_chunks.append(f"No memstore entries found for '{term}'.")
+
+    # Build a single context string
+    enriched_context = "\\n\\n".join(context_chunks)
+
+    # -------------------------------------------------
+    # 3️⃣ Generate a detailed plan, feeding the context
+    # -------------------------------------------------
+    # plan_from_question expects a raw question on stdin; we will prepend the
+    # enriched context so the sub‑agent LLM sees it.
+    plan_input = f"Context:\\n{enriched_context}\\n\\nQuestion: {question}"
+    plan_id = run_cmd("plan_from_question", input_data=plan_input)
+
+    # -------------------------------------------------
+    # 4️⃣ Archive the plan and report the ID
+    # -------------------------------------------------
+    # Store a short note linking the question, gaps and plan ID.
+    note = {
+        "question": question,
+        "gaps": gap_terms,
+        "plan_id": plan_id,
+        "context_summary": enriched_context[:500] + ("..." if len(enriched_context) > 500 else "")
+    }
+    note_json = json.dumps(note, ensure_ascii=False)
+    # keyword-archive-store <keyword> <note>
+    arch_out = run_cmd(f'keyword-archive-store "research_gap:{plan_id}" \'{note_json}\'')
+    print(f"Research roadmap created. Plan ID: {plan_id}")
+    # Optionally echo archive confirmation
+    sys.stderr.write(f"Archive result: {arch_out}\\n")
+
+if __name__ == "__main__":
+    main()

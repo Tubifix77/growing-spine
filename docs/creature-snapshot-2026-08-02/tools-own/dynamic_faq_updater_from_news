@@ -1,0 +1,72 @@
+#!/usr/bin/env python3
+"""
+dynamic_faq_updater_from_news
+--------------------------------
+Fetch recent news for a given topic, generate FAQ Q&A pairs via
+dynamic_faq_updater, and store them in the keyword‑archive.
+"""
+
+import sys
+import subprocess
+import json
+import os
+from pathlib import Path
+
+def fetch_news(topic: str):
+    """Fetch recent news items for *topic* using the existing wake_catchup_fetcher."""
+    # The wake_catchup_fetcher returns a JSON list of items.
+    # We'll call it via subprocess; it expects a topic argument.
+    result = subprocess.run(
+        ["wake_catchup_fetcher", topic],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        print(f"[fetch_news] fetcher error: {result.stderr.strip()}", file=sys.stderr)
+        return []
+    try:
+        items = json.loads(result.stdout)
+        if not isinstance(items, list):
+            raise ValueError("Expected list")
+        return items
+    except json.JSONDecodeError as e:
+        print(f"[fetch_news] JSON decode error: {e}", file=sys.stderr)
+        return []
+
+def extract_faqs_from_items(items):
+    """Given a list of news items, extract FAQ pairs using the generic updater."""
+    # The generic updater expects a single article text; we will concatenate titles + summaries.
+    # It outputs FAQ entries to the keyword‑archive via its internal logic.
+    # We'll feed each article as a separate call.
+    for item in items:
+        # Each item is expected to have at least 'title' and 'summary' keys.
+        title = item.get("title", "")
+        summary = item.get("summary", "")
+        content = f"{title}\n\n{summary}"
+        # Call the generic updater script, passing the content on stdin.
+        proc = subprocess.run(
+            ["dynamic_faq_updater"],
+            input=content,
+            text=True,
+            capture_output=True,
+        )
+        if proc.returncode != 0:
+            print(f"[extract_faqs] updater error for '{title}': {proc.stderr.strip()}", file=sys.stderr)
+
+def main():
+    if len(sys.argv) != 2:
+        print("Usage: dynamic_faq_updater_from_news <topic>", file=sys.stderr)
+        sys.exit(1)
+
+    topic = sys.argv[1]
+    items = fetch_news(topic)
+    if not items:
+        print(f"No news items found for topic: {topic}", file=sys.stderr)
+        sys.exit(0)
+
+    extract_faqs_from_items(items)
+    print(f"Processed {len(items)} news items for topic '{topic}'")
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# does: Query the keyword‑archive for a term, summarise matches with subagent_ask_helper,
+#      and push a short alert through wake_orient_digest.
+
+set -euo pipefail
+
+# -------------------------------------------------
+# Usage
+# -------------------------------------------------
+if [[ $# -ne 1 ]]; then
+    echo "Usage: $(basename "$0") <search‑term>"
+    exit 1
+fi
+TERM="$1"
+
+# -------------------------------------------------
+# 1️⃣ Search the keyword‑archive
+# -------------------------------------------------
+SEARCH_RESULTS=$(keyword-archive-search "$TERM" --max 5 || true)
+
+# -------------------------------------------------
+# 2️⃣ Summarise with the LLM sub‑agent
+# -------------------------------------------------
+if [[ -n "$SEARCH_RESULTS" ]]; then
+    PROMPT="Summarise the following archived notes about \"${TERM}\" into a single, concise sentence:\n$SEARCH_RESULTS"
+else
+    PROMPT="There are no archived notes for \"${TERM}\". Produce a short alert stating that no recent info is available."
+fi
+
+SUMMARY=$(printf "%s\n" "$PROMPT" | subagent_ask_helper)
+
+# -------------------------------------------------
+# 3️⃣ Push the alert via wake_orient_digest
+# -------------------------------------------------
+printf "%s\n" "$SUMMARY" | tee /dev/stderr | wake_orient_digest

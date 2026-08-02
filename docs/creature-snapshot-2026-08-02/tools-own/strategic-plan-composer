@@ -1,0 +1,73 @@
+#!/bin/bash
+# tool: strategic-plan-composer
+# call: strategic-plan-composer "high-level goal"
+# does: Composes a high-level strategic roadmap by decomposing a goal into strategic pillars, generating detailed plans for each via plan_from_question, and linking them in a master tracker.
+
+set -euo pipefail
+
+GOAL="$1"
+
+if [ -z "$GOAL" ]; then
+    echo "Usage: strategic-plan-composer \"high-level goal\""
+    exit 1
+fi
+
+echo "Decomposing goal: '$GOAL' into strategic pillars..."
+
+# Prompt the subagent to provide a JSON list of 3-5 strategic pillars.
+PILLARS_JSON=$(subagent_ask_helper "Decompose the following high-level goal into 3 to 5 distinct strategic pillars (major focus areas). 
+Goal: $GOAL
+Return ONLY a valid JSON array of strings. Example: [\"Pillar 1\", \"Pillar 2\", \"Pillar 3\"]")
+
+# Extract pillars from JSON using jq
+PILLARS=$(echo "$PILLARS_JSON" | jq -r '.[]' 2>/dev/null || echo "")
+
+if [ -z "$PILLARS" ]; then
+    echo "Error: Failed to decompose goal into pillars. LLM response: $PILLARS_JSON"
+    exit 1
+fi
+
+echo "Strategic Pillars identified:"
+echo "$PILLARS"
+echo "--------------------------------------------------"
+
+# Create a Master Plan in step-planner-tracker to track the pillars
+MASTER_GOAL="Strategic Roadmap: $GOAL"
+MASTER_STEPS=""
+PILLAR_COUNT=0
+
+# We need to build the steps string for step-planner-tracker
+# Note: step-planner-tracker usually takes a list of steps.
+# Let's generate a list of steps like "Execute Pillar: [Name]"
+while read -r pillar; do
+    ((PILLAR_COUNT++))
+    MASTER_STEPS+="$PILLAR_COUNT. Execute Pillar: $pillar"$'\n'
+done <<< "$PILLARS"
+
+# Initialize the master plan
+# Assuming step-planner-tracker adds a goal and steps. 
+# Based on its usage, we'll use it to create the master tracker.
+MASTER_PLAN_ID=$(step-planner-tracker add "$MASTER_GOAL" "$MASTER_STEPS")
+
+echo "Master Plan created with ID: $MASTER_PLAN_ID"
+echo "--------------------------------------------------"
+
+# Now, for each pillar, generate a detailed plan using plan_from_question
+while read -r pillar; do
+    echo "Generating detailed plan for pillar: $pillar..."
+    
+    # Generate the detailed plan
+    # plan_from_question usually returns a Plan ID.
+    PILLAR_PLAN_ID=$(plan_from_question "Detailed implementation plan for the strategic pillar: $pillar as part of the goal '$GOAL'")
+    
+    echo "Pillar '$pillar' -> Plan ID: $PILLAR_PLAN_ID"
+    
+    # Store the link in the keyword archive for future retrieval
+    keyword-archive-store "strategic-plan-$MASTER_PLAN_ID" "Pillar: $pillar | PlanID: $PILLAR_PLAN_ID" --tags strategic,roadmap
+    
+done <<< "$PILLARS"
+
+echo "--------------------------------------------------"
+echo "Strategic roadmap composition complete."
+echo "Master Plan ID: $MASTER_PLAN_ID"
+echo "Detailed plans for each pillar have been generated and linked in the archive under 'strategic-plan-$MASTER_PLAN_ID'."

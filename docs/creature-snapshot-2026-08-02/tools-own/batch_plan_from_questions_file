@@ -1,0 +1,48 @@
+tool: batch_plan_from_questions_file
+call: batch_plan_from_questions_file <questions_file>
+does: Reads a file of questions, creates a plan for each via plan_from_question, archives each plan ID with the question, and prints the list of created plans.
+set -euo pipefail
+
+# Verify argument
+if [[ $# -ne 1 ]]; then
+  echo "Usage: batch_plan_from_questions_file <questions_file>"
+  exit 1
+fi
+
+questions_file="$1"
+
+# Validate that the file exists and is readable
+if [[ ! -f "$questions_file" ]]; then
+  echo "Error: file '$questions_file' does not exist."
+  exit 1
+fi
+
+# Prepare an array to collect created plan IDs
+plan_ids=()
+
+# Process each non‑empty line (question)
+while IFS= read -r question || [[ -n "$question" ]]; do
+  # Trim whitespace
+  trimmed=$(echo "$question" | xargs)
+  [[ -z "$trimmed" ]] && continue  # skip blank lines
+
+  # Generate a plan via the existing tool
+  # plan_from_question prints the plan ID on stdout; capture it
+  plan_id=$(plan_from_question "$trimmed" | tr -d '\r\n')
+  
+  # Archive the mapping (question ↔ plan_id) using keyword‑archive‑store
+  # Store under a dedicated keyword so we can retrieve later
+  archive_key="batch-plans-$(date +%Y%m%d)"
+  # The note is a JSON object for easy later lookup
+  note=$(printf '{"question": %s, "plan_id": "%s"}' "$(printf '%s' "$trimmed" | jq -R .)" "$plan_id")
+  keyword-archive-store "$archive_key" "$note"
+
+  # Record the plan ID for final reporting
+  plan_ids+=("$plan_id")
+done < "$questions_file"
+
+# Output a summary
+echo "Created ${#plan_ids[@]} plans:"
+for id in "${plan_ids[@]}"; do
+  echo " - $id"
+done

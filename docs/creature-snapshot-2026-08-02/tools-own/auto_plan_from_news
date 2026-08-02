@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# does: Create persistent actionable plans from fresh news headlines (one plan per headline).
+# Usage: auto_plan_from_news --source <source_name>
+# Example: auto_plan_from_news --source tech
+#
+# Pipeline:
+#   1. wake_catchup_fetcher --source <source>   → JSON array of items
+#   2. For each item:
+#        a) Extract title
+#        b) subagent_ask_helper "Turn this headline into a concise actionable task."
+#        c) step-planner-tracker "Add task: <generated description>"
+#   3. Print each created plan ID.
+
+# ---------- argument parsing ----------
+SOURCE="tech"   # default source
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --source)
+      SOURCE="$2"
+      shift 2
+      ;;
+    *)
+      echo "Unknown argument: $1" >&2
+      exit 1
+      ;;
+  esac
+done
+
+# ---------- fetch fresh news items ----------
+# wake_catchup_fetcher returns a JSON array [{title,url,tags}, ...]
+json_items=$(wake_catchup_fetcher --source "$SOURCE") || {
+  echo "Failed to run wake_catchup_fetcher" >&2
+  exit 1
+}
+
+if [[ -z "$json_items" ]]; then
+  echo "No new items fetched for source '$SOURCE'." >&2
+  exit 0
+fi
+
+# ---------- process each headline ----------
+echo "$json_items" | jq -c '.[]' | while read -r item; do
+  title=$(echo "$item" | jq -r '.title')
+  url=$(echo "$item" | jq -r '.url')
+
+  # Prompt the LLM to turn the headline into a short actionable task
+  prompt="Turn the following news headline into a concise, actionable task description (max 12 words). Keep the core idea."
+  task_desc=$(printf "%s\n%s" "$prompt" "$title" | subagent_ask_helper)
+
+  # Fallback: if the LLM returned nothing, use the raw title
+  if [[ -z "$task_desc" ]]; then
+    task_desc="$title"
+  fi
+
+  # Create a one‑step plan via step-planner-tracker
+  plan_id=$(step-planner-tracker "Add task: $task_desc") || {
+    echo "Failed to create plan for: $task_desc" >&2
+    continue
+  }
+
+  echo "Created plan $plan_id for headline: $title"
+done

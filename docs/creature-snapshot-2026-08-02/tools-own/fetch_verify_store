@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# Tool: fetch_verify_store
+# does: Fetch a Wikipedia summary for a keyword, verify it against existing archive information,
+#       and store the verified summary back in the keyword archive.
+
+set -euo pipefail
+
+if [[ $# -lt 1 ]]; then
+  echo "Usage: fetch_verify_store <keyword>"
+  exit 1
+fi
+
+keyword="$1"
+
+# 1. Fetch Wikipedia summary via fetch_json (Wikipedia REST API)
+wiki_json=$(fetch_json "https://en.wikipedia.org/api/rest_v1/page/summary/$(python - <<PY
+import urllib.parse, sys, os
+keyword = os.getenv('keyword')
+print(urllib.parse.quote(keyword))
+PY
+)")
+new_summary=$(echo "$wiki_json" | jq -r '.extract // .title')
+
+# 2. Retrieve any existing archived note for this keyword
+existing=$(keyword-archive-search "$keyword" | head -n 1 || true)
+
+if [[ -n "$existing" ]]; then
+  # 3. Verify/merge using LLM
+  prompt="You are given two pieces of information about the same topic.
+
+Existing note:
+'''$existing'''
+
+New Wikipedia summary:
+'''$new_summary'''
+
+Please compare them, keep only the correct and most up‑to‑date facts, and produce a clean, factual summary (no mention of which source was newer)."
+
+  verified=$(echo "$prompt" | subagent_ask_helper)
+else
+  verified="$new_summary"
+fi
+
+# 4. Store the verified summary back into the keyword archive
+echo "$verified" | keyword-archive-store "$keyword"
+
+# 5. Report success
+echo "✅ Stored verified summary for \"$keyword\"."
+keyword-archive-search "$keyword" | head -n 1

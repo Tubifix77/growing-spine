@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# ------------------------------------------------------------
+# gapfillretryplanner
+# ------------------------------------------------------------
+# Does: Wrap knowledge_gap_filler with step-planner-tracker;
+#       on failure fall back to subagent_ask_helper and log attempts.
+# ------------------------------------------------------------
+set -euo pipefail
+
+# Input query
+QUERY="${1:-}"
+if [[ -z "$QUERY" ]]; then
+  echo "Usage: gapfillretryplanner \"<natural language query>\""
+  exit 1
+fi
+
+# Where we keep a permanent log of attempts
+LOG_FILE="/mind/logs/gapfill_retry.log"
+mkdir -p "$(dirname "$LOG_FILE")"
+
+# Helper: write a line to the log with a timestamp
+log_attempt() {
+  local status="$1"
+  local answer="${2:-}"
+  printf '[%s] QUERY="%s" STATUS=%s ANSWER="%s"\n' "$(date --iso-seconds)" "$QUERY" "$status" "$answer" >>"$LOG_FILE"
+}
+
+# 1️⃣ Try to fill knowledge gaps
+if KG_OUTPUT=$(knowledge_gap_filler "$QUERY" 2>&1); then
+  # knowledge_gap_filler succeeded – it typically writes to the archive
+  # and prints a short summary to stdout. Consider this a success.
+  ANSWER="$KG_OUTPUT"
+  log_attempt "KG_SUCCESS" "$ANSWER"
+else
+  # 2️⃣ knowledge_gap_filler failed → fall back to subagent_ask_helper
+  echo "knowledge_gap_filler failed; falling back to subagent_ask_helper…" >&2
+  if SA_OUTPUT=$(subagent_ask_helper "$QUERY" 2>&1); then
+    ANSWER="$SA_OUTPUT"
+    log_attempt "KG_FAIL_SA_SUCCESS" "$ANSWER"
+  else
+    echo "Both knowledge_gap_filler and subagent_ask_helper failed." >&2
+    log_attempt "KG_FAIL_SA_FAIL"
+    exit 1
+  fi
+fi
+
+# 3️⃣ Create a persistent plan entry so the cousin can act on the result
+#    The plan will contain a single descriptive step and store the answer.
+PLAN_DESC="Research answer for query: $QUERY"
+PLAN_ID=$(step-planner-tracker add "$PLAN_DESC" --note "$ANSWER")
+
+# Output useful information for the caller
+printf 'Plan created: %s\nAnswer stored in plan note.\n' "$PLAN_ID"

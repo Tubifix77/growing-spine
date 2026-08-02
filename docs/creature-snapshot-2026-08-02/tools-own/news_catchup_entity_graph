@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# -------------------------------------------------
+# Tool: news_catchup_entity_graph
+# does: Fetch fresh news items from an RSS feed (or Hacker News),
+#       update the persistent entity‑graph with each article,
+#       and produce an LLM‑generated summary of today’s events.
+# -------------------------------------------------
+
+set -euo pipefail
+
+# ---- Helper: print usage ----
+usage() {
+    echo "Usage: news_catchup_entity_graph [RSS_URL]"
+    echo "If RSS_URL is omitted, the built‑in Hacker News fetcher is used."
+}
+
+# ---- Determine source of items ----
+RSS_URL="${1:-}"
+if [[ -n "$RSS_URL" ]]; then
+    # Use generic RSS fetcher (fetch_rss_feed) → JSON array of items
+    FEED_JSON=$(fetch_rss_feed "$RSS_URL")
+    # convert to array of objects {title,url}
+    ITEMS=$(echo "$FEED_JSON" | jq -c '.items[]')
+else
+    # Use the existing Hacker News fetcher that returns a JSON array
+    ITEMS=$(wake_catchup_fetcher.real)
+fi
+
+# If no items, exit early
+if [[ -z "$ITEMS" ]]; then
+    echo "{\"summary\":\"No new items.\",\"processed\":[]}"
+    exit 0
+fi
+
+# ---- Process each item ----
+PROCESSED=()
+while IFS= read -r item; do
+    # Extract title and url
+    TITLE=$(echo "$item" | jq -r '.title')
+    URL=$(echo "$item" | jq -r '.url')
+
+    # Update entity graph – the tool expects a URL (or raw text). We give URL.
+    # entity_graph_updater returns a status JSON; we ignore it but keep for debugging.
+    _upd=$(entity_graph_updater "$URL") || echo "entity_graph_updater failed for $URL" >&2
+
+    PROCESSED+=("$URL")
+done <<<"$ITEMS"
+
+# ---- Build a short prompt for the LLM ----
+# Gather titles into a bullet list
+BULLETS=$(echo "$ITEMS" | jq -r '.title' | awk '{print "- " $0}')
+
+PROMPT="Summarise the following news headlines in a concise paragraph (max 3 sentences):\n$BULLETS"
+
+# ---- Ask sub‑agent LLM for the summary ----
+SUMMARY=$(echo "$PROMPT" | subagent_ask_helper)
+
+# ---- Output JSON result ----
+jq -n \
+   --arg summary "$SUMMARY" \
+   --argjson processed "$(printf '%s\n' "${PROCESSED[@]}" | jq -R . | jq -s .)" \
+   '{summary:$summary, processed:$processed}'

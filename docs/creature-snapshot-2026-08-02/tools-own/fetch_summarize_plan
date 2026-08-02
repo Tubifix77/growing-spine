@@ -1,0 +1,124 @@
+#!/usr/bin/env bash
+# does: Fetch items via a given fetcher, archive each raw item, summarize it, store the summary,
+#       and generate a persistent investigation plan for each summary.
+
+# Usage:
+#   fetch_summarize_plan <fetcher_cmd> [<fetcher_args...>]
+# Example:
+#   fetch_summarize_plan wake_catchup_fetcher.real
+
+set -euo pipefail
+
+# ----------------------------------------------------------------------
+# Helper: run a sub‑command and capture its STDOUT (or abort with a clear msg)
+run_cmd() {
+    local cmd=("$@")
+    if ! "${cmd[@]}" >"$TMP_OUT"; then
+        echo "ERROR: Command failed: ${cmd[*]}" >&2
+        cat "$TMP_OUT" >&2
+        exit 1
+    fi
+    cat "$TMP_OUT"
+}
+# ----------------------------------------------------------------------
+
+# Verify we have a fetcher argument
+if [[ $# -lt 1 ]]; then
+    echo "Usage: fetch_summarize_plan <fetcher_cmd> [args...]" >&2
+    exit 1
+fi
+
+FETCHER_CMD=$1
+shift
+FETCHER_ARGS=("$@")
+
+# Temporary files
+TMP_OUT=$(mktemp)
+TMP_ITEM=$(mktemp)
+TMP_SUMMARY=$(mktemp)
+
+# Fetch the list of items (JSON array)
+echo "Running fetcher: $FETCHER_CMD ${FETCHER_ARGS[*]}" >&2
+ITEMS_JSON=$(run_cmd "$FETCHER_CMD" "${FETCHER_ARGS[@]}")
+
+# Ensure we have a JSON array
+if ! echo "$ITEMS_JSON" | jq -e '.' >/dev/null 2>&1; then
+    echo "ERROR: Fetcher output is not valid JSON." >&2
+    exit 1
+fi
+
+# Iterate over each item (assume objects with at least title,url)
+echo "$ITEMS_JSON" | jq -c '.[]' | while read -r ITEM; do
+    echo "Processing item…" >&2
+
+    # Save the raw item for archiving
+    echo "$ITEM" >"$TMP_ITEM"
+
+    # Extract fields
+    TITLE=$(echo "$ITEM" | jq -r '.title // empty')
+    URL=$(echo "$ITEM" | jq -r '.url // empty')
+    TAGS=$(echo "$ITEM" | jq -r '.tags // empty' | jq -c '.')
+
+    # --------------------------------------------------------------
+    # 1️⃣ Archive the raw item
+    # --------------------------------------------------------------
+    # Use keyword-archive-store: store under keyword "fetched_item"
+    if [[ -n "$TITLE" ]]; then
+        keyword-archive-store "fetched_item" "$(cat "$TMP_ITEM")" --tags "$TAGS"
+    else
+        keyword-archive-store "fetched_item" "$(cat "$TMP_ITEM")"
+    fi
+
+    # --------------------------------------------------------------
+    # 2️⃣ Fetch full content (if URL is present)
+    # --------------------------------------------------------------
+    if [[ -n "$URL" ]]; then
+        echo "Fetching full article: $URL" >&2
+        # fetch_url writes to stdout; capture it
+        ARTICLE=$(run_cmd fetch_url "$URL")
+    else
+        ARTICLE="$TITLE"
+    fi
+
+    # --------------------------------------------------------------
+    # 3️⃣ Summarize via subagent_ask_helper
+    # --------------------------------------------------------------
+    # Prompt the LLM to produce a concise summary.
+    SUMMARY_PROMPT="Summarize the following article in 3‑5 sentences, preserving the main point and any actionable insight:\n\n$ARTICLE"
+    echo "Summarizing…" >&2
+    SUMMARY=$(echo "$SUMMARY_PROMPT" | subagent_ask_helper)
+
+    # Save the summary for later archiving
+    echo "$SUMMARY" >"$TMP_SUMMARY"
+
+    # --------------------------------------------------------------
+    # 4️⃣ Archive the summary
+    # --------------------------------------------------------------
+    # Keyword = "summary_<sanitized title>"
+    SAFE_TITLE=$(echo "$TITLE" | tr -cd '[:alnum:]_-' | tr '[:upper:]' '[:lower:]')
+    KEYWORD="summary_${SAFE_TITLE:-untitled}"
+    keyword-archive-store "$KEYWORD" "$SUMMARY"
+
+    # --------------------------------------------------------------
+    # 5️⃣ Create a persistent investigation plan
+    # --------------------------------------------------------------
+    # Goal: Investigate the item using the summary as context.
+    PLAN_GOAL="Investigate: $TITLE – $SUMMARY"
+    echo "Generating plan for: $TITLE" >&2
+    PLAN_ID=$(plan_from_question "$PLAN_GOAL")
+    echo "Created plan ID: $PLAN_ID"
+
+    # Optionally add the plan to the step‑planner‑tracker (so it appears in the global task list)
+    # The tracker expects: step-planner-tracker add <goal> <step_json_array>
+    # Here we just add the plan ID as a top‑level task.
+    step-planner-tracker add "$PLAN_GOAL" "[$PLAN_ID]"
+
+    # Emit a concise line for the user (tool output)
+    echo "Item: $TITLE"
+    echo "  → Plan ID: $PLAN_ID"
+    echo "  → Summary stored under keyword: $KEYWORD"
+    echo "---"
+done
+
+# Clean up temporary files
+rm -f "$TMP_OUT" "$TMP_ITEM" "$TMP_SUMMARY"

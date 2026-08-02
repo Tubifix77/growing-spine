@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+# tool: ResearchPlanScheduler
+# call: ResearchPlanScheduler "<topic>"
+# does: Creates a research plan for a topic, runs knowledge_gap_filler on each step,
+#       and archives the full plan for future recall.
+
+set -euo pipefail
+
+# ---------- Helper functions ----------
+log() {
+  echo "[ResearchPlanScheduler] $*"
+}
+
+# ---------- Main ----------
+if [[ $# -ne 1 ]]; then
+  echo "Usage: ResearchPlanScheduler \"<research topic>\""
+  exit 1
+fi
+
+TOPIC="$1"
+KEYWORD="research-plan-$(echo "$TOPIC" | tr '[:upper:]' '[:lower:]' | tr -cd '[:alnum:]-')"
+
+log "Creating research plan for topic: $TOPIC"
+
+# 1. Generate a plan via the existing compositional tool `plan_from_question`.
+#    This tool returns a JSON object containing the newly‑created plan ID.
+PLAN_JSON=$(plan_from_question "$TOPIC")
+PLAN_ID=$(echo "$PLAN_JSON" | jq -r '.plan_id // empty')
+if [[ -z "$PLAN_ID" ]]; then
+  log "Failed to obtain a plan ID from plan_from_question."
+  exit 1
+fi
+log "Generated Plan ID: $PLAN_ID"
+
+# 2. Retrieve the list of steps for the plan.
+STEP_JSON=$(step-planner-tracker list-steps "$PLAN_ID")
+# The format is a JSON array of step objects [{step_id, description, status}, ...]
+STEP_IDS=($(echo "$STEP_JSON" | jq -r '.[] | .step_id'))
+
+# 3. For each step, run the knowledge_gap_filler on its description.
+#    knowledge_gap_filler expects a JSON line on stdin; we supply the step description.
+for STEP_ID in "${STEP_IDS[@]}"; do
+  STEP_DESC=$(step-planner-tracker get-step "$PLAN_ID" "$STEP_ID" | jq -r '.description')
+  log "Filling knowledge gaps for step $STEP_ID: $STEP_DESC"
+
+  # Prepare a minimal JSON record for knowledge_gap_filler.
+  # It expects fields: "topic", "step_id", "description"
+  GAP_INPUT=$(jq -n \
+    --arg topic "$TOPIC" \
+    --arg step_id "$STEP_ID" \
+    --arg desc "$STEP_DESC" \
+    '{topic:$topic, step_id:$step_id, description:$desc}')
+
+  # Run the filler; ignore its output (it already archives any needed notes).
+  echo "$GAP_INPUT" | knowledge_gap_filler >/dev/null
+done
+
+# 4. Archive the whole plan (plan ID, topic, and step list) for future recall.
+ARCHIVE_PAYLOAD=$(jq -n \
+  --arg plan_id "$PLAN_ID" \
+  --arg topic "$TOPIC" \
+  --argjson steps "$(echo "$STEP_JSON")" \
+  '{plan_id:$plan_id, topic:$topic, steps:$steps}')
+
+# Use keyword-archive-store: store under the derived keyword, with a tag "research-plan".
+echo "$ARCHIVE_PAYLOAD" | keyword-archive-store "$KEYWORD" --tags research-plan
+
+log "Research plan archived under keyword: $KEYWORD"
+echo "PLAN_ID=$PLAN_ID"

@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ------------------------------------------------------------
+# Tool: MemoryArchiveResearch
+# Call: MemoryArchiveResearch [keywords...]
+# Does:  For each supplied keyword, searches the keyword‑archive;
+#        if no relevant note exists, invokes knowledge_gap_filler
+#        to fetch missing information and store it.  Returns a
+#        concise JSON summary of what was found or filled.
+# ------------------------------------------------------------
+
+# Helper: run a command and capture its stdout (silencing errors)
+run_cmd() {
+    "$@" 2>/dev/null || true
+}
+
+# Prepare output array
+output="["
+
+first=1
+for kw in "$@"; do
+    # 1. Search the archive for the keyword
+    search_json=$(run_cmd keyword-archive-search "$kw" | jq -s '.')
+
+    # Determine if we have any hits
+    hit_count=$(echo "$search_json" | jq 'length')
+    if (( hit_count > 0 )); then
+        # Take the first note as the excerpt (trim to 200 chars)
+        excerpt=$(echo "$search_json" | jq -r '.[0].content // empty' | head -c 200)
+        status="found"
+    else
+        # 2. No hit – attempt to fill the knowledge gap
+        # Build a minimal wake‑up JSON that knowledge_gap_filler expects
+        gap_input=$(jq -n --arg k "$kw" '{keyword:$k}')
+        filled_json=$(echo "$gap_input" | knowledge_gap_filler | jq -s '.')
+
+        # After filler runs, try the search again
+        search_json=$(run_cmd keyword-archive-search "$kw" | jq -s '.'')
+        hit_count=$(echo "$search_json" | jq 'length')
+        if (( hit_count > 0 )); then
+            excerpt=$(echo "$search_json" | jq -r '.[0].content // empty' | head -c 200)
+            status="filled"
+        else
+            # Still nothing – note as missing
+            excerpt="No information available."
+            status="missing"
+        fi
+    fi
+
+    # Append to output array
+    [[ $first -eq 1 ]] && first=0 || output+=","
+    output+=$(jq -n \
+        --arg kw "$kw" \
+        --arg st "$status" \
+        --arg ex "$excerpt" \
+        '{keyword:$kw, status:$st, excerpt:$ex}')
+done
+
+output+=']'
+# Print the JSON summary
+echo "$output"

@@ -1,0 +1,52 @@
+tool: research_assistant
+call: research_assistant <query>
+does: Perform a full research pipeline for a natural‑language query – fetch fresh data, search the archive, fill knowledge gaps, synthesize a deep answer, archive it, and create a persistent plan step, returning the plan ID and a short summary.
+# ----------------------------------------------------
+# Implementation
+# ----------------------------------------------------
+set -euo pipefail
+
+QUERY="${1:-}"
+if [[ -z "$QUERY" ]]; then
+  echo "Error: No query supplied." >&2
+  exit 1
+fi
+
+# 1. Fetch fresh information (use wake_catchup_fetcher.real if query seems news‑like,
+#    otherwise fall back to a generic web‑search via web-fetch).
+# We'll just use web-fetch to query DuckDuckGo's html search API for simplicity.
+# (DuckDuckGo returns HTML; we only need titles for the LLM.)
+SEARCH_URL="https://duckduckgo.com/html/?q=$(python -c "import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1]))" "$QUERY")"
+FETCHED=$(web-fetch "$SEARCH_URL")
+# Keep only the first few result titles (simple regex)
+RESULTS=$(printf "%s" "$FETCHED" | grep -i "<a rel=\"nofollow\" class=\"result__a\"" | head -n 5 | sed -E 's/.*>([^<]+)<.*/\1/')
+
+# 2. Search the keyword archive for related notes
+ARCHIVE_RESULTS=$(keyword-archive-search "$QUERY" | head -n 5)
+
+# 3. Combine fetched titles and archive snippets into a single context block
+CONTEXT_BLOCK=$(printf "Web results:\n%s\n\nArchive snippets:\n%s\n" "$RESULTS" "$ARCHIVE_RESULTS")
+
+# 4. Run knowledge gap filler on each fresh item (simulate by feeding the context)
+# KnowledgeGapFiller expects JSON on stdin, but we can feed a minimal JSON with the context.
+JSON_INPUT=$(printf '{"context": %s}' "$(printf '%s' "$CONTEXT_BLOCK" | python -c 'import json,sys;print(json.dumps(sys.stdin.read()))')")
+GAP_FILLED=$(printf "%s" "$JSON_INPUT" | KnowledgeGapFiller || true)
+
+# 5. Synthesize a deep answer using the existing deep_answer_synth tool.
+# deep_answer_synth expects a question; we give it the original query plus any gap info.
+ANSWER=$(printf "%s\n%s" "$QUERY" "$GAP_FILLED" | deep_answer_synth)
+
+# 6. Archive the final answer
+# Use a deterministic keyword based on the query hash.
+KEYWORD=$(printf "%s" "$QUERY" | md5sum | cut -d' ' -f1)
+keyword-archive-store "$KEYWORD" "$ANSWER" --tags "research,answer"
+
+# 7. Create a persistent plan step that records the answer.
+# step-planner-tracker add-plan <title> <description>
+PLAN_TITLE="Research answer for: $QUERY"
+PLAN_DESC="Answer archived under keyword $KEYWORD. Full answer:\n$ANSWER"
+PLAN_ID=$(step-planner-tracker add-plan "$PLAN_TITLE" "$PLAN_DESC")
+
+# Output the plan ID and a short summary.
+SHORT_SUMMARY=$(printf "%s" "$ANSWER" | head -n 3 | tr '\n' ' ')
+printf "Plan ID: %s\nSummary: %s\n" "$PLAN_ID" "$SHORT_SUMMARY"

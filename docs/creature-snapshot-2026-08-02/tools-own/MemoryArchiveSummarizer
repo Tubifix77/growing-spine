@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# tool: MemoryArchiveSummarizer
+# does: Summarise archived notes for given keywords and optionally answer a question using the archive.
+# Usage: MemoryArchiveSummarizer --keywords "kw1 kw2" [--question "your question"]
+set -euo pipefail
+
+# ---------- parse arguments ----------
+KEYWORDS=""
+QUESTION=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --keywords) KEYWORDS="$2"; shift 2 ;;
+    --question) QUESTION="$2"; shift 2 ;;
+    *) echo "Unexpected argument: $1" >&2; exit 1 ;;
+  esac
+done
+
+if [[ -z "$KEYWORDS" ]]; then
+  echo "MemoryArchiveSummarizer: --keywords required" >&2
+  exit 1
+fi
+
+# ---------- fetch notes for each keyword ----------
+# Collect notes into a temporary file
+TMP_NOTES=$(mktemp)
+for kw in $KEYWORDS; do
+  # keyword-archive-search prints JSONL; we extract the `content` field (or whole JSON if no field)
+  keyword-archive-search "$kw" | jq -r '.content // empty' >> "$TMP_NOTES"
+done
+
+# If nothing was found, inform the user
+if [[ ! -s "$TMP_NOTES" ]]; then
+  echo "MemoryArchiveSummarizer: No archived notes found for keywords: $KEYWORDS" >&2
+  rm -f "$TMP_NOTES"
+  exit 1
+fi
+
+# Create a single context string
+CONTEXT=$(cat "$TMP_NOTES" | tr '\n' ' ' | sed 's/  */ /g')
+rm -f "$TMP_NOTES"
+
+# ---------- decide on the sub‑agent prompt ----------
+if [[ -n "$QUESTION" ]]; then
+  PROMPT="Using only the following archived information, answer the question.\n\nArchived info:\n$CONTEXT\n\nQuestion: $QUESTION"
+else
+  PROMPT="Summarise the following archived information.\n\n$CONTEXT"
+fi
+
+# ---------- ask the sub‑agent ----------
+ANSWER=$(printf "%b" "$PROMPT" | subagent_ask_helper)
+
+# ---------- output ----------
+printf "%s\n" "$ANSWER"
+
+# ---------- store the summary for future reuse ----------
+# Generate a deterministic summary keyword
+TIMESTAMP=$(date +%s)
+SUM_KEY="summary-${TIMESTAMP}"
+# Store with a tag so we know it came from this tool
+printf "%s\t%s\t%s\n" "$SUM_KEY" "$ANSWER" "generated_by=MemoryArchiveSummarizer" | keyword-archive-store "$SUM_KEY"
+

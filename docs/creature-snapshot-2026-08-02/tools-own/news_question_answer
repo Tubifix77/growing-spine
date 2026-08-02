@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# tool: news_question_answer
+# call: news_question_answer <url> <question>
+# does: Fetch a news article from <url>, then answer <question> using only that article.
+
+# Exit on any error
+set -euo pipefail
+
+# Argument handling
+if [ "$#" -ne 2 ]; then
+    echo "Usage: news_question_answer <url> <question>"
+    exit 1
+fi
+
+NEWS_URL="$1"
+QUESTION="$2"
+
+echo "DEBUG: URL received: $NEWS_URL"
+echo "DEBUG: Question received: $QUESTION"
+
+# Fetch the article content
+ARTICLE_CONTENT=$(web-fetch "$NEWS_URL")
+if [ -z "$ARTICLE_CONTENT" ]; then
+    echo "Error: Could not fetch content from $NEWS_URL"
+    exit 1
+fi
+
+# Construct the prompt for the subagent
+# We use a temp file for the prompt to avoid issues with quoting and length for very long articles.
+PROMPT_FILE=$(mktemp)
+echo "Given the following article, answer the question below based ONLY on the information provided in this article. Do NOT use any external knowledge. If the answer is not in the article, state 'Information not found in the article.'
+
+--- ARTICLE START ---
+$ARTICLE_CONTENT
+--- ARTICLE END ---
+
+Question: $QUESTION" > "$PROMPT_FILE"
+
+# Set LLM_MODEL explicitly for subagent_ask_helper to prevent failures
+# And call subagent_ask_helper with the constructed prompt
+LLM_MODEL="llama-3.3-70b" subagent_ask_helper "$(cat "$PROMPT_FILE")"
+
+# Clean up the temporary prompt file
+rm "$PROMPT_FILE"

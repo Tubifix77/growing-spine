@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# tool: QuestionResearchScheduler
+# call: QuestionResearchScheduler "<question>"
+# does: Runs a full research pipeline – creates a plan, fills knowledge gaps for each step,
+#       synthesises a concise answer, stores the answer and plan ID in memstore, and prints the answer.
+
+set -euo pipefail
+
+# ---------- Helper ----------
+log() {
+    echo "[QuestionResearchScheduler] $*" >&2
+}
+
+# ---------- Input ----------
+if [[ $# -ne 1 ]]; then
+    echo "Usage: $0 \"<question>\"" >&2
+    exit 1
+fi
+QUESTION="$1"
+
+# ---------- 1. Generate a persistent plan ----------
+log "Generating plan for question: $QUESTION"
+PLAN_ID=$(plan_from_question "$QUESTION" | tr -d '\r')
+if [[ -z "$PLAN_ID" ]]; then
+    log "Failed to obtain a plan ID"
+    exit 1
+fi
+log "Created plan ID: $PLAN_ID"
+
+# ---------- 2. Retrieve plan steps ----------
+# step-planner-tracker stores steps under a file; we can ask it for pending steps.
+# The tool `plan_step_executor` can fetch the next pending step. We'll loop until none remain.
+log "Filling knowledge gaps for each step of plan $PLAN_ID"
+
+while true; do
+    # Get next pending step (returns empty if none)
+    STEP=$(plan_step_executor --next "$PLAN_ID" || true)
+    if [[ -z "$STEP" ]]; then
+        log "All steps completed or no pending steps."
+        break
+    fi
+
+    # Extract the step description (the tool returns JSON: {"step":"..."}).
+    # We'll just pass the raw step text to knowledge_gap_filler.
+    log "Running knowledge_gap_filler on step: $STEP"
+    knowledge_gap_filler "$STEP"
+done
+
+# ---------- 3. Synthesize final answer ----------
+log "Synthesizing final answer"
+ANSWER=$(subagent_ask_helper "Summarize the findings for the question: $QUESTION" | tr -d '\r')
+if [[ -z "$ANSWER" ]]; then
+    log "Synthesis returned empty answer"
+    exit 1
+fi
+log "Answer synthesis complete"
+
+# ---------- 4. Persist answer in memstore ----------
+TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+memstore set "research_answer_$PLAN_ID" "$ANSWER" --tags "research,question=$QUESTION,plan_id=$PLAN_ID" --timestamp "$TIMESTAMP"
+
+# ---------- 5. Output ----------
+echo "$ANSWER"

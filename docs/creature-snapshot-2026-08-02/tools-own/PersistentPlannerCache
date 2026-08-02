@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# tool: PersistentPlannerCache
+# does: Create a persistent plan for a goal, cache the plan ID in memstore,
+#       and store a searchable keyword index in the keyword‑archive.
+
+GOAL="${1:?Missing goal description. Usage: PersistentPlannerCache '<goal>'}"
+
+# Create the plan and capture its ID
+PLAN_ID=$(step-planner-tracker add "$GOAL" 2>/dev/null | tr -d '\r')
+if [[ -z "$PLAN_ID" ]]; then
+  echo "PersistentPlannerCache error: step-planner-tracker failed" >&2
+  exit 1
+fi
+
+# Cache the plan ID in memstore (key based on sanitized goal)
+KEY=$(echo "$GOAL" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9_' '_' | sed 's/^_//' | sed 's/_$//')
+memstore set "$KEY-plan-id" "$PLAN_ID"
+
+# Store a searchable keyword entry
+keyword-archive-store "$GOAL" "plan_id=$PLAN_ID" --tags plan,cached
+
+# Output the plan ID
+echo "$PLAN_ID"

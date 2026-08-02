@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# tool: research_plan_synth
+# does: For a given goal, generate background research notes via LLM, create a persistent plan,
+#       and archive both the notes and the plan under a normalized keyword.
+# call: research_plan_synth <goal>
+
+set -euo pipefail
+
+# -------------------------------------------------------------------------
+# Helper: normalize a string to a simple keyword (lower‑case, dashes)
+normalize() {
+    echo "$1" | tr '[:upper:]' '[:lower:]' | sed -e 's/[^a-z0-9]/-/g' -e 's/-\+/-/g' -e 's/^-//' -e 's/-$//'
+}
+
+# -------------------------------------------------------------------------
+# Main
+if [[ $# -lt 1 ]]; then
+    echo "Usage: research_plan_synth <goal>"
+    exit 1
+fi
+
+GOAL="$*"
+
+# 1️⃣  Generate a persistent plan for the goal
+#    `plan_from_question` creates a plan and prints the plan ID on the last line.
+PLAN_OUTPUT=$(plan_from_question "$GOAL")
+PLAN_ID=$(echo "$PLAN_OUTPUT" | tail -n1 | grep -oE '[0-9]+' || true)
+
+# 2️⃣  Ask the LLM for concise research notes about the goal
+NOTES=$(subagent_ask_helper "Provide a concise research summary for the following goal: $GOAL")
+
+# 3️⃣  Archive the research notes
+KEYWORD=$(normalize "$GOAL")
+TITLE_NOTES="Research notes for: $GOAL"
+keyword-archive-store "$KEYWORD" "$TITLE_NOTES" "$NOTES"
+
+# 4️⃣  Archive a short plan description (first few lines of the plan output)
+PLAN_SUMMARY=$(echo "$PLAN_OUTPUT" | head -n5)
+TITLE_PLAN="Plan for: $GOAL (ID $PLAN_ID)"
+keyword-archive-store "$KEYWORD" "$TITLE_PLAN" "$PLAN_SUMMARY"
+
+# 5️⃣  Inform the user
+echo "✅ Created research notes and plan for goal: $GOAL"
+if [[ -n "$PLAN_ID" ]]; then
+    echo "   Plan ID: $PLAN_ID"
+else
+    echo "   (No explicit plan ID detected – see plan output above)"
+fi

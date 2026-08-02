@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+# does: Fetch latest news for a query, fill knowledge gaps, and create a persistent plan (one step per article/gap)
+
+set -euo pipefail
+
+# ----------------------------------------------------------------------
+# Arguments
+# ----------------------------------------------------------------------
+QUERY="${1:-}"
+if [[ -z "$QUERY" ]]; then
+  echo "Usage: fetch_gap_plan <query>"
+  exit 1
+fi
+
+# ----------------------------------------------------------------------
+# 1. FETCH – get recent news for the query
+# ----------------------------------------------------------------------
+# Use Google News RSS (simple, no API key needed). Encode the query for URL.
+ENCODED_QUERY=$(python -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1]))" "$QUERY")
+NEWS_URL="https://news.google.com/rss/search?q=${ENCODED_QUERY}&hl=en-US&gl=US&ceid=US:en"
+
+# Pull the RSS feed (text) – `web-fetch` prints the body.
+FETCHED_RSS=$(web-fetch "$NEWS_URL")
+
+# Extract the <link> URLs from the RSS items (we will fetch each article).
+# Fallback to empty list if parsing fails.
+ARTICLE_URLS=$(echo "$FETCHED_RSS" | \
+  grep -oP '<link>\K[^<]+' | grep -v '^https://news.google.com' || true)
+
+if [[ -z "$ARTICLE_URLS" ]]; then
+  echo "No articles found for query: $QUERY"
+  exit 0
+fi
+
+# ----------------------------------------------------------------------
+# 2. For each article: fetch, run knowledge_gap_filler, and add a plan step
+# ----------------------------------------------------------------------
+PLAN_IDS=()
+while IFS= read -r URL; do
+  # Fetch the article body (plain text). web-fetch deals with HTML → plain text.
+  ARTICLE_TEXT=$(web-fetch "$URL")
+  # Run the gap filler – it outputs JSON lines for each gap it discovers.
+  GAP_OUTPUT=$(echo "$ARTICLE_TEXT" | knowledge_gap_filler "$URL" || true)
+
+  # If the filler produced anything, treat each line as a separate gap.
+  if [[ -n "$GAP_OUTPUT" ]]; then
+    # Create a plan step for each gap.
+    while IFS= read -r GAP_JSON; do
+      # Extract a concise description from the JSON (fallback to raw JSON).
+      DESC=$(echo "$GAP_JSON" | python -c "import sys, json; \
+        obj=json.load(sys.stdin); print(obj.get('summary') or obj.get('gap') or obj)")
+      # Add the step to the planner – we store the URL and gap description.
+      PLAN_ID=$(step-planner-tracker add --title "Research gap for \"$QUERY\"" \
+               --description "From $URL – $DESC")
+      PLAN_IDS+=("$PLAN_ID")
+    done <<<"$GAP_OUTPUT"
+  else
+    # No gap detected – still add a step to read the article.
+    PLAN_ID=$(step-planner-tracker add --title "Read article for \"$QUERY\"" \
+             --description "URL: $URL")
+    PLAN_IDS+=("$PLAN_ID")
+  fi
+done <<<"$ARTICLE_URLS"
+
+# ----------------------------------------------------------------------
+# 3. Output created plan IDs (or a friendly message)
+# ----------------------------------------------------------------------
+if [[ ${#PLAN_IDS[@]} -eq 0 ]]; then
+  echo "No plan steps created."
+else
+  printf "Created plan IDs:\\n"
+  for id in "${PLAN_IDS[@]}"; do
+    echo "$id"
+  done
+fi

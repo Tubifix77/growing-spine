@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+# tool: memory_archive_search_planner
+# call: memory_archive_search_planner <query>
+# does: Search archive, detect gaps, fetch missing info, synthesize a research blueprint, and generate a persistent execution plan.
+
+set -euo pipefail
+
+# -------------------- Helper functions --------------------
+log() { echo "[memory_archive_search_planner] $*"; }
+
+# -------------------- Argument check --------------------
+if [[ $# -ne 1 ]]; then
+  log "Usage: memory_archive_search_planner <query>"
+  exit 1
+fi
+
+QUERY="$1"
+
+# -------------------- 1. Archive search --------------------
+log "Searching archive for \"$QUERY\" ..."
+SEARCH_RESULTS=$(keyword-archive-search "$QUERY" 2>/dev/null || true)
+
+# If no results, treat as a knowledge gap
+if [[ -z "$SEARCH_RESULTS" ]]; then
+  GAP_DETECTED=true
+  log "No archive hits – knowledge gap detected."
+else
+  # Simple heuristic: count lines (each line = a note). If < 2, consider it sparse.
+  RESULT_COUNT=$(echo "$SEARCH_RESULTS" | wc -l)
+  if [[ $RESULT_COUNT -lt 2 ]]; then
+    GAP_DETECTED=true
+    log "Sparse archive hits ($RESULT_COUNT) – treating as gap."
+  else
+    GAP_DETECTED=false
+    log "Found $RESULT_COUNT archive notes."
+  fi
+fi
+
+# -------------------- 2. Fill knowledge gap (if needed) --------------------
+if $GAP_DETECTED; then
+  log "Running knowledge_gap_filler to fetch missing info..."
+  # knowledge_gap_filler expects a query and writes to the keyword archive automatically.
+  knowledge_gap_filler "$QUERY"
+  # Re‑run the search to get fresh results
+  SEARCH_RESULTS=$(keyword-archive-search "$QUERY")
+  log "Refreshed archive results after gap fill."
+fi
+
+# -------------------- 3. Synthesize research blueprint --------------------
+log "Synthesizing research blueprint..."
+# Provide the LLM with the archive snippets as context.
+BLUEPRINT=$(printf "Archive snippets:\n%s\n\nGenerate a concise research blueprint (bulleted sub‑questions) for the query: %s" "$SEARCH_RESULTS" "$QUERY" \
+  | subagent_ask_helper)
+
+# Ensure we have a non‑empty blueprint
+if [[ -z "$BLUEPRINT" ]]; then
+  log "LLM returned empty blueprint – aborting."
+  exit 1
+fi
+
+log "Blueprint generated:"
+echo "$BLUEPRINT"
+
+# -------------------- 4. Create persistent plan --------------------
+log "Creating persistent plan..."
+# Use plan_from_question to store each bullet as a step.
+PLAN_ID=$(printf "%s\n%s" "$QUERY" "$BLUEPRINT" | plan_from_question)
+
+if [[ -z "$PLAN_ID" ]]; then
+  log "Failed to create plan."
+  exit 1
+fi
+
+log "Plan created with ID: $PLAN_ID"
+
+# -------------------- 5. Output --------------------
+printf "PlanID:%s\nSummary:%s\n" "$PLAN_ID" "$(echo "$BLUEPRINT" | head -n 3)"

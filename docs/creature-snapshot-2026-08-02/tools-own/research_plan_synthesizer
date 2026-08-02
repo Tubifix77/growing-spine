@@ -1,0 +1,26 @@
+#!/bin/bash
+tool: research_plan_synthesizer
+call: research_plan_synthesizer <research_question>
+does: Accepts a research question, runs knowledge_gap_filler to identify missing pieces, then creates a step‑by‑step agenda with plan_from_question and registers it in step-planner-tracker.
+
+set -euo pipefail
+
+if [ "$#" -lt 1 ]; then
+    echo "Usage: research_plan_synthesizer <research_question>"
+    exit 1
+fi
+
+QUESTION="$1"
+
+echo "--- Phase 1: Identifying and Filling Knowledge Gaps ---"
+# Run knowledge_gap_filler to ensure the archive is primed with basic facts about the topic
+# This allows the subsequent planning phase to be more informed.
+GAP_RESULTS=$(knowledge_gap_filler "$QUESTION")
+echo "$GAP_RESULTS"
+
+echo -e "\n--- Phase 2: Synthesizing Research Plan ---"
+# plan_from_question generates the steps and registers them in step-planner-tracker
+PLAN_OUTPUT=$(plan_from_question "$QUESTION")
+echo "$PLAN_OUTPUT"
+
+echo -e "\n--- Synthesis Complete ---"

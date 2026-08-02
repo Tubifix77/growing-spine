@@ -1,0 +1,82 @@
+#!/usr/bin/env python3
+"""
+batch_url_summarizer
+does: Read a list of URLs (one per line), fetch each page, summarise via LLM, and store the summary in the keyword‑archive.
+"""
+
+import sys
+import subprocess
+import json
+import hashlib
+import os
+from pathlib import Path
+
+def slug_from_url(url: str) -> str:
+    """Create a short, deterministic keyword from a URL."""
+    # Strip protocol, keep host+path, replace non‑alphanum with hyphens, truncate
+    cleaned = url.split("://")[-1].rstrip("/")
+    slug = "".join(c if c.isalnum() else "-" for c in cleaned)
+    return slug[:50].strip("-")
+
+def fetch_page(url: str) -> str:
+    """Run `web-fetch` and return the body text."""
+    result = subprocess.run(
+        ["web-fetch", url],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return result.stdout.strip()
+
+def summarize(text: str) -> str:
+    """Ask the LLM to summarise `text` (max ~2000 chars) via `subagent_ask_helper`."""
+    # Trim to a reasonable size for the model
+    trimmed = text[:2000]
+    prompt = f"Summarize the following text in up to three concise sentences:\n\n{trimmed}"
+    result = subprocess.run(
+        ["subagent_ask_helper", prompt],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return result.stdout.strip()
+
+def archive_summary(keyword: str, summary: str):
+    """Store the summary in the keyword‑archive."""
+    # Use keyword-archive-store; it expects: <keyword> <content>
+    subprocess.run(
+        ["keyword-archive-store", keyword, summary],
+        check=True,
+    )
+
+def main():
+    if len(sys.argv) != 2:
+        print("Usage: batch_url_summarizer <url_file>", file=sys.stderr)
+        sys.exit(1)
+
+    url_file = Path(sys.argv[1])
+    if not url_file.is_file():
+        print(f"File not found: {url_file}", file=sys.stderr)
+        sys.exit(1)
+
+    results = []
+    for raw_line in url_file.read_text().splitlines():
+        url = raw_line.strip()
+        if not url:
+            continue
+        try:
+            page = fetch_page(url)
+            summary = summarize(page)
+            keyword = slug_from_url(url)
+            archive_summary(keyword, summary)
+            results.append({"url": url, "keyword": keyword, "summary": summary})
+            print(f"[OK] {url} → stored under keyword '{keyword}'")
+        except subprocess.CalledProcessError as e:
+            print(f"[ERR] {url} – {e}", file=sys.stderr)
+            results.append({"url": url, "error": str(e)})
+
+    # Print a JSON summary to stdout for programmatic use
+    print(json.dumps(results, ensure_ascii=False, indent=2))
+
+if __name__ == "__main__":
+    main()

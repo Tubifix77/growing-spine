@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# tool: DynamicTaskEnricher
+# call: DynamicTaskEnricher "<raw task description>"
+# does: Takes a raw task description, creates a plan (plan_from_question),
+#       identifies knowledge gaps for each step, fetches missing info
+#       via subagent_ask_helper, and returns an enriched plan JSON.
+
+set -euo pipefail
+
+if [[ $# -ne 1 ]]; then
+  echo "Error: Provide exactly one argument – the raw task description." >&2
+  exit 1
+fi
+
+RAW_DESC="$1"
+
+# 1️⃣ Create a plan from the raw description
+PLAN_JSON=$(plan_from_question "$RAW_DESC")
+PLAN_ID=$(echo "$PLAN_JSON" | jq -r .plan_id)
+STEPS=$(echo "$PLAN_JSON" | jq -c .steps)
+
+ENRICHED_STEPS="[]"
+
+# Process each step
+echo "$STEPS" | jq -c '.[]' | while read -r STEP; do
+  STEP_ID=$(echo "$STEP" | jq -r .step_id)
+  TASK=$(echo "$STEP" | jq -r .task)
+
+  # 2️⃣ Run knowledge_gap_filler on the step
+  GAP_RESULT=$(echo "$STEP" | knowledge_gap_filler)
+
+  GAP=$(echo "$GAP_RESULT" | jq -r .gap)
+
+  if [[ "$GAP" == "true" ]]; then
+    MISSING_QUERY=$(echo "$GAP_RESULT" | jq -r .missing)
+
+    # 3️⃣ Fetch missing info via subagent_ask_helper
+    FETCHED=$(echo "$MISSING_QUERY" | subagent_ask_helper)
+
+    ENRICHED_STEP=$(echo "$STEP" | jq --arg fetched "$FETCHED" \
+      '. + {fetched_info:$fetched}')
+  else
+    ENRICHED_STEP=$(echo "$STEP")
+  fi
+
+  ENRICHED_STEPS=$(echo "$ENRICHED_STEPS" | jq ". + [$ENRICHED_STEP]")
+done
+
+ENRICHED_PLAN=$(jq -n \
+  --arg pid "$PLAN_ID" \
+  --argjson steps "$ENRICHED_STEPS" \
+  '{plan_id:$pid, steps:$steps}')
+
+echo "$ENRICHED_PLAN"
