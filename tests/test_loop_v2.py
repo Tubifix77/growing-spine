@@ -441,11 +441,12 @@ async def main():
 
     # ---- truthful toolkit framing (Genesis-2 proofing, 2026-08-02) ----
     from executive import loop as _lp
-    _f = _lp._toolkit_framing()
-    check("toolkit framing: broad claim only when the library has earned it",
-          ("ALREADY built a broad" in _f) if True else False)
-    check("toolkit framing: threshold constant is Tue's 25",
-          _lp.BROAD_TOOLKIT_THRESHOLD == 25)
+    check("toolkit framing: broad claim above the threshold",
+          "ALREADY built a broad" in _lp._toolkit_framing(count=30))
+    check("toolkit framing: a young library gets the honest brief",
+          "YOUNG" in _lp._toolkit_framing(count=3)
+          and "3 tools so far" in _lp._toolkit_framing(count=3)
+          and _lp.BROAD_TOOLKIT_THRESHOLD == 25)
 
     # ---- Meta-Architect v1 (2026-08-01) ----
     from executive import architect as arch

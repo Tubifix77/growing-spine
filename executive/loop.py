@@ -588,11 +588,12 @@ def _most_used_tools(n: int = 8) -> list:
 BROAD_TOOLKIT_THRESHOLD = 25
 
 
-def _toolkit_framing() -> str:
-    try:
-        count = len(os.listdir(os.path.join(VOLUME_MOUNT, "tools", "own")))
-    except OSError:
-        count = 0
+def _toolkit_framing(count=None) -> str:
+    if count is None:
+        try:
+            count = len(os.listdir(os.path.join(VOLUME_MOUNT, "tools", "own")))
+        except OSError:
+            count = 0
     if count >= BROAD_TOOLKIT_THRESHOLD:
         return ("You are briefing an autonomous coding agent that has ALREADY "
                 "built a broad ")
