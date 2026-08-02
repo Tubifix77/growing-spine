@@ -50,6 +50,16 @@ See [`growing-spine-architecture.md`](growing-spine-architecture.md) for how thi
 
 ---
 
+## What it has actually built
+
+The creature's entire tool library is snapshotted, unmodified, in
+[docs/creature-snapshot-2026-08-02](docs/creature-snapshot-2026-08-02/MANIFEST.md)
+— 348 bash tools it wrote for itself over two months, from news pipelines and
+knowledge-gap fillers to its own pre-edit backup habit, indexed by what each
+tool claims to do and how often it actually ran in the last fortnight. The
+interactive [framework map](docs/framework-map.html) shows the machinery —
+every LLM prompt verbatim, every gate in place — that shaped this growth.
+
 ## Current status (2026-07-30, v0.13)
 
 274 own tools. The embedding idea-gate is ACTIVE: name collisions and paraphrase-duplicates are caught deterministically for zero tokens, the middle band goes to an LLM judge under a terminal-VERDICTS contract (first clean live parses 2026-07-19 and -30; failures fail open), and a covered idea serves the creature a choice — upgrade the existing tool, or find something genuinely new — announced on its chat channel and acknowledged in its own words. Cognition flows through nine free windows across five model families (Gemini, two Groq buckets, Cerebras until 2026-08-17, Gemma-4-31B direct at 14,400/day, and an OpenRouter ladder ranked by measured intelligence with 10-minute upward re-probe), watched by a weekly free-tier diff sensor whose first catch was the July 19 purge. The container has run as the host user since v0.9.1; the quota tracker remains timestamps-only.
