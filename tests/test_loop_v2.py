@@ -429,6 +429,16 @@ async def main():
     check("batch judge scan: prose-only reply still parses zero (fail-open)",
           _scan_verdict_lines("We should pick EXTEND for the tracker idea.", 3)[0] == 0)
 
+    # ---- judge twins fused (2026-08-02): single path = batch of one ----
+    from executive.idea_gate import _single_from_batch
+    check("fused judge: covered batch-of-one maps to the single contract",
+          _single_from_batch({0: ("DUPLICATE", "archive_backed_query")}) ==
+          {"verdict": "DUPLICATE", "target": "archive_backed_query",
+           "reason": "batch-of-one judge", "parsed": True, "candidates": []})
+    check("fused judge: empty result fails open as NEW",
+          _single_from_batch({})["verdict"] == "NEW"
+          and _single_from_batch({})["parsed"] is True)
+
     # ---- Meta-Architect v1 (2026-08-01) ----
     from executive import architect as arch
     _r = ("<thought>Let me weigh these.</thought>\nThe library is bloated.\n"

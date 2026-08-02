@@ -231,90 +231,9 @@ def deterministic_verdict(new_text, title, registry, all_names,
     return None
 
 
-IDEA_GATE_PROMPT = """You are the idea gate for a self-building agent. Before it builds a new tool, decide whether an existing tool already covers the intent.
-
-NEW IDEA (intent of the tool about to be built):
-  {new_desc}
-
-EXISTING TOOLS most related to it (name: what it does):
-{candidates}
-
-Judge by INTENT (the job done), not wording. Choose exactly one verdict:
-- DUPLICATE:<tool>  an existing tool already does essentially this job.
-- EXTEND:<tool>     an existing tool does MOST of this; the new idea is that tool plus a small delta. Prefer this over NEW whenever a close relative exists -- growing the existing tool beats spawning a near-twin.
-- NEW               genuinely not covered by any listed tool.
-
-Candidates marked [consolidated] are prior tools whose job is already covered by the live library: matching one of them means DUPLICATE, not NEW.
-
-CRITICAL OUTPUT RULE: the VERY FIRST characters of your reply must be "VERDICT:". No thinking out loud, no restating the idea, no preamble of any kind -- replies that do not start with VERDICT: are discarded unread. Reason comes AFTER, on the second line.
-
-VERDICT: <NEW | DUPLICATE:tool-name | EXTEND:tool-name>
-REASON: <one sentence>
-"""
 
 
-def _format_candidates(cands):
-    return "\n".join(f"  {n}: {d}" for n, d in cands) if cands else "  (none related)"
 
-
-_MD_PREFIX = re.compile(r"^[\s#*\->`\u2022]+")
-_KIND_RE = re.compile(
-    r"\b(DUPLICATE|EXTEND)\b\s*(?:[:\-]|\bof\b)?\s*['\"`]?([A-Za-z0-9_\-.]{2,})?",
-    re.IGNORECASE)
-
-
-def _clean_line(ln):
-    return _MD_PREFIX.sub("", ln).strip().strip("*`").strip()
-
-
-def _find_verdict(s, labeled=True):
-    """DUPLICATE/EXTEND(+target) or NEW in a piece of text; None if absent.
-    labeled=False (free-prose fallback) is stricter: NEW only counts in
-    UPPERCASE (narration says 'the new idea...' constantly), and
-    DUPLICATE/EXTEND only count WITH a target."""
-    m = _KIND_RE.search(s)
-    if m:
-        tgt = m.group(2)
-        if tgt and tgt.lower() == "of":          # "EXTEND of tool_x" phrasing
-            m2 = re.search(r"\bof\b\s+['\"`]?([A-Za-z0-9_\-.]{2,})", s[m.start():], re.IGNORECASE)
-            tgt = m2.group(1) if m2 else None
-        if labeled or tgt:
-            return m.group(1).upper(), tgt
-    if labeled and re.search(r"\bNEW\b", s, re.IGNORECASE):
-        return "NEW", None
-    if not labeled and re.search(r"\bNEW\b", s):     # uppercase only in prose
-        return "NEW", None
-    return None
-
-
-def parse_verdict(raw):
-    """Tolerant parse of the judge's reply. Accepts the strict two-line format,
-    markdown-wrapped labels (**VERDICT:** ...), or -- as a fallback -- the
-    verdict token anywhere in a non-menu line. parsed=False means no verdict
-    token was found at all (caller fails open to NEW, visibly)."""
-    verdict, target, reason, parsed = "NEW", None, "", False
-    lines = [_clean_line(ln) for ln in (raw or "").splitlines()]
-    for s in lines:
-        u = s.upper()
-        if u.startswith("VERDICT"):
-            got = _find_verdict(s)
-            if got:
-                verdict, target = got
-                parsed = True
-        elif u.startswith("REASON"):
-            reason = (s.split(":", 1)[1] if ":" in s else s[6:]).strip().strip("* ")
-    if not parsed:
-        for s in lines:
-            if not s or "<tool" in s.lower():     # skip echoed option menu
-                continue
-            got = _find_verdict(s, labeled=False)
-            if got:
-                verdict, target = got
-                parsed = True
-                if not reason:
-                    reason = s[:160]
-                break
-    return {"verdict": verdict, "target": target, "reason": reason, "parsed": parsed}
 
 
 def _rank_candidates(new_desc, pool, registry, attic_registry, k):
@@ -338,6 +257,17 @@ def _rank_candidates(new_desc, pool, registry, attic_registry, k):
     return prefilter(new_desc, pool, k)
 
 
+def _single_from_batch(vdict):
+    """Map a batch-of-one batch_judge result to the single-path contract."""
+    if 0 in vdict:
+        verd, tgt = vdict[0]
+        return {"verdict": verd, "target": tgt, "reason": "batch-of-one judge",
+                "parsed": True, "candidates": []}
+    return {"verdict": "NEW", "target": None,
+            "reason": "judge: not covered (or fail-open)", "parsed": True,
+            "candidates": []}
+
+
 async def assess_idea(new_desc, registry, complete, k=PREFILTER_K,
                       title=None, all_names=None,
                       attic_registry=None, attic_names=None):
@@ -359,34 +289,18 @@ async def assess_idea(new_desc, registry, complete, k=PREFILTER_K,
     cands = _rank_candidates(new_desc, pool, registry, attic_registry, k)
     if not cands:
         return {"verdict": "NEW", "target": None, "reason": "no related existing tool", "parsed": True, "candidates": []}
-    prompt = IDEA_GATE_PROMPT.format(new_desc=new_desc, candidates=_format_candidates(cands))
-    raw = (await complete(prompt, max_tokens=300)) or ""
-    out = parse_verdict(raw)
-    if not out.get("parsed"):
-        out["reason"] = f"UNPARSED reply: {raw[:140]!r}"
-    if out["target"]:
-        out["target"] = out["target"].replace("[consolidated]", "").strip()
-    if out["target"] and out["target"] not in registry:
-        if out["target"] in attic_registry:
-            # precedent lives in the attic; redirect to the covering LIVE keeper
-            keeper = _nearest_live(new_desc, registry)
-            kj = 0.0
-            if not keeper:
-                nk = _keywords(new_desc)
-                kj, keeper = _best_jaccard(nk, registry) if nk else (0.0, None)
-            if keeper:
-                out["reason"] = (f"matches consolidated tool '{out['target']}' (attic); "
-                                 f"live coverage '{keeper}' (J={kj:.2f}) -- " + out.get("reason", ""))
-                out["target"] = keeper
-            else:
-                out["verdict"] = "NEW"
-                out["reason"] += " (attic precedent but no live keeper matched; treated as new)"
-                out["target"] = None
-        else:
-            match = next((n for n in registry if out["target"] in n or n in out["target"]), None)
-            out["target"] = match
-            if not match:
-                out["verdict"] = "NEW"; out["reason"] += " (named target not found; treated as new)"
+    # 2026-08-02: LLM leg folded into batch_judge (a batch of one). The
+    # single path kept the verdict-first contract after the batch twin was
+    # cured -- reasoning models narrate before answering, so this leg 0-parse
+    # fail-opened on the gap/pop path. One prompt, one parser, one contract:
+    # every future fix propagates to both callers. batch_judge's
+    # _resolve_batch_target already performs the attic->live-keeper redirect
+    # this leg used to duplicate.
+    _t = title or new_desc.split(":", 1)[0]
+    _b = new_desc.split(":", 1)[1].strip() if ":" in new_desc else new_desc
+    v = await batch_judge([{"title": _t, "brief": _b}], registry, complete,
+                          attic_registry=attic_registry, per_idea_k=k)
+    out = _single_from_batch(v)
     out["candidates"] = cands
     return out
 
