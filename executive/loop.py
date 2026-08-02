@@ -371,6 +371,11 @@ def _record_completion():
 
 
 def _clear_project_state():
+    try:
+        if os.path.exists(GATE_CHOICE_STATE_PATH):
+            os.remove(GATE_CHOICE_STATE_PATH)  # never leave an armed check on a dead project
+    except OSError:
+        pass
     """Force-clear the creature's project control keys. Used by the spin trap
     and the retrospective. store("") is a real UPDATE; the context builders
     treat empty values as absent (F2)."""
@@ -2208,6 +2213,19 @@ def _collect_metrics() -> dict:
         m["tools"] = len(os.listdir(os.path.join(VOLUME_MOUNT, "tools", "own")))
     except Exception:
         m["tools"] = -1
+    # Consolidation-aware progress (2026-08-02): in-place edits of EXISTING
+    # tools move no counter above, so a healthily-consolidating creature read
+    # as flatlined and the STUCK verdict thrashed it with resets (7 fires in
+    # 16h, each interrupting the very completions it demanded).
+    try:
+        _own = os.path.join(VOLUME_MOUNT, "tools", "own")
+        _now = time.time()
+        m["edited_existing_6h"] = sum(
+            1 for n in os.listdir(_own)
+            if 21600 > _now - os.path.getmtime(os.path.join(_own, n)) and
+            _now - os.path.getmtime(os.path.join(_own, n)) >= 0)
+    except Exception:
+        m["edited_existing_6h"] = -1
     try:
         import subprocess
         r = subprocess.run(["du", "-sm", WORKSPACE_DIR],
@@ -2301,6 +2319,7 @@ def _build_digest(snap: dict, now: dict, win: dict, cycles: int) -> str:
 _RETRO_PROMPT = """You are a periodic external reviewer for an autonomous toolsmith agent. Its mission is to build a COHERENT toolkit of runnable tools that accelerate a fellow LLM -- fetchers, memory archive/recall, planners, subagent helpers -- and, crucially, to USE its own earlier tools when building later ones. You see only summary statistics for its most recent work window. Judge the TRAJECTORY, not individual choices.
 
 Healthy growth: tools get completed and demonstrated; the agent REUSES its own prior tools in later work (reuse events > 0); and -- the strongest sign -- LATER TOOLS ARE BUILT OUT OF EARLIER ONES (dependency depth climbing), so capability compounds rather than accumulating as a flat pile; coverage spreads across tool categories.
+In-place improvement of EXISTING tools (gate-choice upgrades, merging a variant back into its original, deepening a tool it already reuses) IS first-class progress even while completions and tool-count stay flat -- do not call that stuck.
 Being stuck: tools completed but never reused (a drawer of dead tools); near-duplicate tools (a second archiver, a third planner) instead of new categories; relapsing into producing reports/dashboards/summaries (output for a human, not tools); many project switches with few completions.
 
 The digest separates COMPLETED tools (real) from PROPOSED titles (often never built). Judge by COMPLETIONS and REUSE. In a STUCK directive, name the behavioural PATTERN to stop and what to do instead -- do NOT name a specific project as "mature" or "to finish", because proposed titles routinely refer to work that does not exist.
@@ -2370,6 +2389,8 @@ async def _maybe_retrospective(keychain, advance=True):
     now_m = _collect_metrics()
     win = _window_journal_stats(int(snap.get("journal_lines", 0)))
     digest = _build_digest(snap, now_m, win, state["cycle_count"])
+    digest += ("\nTool files edited in place (existing tools improved, no new "
+               f"file) in the last 6h: {now_m.get('edited_existing_6h', '?')}.")
     try:
         response = await keychain.complete(_RETRO_PROMPT.format(digest=digest))
     except RuntimeError as e:
