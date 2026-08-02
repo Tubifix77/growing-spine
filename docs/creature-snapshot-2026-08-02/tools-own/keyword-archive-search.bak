@@ -1,0 +1,70 @@
+#!/usr/bin/env python3
+"""
+Tool: keyword-archive-search
+does: Search the keyword archive and return top‑matching notes for a query.
+Usage: keyword-archive-search <query> [--top N]
+
+The archive is stored as line‑delimited JSON at /mind/keyword_archive.jsonl.
+Each line must contain at least: title, keywords (list or comma‑string), timestamp, content.
+The tool scores notes by counting overlapping keywords with the query (case‑insensitive)
+and outputs the top N notes as JSON (one per line).
+"""
+
+import sys, json, re, argparse, pathlib
+
+def load_archive(path):
+    notes = []
+    with open(path, 'r', encoding='utf-8') as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                note = json.loads(line)
+                notes.append(note)
+            except json.JSONDecodeError:
+                continue
+    return notes
+
+def normalize_keywords(kw):
+    # Accept list or comma‑separated string
+    if isinstance(kw, list):
+        return [str(k).strip().lower() for k in kw]
+    return [s.strip().lower() for s in str(kw).split(',') if s.strip()]
+
+def score_note(note, query_terms):
+    note_keywords = set(normalize_keywords(note.get('keywords', [])))
+    return len(note_keywords.intersection(query_terms))
+
+def main():
+    parser = argparse.ArgumentParser(description='Search keyword archive')
+    parser.add_argument('query', help='Free‑text query')
+    parser.add_argument('--top', type=int, default=1, help='Number of top results')
+    args = parser.parse_args()
+
+    archive_path = pathlib.Path('/mind/keyword_archive.jsonl')
+    if not archive_path.is_file():
+        print('Archive file not found at', archive_path, file=sys.stderr)
+        sys.exit(1)
+
+    notes = load_archive(archive_path)
+    if not notes:
+        print('Archive is empty', file=sys.stderr)
+        sys.exit(0)
+
+    query_terms = set([t.lower() for t in re.split(r'\\W+', args.query) if t])
+    scored = [(score_note(note, query_terms), note) for note in notes]
+    scored.sort(key=lambda x: x[0], reverse=True)
+
+    # Emit top results with a score > 0 (or fallback to top N anyway)
+    emitted = 0
+    for score, note in scored:
+        if emitted >= args.top:
+            break
+        # Optionally, you could skip zero‑score entries:
+        # if score == 0: continue
+        print(json.dumps(note, ensure_ascii=False))
+        emitted += 1
+
+if __name__ == '__main__':
+    main()

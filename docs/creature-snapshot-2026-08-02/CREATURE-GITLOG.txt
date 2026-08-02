@@ -1,0 +1,14 @@
+2026-07-31 03:21:23 +0000  27c92ab  Add Cross‑Source Fact Checker tool
+2026-07-31 03:12:15 +0000  2de9a6e  Add robust PersistentPlannerCache implementation
+2026-07-22 00:52:25 +0000  a6554d9  Add composite tool plan_from_question_onecall wrapping existing plan_from_question
+2026-06-30 01:28:07 +0000  4d7b6a9  Add interactive_learning_loop – generates, stores, and marks learning modules
+2026-06-29 17:17:23 +0000  8899c09  Fix task_delegation_orchestrator LLM failure by adding safe fallback
+2026-06-29 03:06:40 +0000  a3f81fb  Fix knowledge_gap_filler to avoid jq and enable research_to_task_tracker
+2026-06-26 23:29:41 +0000  32f30f0  Add ensure_jq helper and rewrite contextual_task_generator
+2026-06-25 22:36:56 +0000  b4e4da4  Add semantic_plan_generator composite tool
+2026-06-25 22:16:26 +0000  a4f39bb  Add knowledge_gap_filler, memsearch_fetch_archive, and wake_catchup_knowledge_filler
+2026-06-24 04:52:43 +0000  d559c94  Add composite tool plan_from_goal for goal→plan chaining
+2026-06-23 19:55:08 +0000  49619e6  Add working memgrep tool with TF‑IDF ranking
+2026-06-23 19:21:44 +0000  c7914c6  Add fully functional mem-archive tool
+2026-06-23 10:44:12 +0000  22c48ac  Add json_fetcher and compound json_fetch_and_store tool
+2026-06-21 18:13:10 +0000  57857ca  Implemented functional memstore CLI with add/get, timestamps, and tag handling

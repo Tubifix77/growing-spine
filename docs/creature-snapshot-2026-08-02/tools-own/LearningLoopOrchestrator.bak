@@ -1,0 +1,87 @@
+#!/usr/bin/env python3
+"""
+LearningLoopOrchestrator
+Runs an autonomous learning loop for a given high‑level goal.
+
+Workflow per iteration:
+1. Pull the next pending sub‑task from step‑planner‑tracker.
+2. If no pending steps → exit (goal completed).
+3. Use subagent_ask_helper to fetch explanatory material.
+4. Pipe that material through knowledge_gap_filler (fills missing notes).
+5. Store any new knowledge via keyword-archive-store (handled inside filler).
+6. Mark the step as DONE in step‑planner‑tracker.
+7. Repeat.
+"""
+
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+# Helper wrappers around existing tools (they are executable shells)
+def run_tool(cmd: list[str]) -> str:
+    """Run a shell tool, capture stdout, raise on error."""
+    result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+    return result.stdout.strip()
+
+def get_next_step() -> dict | None:
+    """Ask step-planner-tracker for the next pending step."""
+    out = run_tool(["step-planner-tracker", "next"])
+    if not out:
+        return None
+    # The tool returns a JSON object with fields: id, description, goal_id, status
+    return json.loads(out)
+
+def mark_step_done(step_id: str):
+    """Mark the given step as DONE."""
+    run_tool(["step-planner-tracker", "done", step_id])
+
+def ask_subagent(question: str) -> str:
+    """Ask the LLM sub‑agent to answer the question."""
+    # subagent_ask_helper expects the question on stdin and returns only the answer.
+    proc = subprocess.run(
+        ["subagent_ask_helper"],
+        input=question,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return proc.stdout.strip()
+
+def fill_knowledge_gap(text: str) -> str:
+    """Run knowledge_gap_filler on the supplied text."""
+    proc = subprocess.run(
+        ["knowledge_gap_filler"],
+        input=text,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    # knowledge_gap_filler returns a JSON with possibly added "gap_filled" flag.
+    return proc.stdout.strip()
+
+def orchestrate():
+    while True:
+        step = get_next_step()
+        if step is None:
+            print("✅ All steps completed – learning goal achieved.")
+            break
+
+        step_id = step["id"]
+        desc = step["description"]
+        print(f"🔧 Working on step {step_id}: {desc}")
+
+        # 3. Ask the sub‑agent for explanatory material
+        explanation = ask_subagent(desc)
+        print(f"🗒️ Explanation fetched (truncated): {explanation[:200]}...")
+
+        # 4‑5. Fill any knowledge gaps (this also archives new notes)
+        filled = fill_knowledge_gap(explanation)
+        print(f"🔎 Knowledge gap filler output: {filled[:200]}...")
+
+        # 6. Mark the step as done
+        mark_step_done(step_id)
+        print(f"✅ Step {step_id} marked done.\n")
+
+if __name__ == "__main__":
+    orchestrate()

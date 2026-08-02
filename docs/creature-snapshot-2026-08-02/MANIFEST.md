@@ -9,8 +9,13 @@ from 302 to 32 keepers and regrew from there.
 Published unmodified by Tue as evidence of what the framework produces —
 including the warts: `.bak` files are the creature's own pre-edit backups
 (a habit nobody taught it), strays like `--show` are birth accidents, and
-the live directory even contains a `.git` the creature initialised itself
-(stripped from this copy so the snapshot stays plain files).
+the creature even VERSION-CONTROLS its own library: it git-initialised the
+live directory itself, commits under the author name **GrowthAgent**, and
+writes changelog-quality messages ("Fix knowledge_gap_filler to avoid jq",
+"Add composite tool plan_from_question_onecall wrapping existing
+plan_from_question") — its full self-written changelog is exported here as
+[CREATURE-GITLOG.txt](CREATURE-GITLOG.txt); the `.git` itself is stripped
+from this copy so the snapshot stays plain files.
 Usage counts are invocations in the creature's journal over the last 14 days.
 See the [framework map](../framework-map.html) for the machinery that shaped
 all of this. No credentials or personal data are present (scanned).

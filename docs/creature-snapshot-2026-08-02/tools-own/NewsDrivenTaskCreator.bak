@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+# does: Create actionable tasks from fresh news headlines (via wake_catchup_fetcher, subagent_ask_helper, step-planner-tracker)
+
+# Exit on any error
+set -euo pipefail
+
+# ------------------------------------------------------------
+# Helper: ask the LLM to convert a news item into a short task.
+# ------------------------------------------------------------
+function news_to_task() {
+    local title="$1"
+    local summary="$2"
+    # Prompt template – keep it short for the free‑tier LLM.
+    local prompt="You are helping an autonomous research assistant. 
+Given the news headline and summary below, formulate ONE concise, actionable task that the assistant could perform to follow‑up on this news. 
+Provide ONLY the task description, no extra wording.
+
+Headline: $title
+Summary: $summary"
+
+    # subagent_ask_helper reads the prompt from stdin and prints the answer.
+    echo "$prompt" | subagent_ask_helper
+}
+
+# ------------------------------------------------------------
+# Main
+# ------------------------------------------------------------
+if [[ $# -lt 1 ]]; then
+    echo "Usage: $0 --source <news‑site‑url>"
+    exit 1
+fi
+
+# Parse arguments (only –source is needed)
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --source) shift; SOURCE_URL="$1" ;;
+        *) echo "Unknown argument: $1" >&2; exit 1 ;;
+    esac
+    shift
+done
+
+# 1️⃣ Fetch fresh items (JSON array). The real fetcher writes state and outputs JSON to stdout.
+# We force JSON output with --json flag if the fetcher supports it; otherwise rely on default.
+news_json=$(wake_catchup_fetcher.real --source "$SOURCE_URL" --json)
+
+# Verify we got something sensible
+if [[ -z "$news_json" ]]; then
+    echo "No news items returned."
+    exit 1
+fi
+
+# 2️⃣ Iterate over each item. Expected fields: title, url, summary.
+# Use jq to parse safely.
+echo "$news_json" | jq -c '.[]' | while read -r item; do
+    title=$(echo "$item" | jq -r '.title')
+    summary=$(echo "$item" | jq -r '.summary // ""')
+    url=$(echo "$item" | jq -r '.url // ""')
+
+    # Skip items lacking a title
+    [[ -z "$title" ]] && continue
+
+    # 2️⃣ Ask LLM for a task description
+    task_desc=$(news_to_task "$title" "$summary")
+    # Trim whitespace
+    task_desc=$(echo "$task_desc" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+
+    # 3️⃣ Add the task to the planner.
+    # step-planner-tracker add-task "<description>" returns the new plan id.
+    plan_id=$(step-planner-tracker add-task "$task_desc")
+
+    # 4️⃣ Record the link between news and plan (optional, for debugging)
+    echo "Created task [$plan_id]: $task_desc"
+    echo "Source URL: $url"
+done

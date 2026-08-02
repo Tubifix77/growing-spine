@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# does: Evaluate an incoming alert, optionally fetch supporting data, and create or update a high‑priority task in step‑planner‑tracker.
+# Usage: CrossClusterSignalRouter "<alert text>"
+# Returns JSON: {"status":"ok","task_id":<id>,"action":"created|updated"}
+
+ALERT="$1"
+
+# Validate input
+if [[ -z "$ALERT" ]]; then
+    echo '{"status":"error","msg":"no alert provided"}'
+    exit 1
+fi
+
+# Ask the LLM whether this is a high‑priority security issue.
+RELEVANCE=$(printf "Is the following alert a high‑priority security issue that warrants a task?\nAlert: %s\nAnswer with only 'yes' or 'no'." "$ALERT" | subagent_ask_helper)
+
+# Normalize answer
+RELEVANCE=$(echo "$RELEVANCE" | tr '[:upper:]' '[:lower:]' | xargs)
+
+if [[ "$RELEVANCE" != "yes" ]]; then
+    echo '{"status":"ignored","reason":"not high priority"}'
+    exit 0
+fi
+
+# Fetch recent Hacker News items that might provide context.
+# Limit to a small number to keep latency low.
+SUPPORT_JSON=$(wake_catchup_fetcher.real --limit 5)
+
+# Filter items that mention security‑related keywords.
+FILTERED=$(echo "$SUPPORT_JSON" | jq -c '[.[] | select(.title | test("(?i)security|vulnerability|cve|exploit|patch"))]')
+
+# Build a task description.
+DESC="Alert: $ALERT"
+
+if [[ -n "$FILTERED" && "$FILTERED" != "[]" ]]; then
+    DESC+=$'\n'\n"Related recent items:"
+    # Append each matching item as a bullet.
+    while IFS= read -r line; do
+        TITLE=$(echo "$line" | jq -r '.title')
+        URL=$(echo "$line" | jq -r '.url')
+        DESC+=$'\n'" - $TITLE ($URL)"
+    done < <(echo "$FILTERED" | jq -c '.[]')
+fi
+
+# Create (or update) a high‑priority task.
+# We always create a new task; step‑planner‑tracker will return its numeric ID.
+TASK_ID=$(step-planner-tracker add "$DESC" --tags high,security)
+
+# Output result
+echo "{\"status\":\"ok\",\"task_id\":$TASK_ID,\"action\":\"created\"}"

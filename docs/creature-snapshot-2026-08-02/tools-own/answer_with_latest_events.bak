@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# does: Answer a question enriched with today’s fresh news headlines
+# Usage: answer_with_latest_events "What are the safety concerns of LLMs?"
+
+set -euo pipefail
+
+question="${1:-}"
+if [[ -z "$question" ]]; then
+  echo "Error: no question supplied" >&2
+  exit 1
+fi
+
+# 1️⃣ Fetch fresh news items (JSON array of {title,url,...})
+news_json=$(wake_catchup_fetcher.real --limit 10)
+
+# 2️⃣ Build a compact news‑context string (titles only, truncated)
+news_titles=$(echo "$news_json" | jq -r '.[].title' | head -n 10 | paste -sd "; " -)
+
+# 3️⃣ Combine the original question with the news context
+combined_question="Question: $question
+Relevant today’s headlines: $news_titles"
+
+# 4️⃣ Ask deep_answer_synth to answer the combined question
+#    deep_answer_synth expects the question on stdin
+answer=$(echo "$combined_question" | deep_answer_synth)
+
+# 5️⃣ Output the answer
+echo "$answer"

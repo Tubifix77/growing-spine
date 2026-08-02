@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+# does: Ingest live items via wake_catchup_fetcher.real, turn each into a plan with plan_from_question,
+#      and register the plan IDs with step-planner-tracker. Outputs JSON of created plans.
+# Usage: live_data_driven_planner [--max N]
+
+# Default number of items to process
+MAX_ITEMS=5
+
+# Parse optional --max argument
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --max)
+      shift
+      MAX_ITEMS="$1"
+      shift
+      ;;
+    *)
+      echo "Unknown argument: $1" >&2
+      exit 1
+      ;;
+  esac
+done
+
+# Temporary file for fetcher output
+FETCH_OUTPUT=$(mktemp)
+
+# Run the real fetcher – it writes one JSON object per line
+wake_catchup_fetcher.real > "$FETCH_OUTPUT"
+if [[ $? -ne 0 ]]; then
+  echo "Error: wake_catchup_fetcher.real failed" >&2
+  rm -f "$FETCH_OUTPUT"
+  exit 1
+fi
+
+# Prepare result array
+RESULTS="["
+
+count=0
+while IFS= read -r line && [[ $count -lt $MAX_ITEMS ]]; do
+  # Skip empty lines
+  [[ -z "$line" ]] && continue
+
+  # Extract a “title” or fallback to the whole JSON as the description
+  TITLE=$(echo "$line" | jq -r '.title // empty')
+  if [[ -z "$TITLE" || "$TITLE" == "null" ]]; then
+    # Use the first 80 chars of the JSON string as a fallback description
+    TITLE=$(echo "$line" | jq -r 'tojson' | cut -c1-80)
+  fi
+
+  # Call plan_from_question with the extracted title/description
+  PLAN_OUTPUT=$(plan_from_question "$TITLE" 2>/dev/null)
+  if [[ $? -ne 0 ]]; then
+    echo "Warning: plan_from_question failed for item: $TITLE" >&2
+    continue
+  fi
+
+  # plan_from_question prints the plan ID on the last line; capture it
+  PLAN_ID=$(echo "$PLAN_OUTPUT" | tail -n1 | tr -d '\r')
+  # Store a label with step-planner-tracker for easy lookup (optional)
+  step-planner-tracker add-label "$PLAN_ID" "$TITLE" >/dev/null 2>&1
+
+  # Append to result JSON
+  if [[ $count -gt 0 ]]; then
+    RESULTS+=","
+  fi
+  RESULTS+=$(printf '{"plan_id":"%s","title":%s}' "$PLAN_ID" "$(printf '%s' "$TITLE" | jq -R .)")
+  ((count++))
+done < "$FETCH_OUTPUT"
+
+RESULTS+="]"
+
+# Clean up
+rm -f "$FETCH_OUTPUT"
+
+# Output the JSON array of created plans
+echo "$RESULTS"

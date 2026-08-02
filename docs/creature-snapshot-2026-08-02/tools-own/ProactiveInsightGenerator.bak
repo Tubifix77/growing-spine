@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+# tool: ProactiveInsightGenerator
+# call: ProactiveInsightGenerator --feed <source>
+# does: Scans recent fetches (via wake_catchup_fetcher), identifies knowledge gaps (via knowledge_gap_filler),
+#       proposes corrective actions (via subagent_ask_helper), and creates actionable steps in step-planner-tracker.
+
+# -------------------------------------------------------------------------
+# Helper: print usage
+usage() {
+  echo "Usage: $0 --feed <source>"
+  echo "  <source> is an identifier understood by wake_catchup_fetcher (e.g., news, hackernews)."
+  exit 1
+}
+
+# -------------------------------------------------------------------------
+# Parse arguments
+if [[ "$1" != "--feed" ]]; then usage; fi
+SOURCE="${2:?Missing feed source}"
+shift 2
+
+# -------------------------------------------------------------------------
+# 1️⃣ Fetch fresh items
+# We use the .real variant so state is persisted under /mind/state.
+FETCH_OUTPUT=$(wake_catchup_fetcher.real --source "$SOURCE" 2>/dev/null)
+if [[ -z "$FETCH_OUTPUT" ]]; then
+  echo "Info: No new items returned from fetcher."
+  exit 0
+fi
+
+# Ensure we have a JSON array
+ITEM_COUNT=$(echo "$FETCH_OUTPUT" | jq 'length' 2>/dev/null || echo 0)
+if [[ "$ITEM_COUNT" -eq 0 ]]; then
+  echo "Info: Fetcher returned empty array."
+  exit 0
+fi
+
+# -------------------------------------------------------------------------
+# 2️⃣ Process each item
+NEW_PLAN_IDS=()
+for ((i=0; i<ITEM_COUNT; i++)); do
+  ITEM_JSON=$(echo "$FETCH_OUTPUT" | jq ".[$i]")
+  TITLE=$(echo "$ITEM_JSON" | jq -r '.title // empty')
+  URL=$(echo "$ITEM_JSON" | jq -r '.url // empty')
+  echo "🔎 Processing: $TITLE"
+
+  # -------------------------------------------------
+  # 2a️⃣ Knowledge‑gap check
+  GAP_RESULT=$(echo "$ITEM_JSON" | knowledge_gap_filler 2>/dev/null || true)
+  GAP_STATUS=$(echo "$GAP_RESULT" | jq -r '.gap // empty')
+  if [[ "$GAP_STATUS" != "true" ]]; then
+    echo "   • No gap detected – skipping corrective action."
+    continue
+  fi
+
+  # -------------------------------------------------
+  # 2b️⃣ Ask sub‑agent for a corrective action
+  # We send a concise prompt containing the title and URL.
+  PROMPT="The article titled \"$TITLE\" at $URL appears to have missing context. Propose a concise actionable research step (max 2 sentences) that would fill the gap."
+  ACTION=$(echo "$PROMPT" | subagent_ask_helper 2>/dev/null || true)
+
+  if [[ -z "$ACTION" ]]; then
+    echo "   • Sub‑agent failed to propose an action – skipping."
+    continue
+  fi
+
+  # -------------------------------------------------
+  # 2c️⃣ Create a plan step in the persistent planner
+  # We embed the original item as metadata for later reference.
+  STEP_DESC="Investigate: $ACTION"
+  METADATA=$(echo "$ITEM_JSON" | jq -c '.')
+  PLAN_ID=$(step-planner-tracker add-step --desc "$STEP_DESC" --metadata "$METADATA" 2>/dev/null || true)
+
+  if [[ -n "$PLAN_ID" ]]; then
+    echo "   • Created plan step ID $PLAN_ID"
+    NEW_PLAN_IDS+=("$PLAN_ID")
+  else
+    echo "   • Failed to create planner step."
+  fi
+done
+
+# -------------------------------------------------------------------------
+# 3️⃣ Report created plan IDs
+if [[ "${#NEW_PLAN_IDS[@]}" -gt 0 ]]; then
+  echo "Created plan IDs: ${NEW_PLAN_IDS[*]}"
+else
+  echo "No new plan steps were created."
+fi
+
+exit 0
