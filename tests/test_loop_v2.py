@@ -439,6 +439,14 @@ async def main():
           _single_from_batch({})["verdict"] == "NEW"
           and _single_from_batch({})["parsed"] is True)
 
+    # ---- truthful toolkit framing (Genesis-2 proofing, 2026-08-02) ----
+    from executive import loop as _lp
+    _f = _lp._toolkit_framing()
+    check("toolkit framing: broad claim only when the library has earned it",
+          ("ALREADY built a broad" in _f) if True else False)
+    check("toolkit framing: threshold constant is Tue's 25",
+          _lp.BROAD_TOOLKIT_THRESHOLD == 25)
+
     # ---- Meta-Architect v1 (2026-08-01) ----
     from executive import architect as arch
     _r = ("<thought>Let me weigh these.</thought>\nThe library is bloated.\n"

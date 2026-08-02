@@ -582,8 +582,26 @@ def _most_used_tools(n: int = 8) -> list:
         return []
 
 
+# Below this, "has ALREADY built a broad toolkit" is a false premise and
+# composition framing is premature (nothing to compose) -- a Genesis-2 newborn
+# must not be fed a flattering lie about itself (Tue, 2026-08-02).
+BROAD_TOOLKIT_THRESHOLD = 25
+
+
+def _toolkit_framing() -> str:
+    try:
+        count = len(os.listdir(os.path.join(VOLUME_MOUNT, "tools", "own")))
+    except OSError:
+        count = 0
+    if count >= BROAD_TOOLKIT_THRESHOLD:
+        return ("You are briefing an autonomous coding agent that has ALREADY "
+                "built a broad ")
+    return ("You are briefing a YOUNG autonomous coding agent that is still "
+            f"building its first ({count} tools so far) ")
+
+
 _COMPOSITION_PROMPT = (
-    "You are briefing an autonomous coding agent that has ALREADY built a broad "
+    "{framing}"
     "toolkit for a near-conscious LLM 'cousin' (Linux container, Python 3, "
     "persistent memory, shell tools, free-tier LLM APIs, no human watching). The "
     "basics are covered. The next stage is DEPTH: building a tool that COMPOSES "
@@ -774,7 +792,7 @@ def _composition_batch_prompt(n: int, inspiration: str = "") -> str:
         or "  - (no usage data yet; chain any two tools you have built)"
     cluster_block = _cluster_summary()
     return (
-        "You are briefing an autonomous coding agent that has ALREADY built a broad "
+        _toolkit_framing() +
         "toolkit for a near-conscious LLM 'cousin' (Linux container, Python 3, "
         "persistent memory, shell tools, free-tier LLM APIs, no human watching). The "
         "basics are covered. The next stage is DEPTH: tools that COMPOSE existing "
@@ -1188,7 +1206,8 @@ async def _oracle_composition_spec(keychain) -> dict:
     back to a composition that chains real seed tools (never a rebuild)."""
     tool_list = "\n".join(f"  - {n} ({u} uses)" for n, u in _most_used_tools(8)) \
         or "  - (no usage data yet; chain any two tools you have built)"
-    prompt = _COMPOSITION_PROMPT.format(tool_list=tool_list)
+    prompt = _COMPOSITION_PROMPT.format(framing=_toolkit_framing(),
+                                        tool_list=tool_list)
     raw = ""
     try:
         raw = await keychain.complete(prompt, max_tokens=500) or ""
