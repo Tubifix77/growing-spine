@@ -467,6 +467,13 @@ async def main():
     from executive import toolfind as _tfm
     _ok, _err = _tfm.answer("")
     check("toolfind: empty query answered honestly", _ok is False and "empty" in _err)
+    check("toolfind: birth accidents and backups are never recommended",
+          all(_tfm._is_junk(n) for n in
+              ["--show", "own", "dummy", "x.bak", "x.bak_1785553447",
+               "y.broken_20260709164649", ".hidden", "z.tmp"])
+          and not any(_tfm._is_junk(n) for n in
+                      ["step-planner-tracker", "wake_catchup_fetcher.real",
+                       "knowledge_gap_filler", "own_news_digest"]))
     from executive import embed_gate as _eg
     if _eg.available():
         _ok2, _res2 = _tfm.answer("make a plan from a question", k=5)

@@ -9,8 +9,20 @@ back to `tools | grep`.
 """
 import json
 import os
+import re
 import threading
 import time
+
+# Birth accidents and the creature's own backups live in tools/own too, and
+# they embed like real tools -- `--show` (whose contents are just the words
+# "step-planner-tracker") took the #1 slot on a meaning query, 2026-08-03.
+# The librarian must only ever recommend things worth running.
+JUNK_RE = re.compile(r"(^--|^\.|^(own|dummy)$|\.bak(_\d+)?$|\.broken|\.tmp$)")
+
+
+def _is_junk(name):
+    return bool(JUNK_RE.search(name))
+
 
 REQ = "toolfind_req.json"
 RES_PREFIX = "toolfind_res_"
@@ -24,12 +36,14 @@ def answer(query, k=6):
     from . import embed_gate
     if not embed_gate.available():
         return False, "index unavailable"
-    try:
-        hits = embed_gate.top_matches(q, k=max(1, min(int(k or 6), 12)),
+    want = max(1, min(int(k or 6), 12))
+    try:  # over-fetch, because junk is filtered out below
+        hits = embed_gate.top_matches(q, k=min(want * 3 + 6, 48),
                                       labels=["live"])
     except Exception as e:  # refresh race, torn read -- honest, retryable
         return False, "index busy (%s)" % type(e).__name__
-    return True, [(n.split(":", 1)[1], round(s, 3)) for n, s in hits]
+    named = [(n.split(":", 1)[1], round(s, 3)) for n, s in hits]
+    return True, [(n, s) for n, s in named if not _is_junk(n)][:want]
 
 
 def _handle_once(state_dir):
