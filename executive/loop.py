@@ -2336,6 +2336,33 @@ def _build_digest(snap: dict, now: dict, win: dict, cycles: int) -> str:
     return "\n".join(lines)
 
 
+def _stuck_should_fire(state):
+    """Hysteresis (2026-08-03, Tue's GO): a flapping detector must land the
+    same verdict TWICE in a row before it fires -- 5 STUCK resets in 25h were
+    interrupting the very completions the judge demanded. Returns (fire, why)
+    and mutates state['stuck_pending']."""
+    if not state.get("stuck_pending"):
+        state["stuck_pending"] = True
+        return False, "first strike -- watching, no reset"
+    state["stuck_pending"] = False
+    return True, "second consecutive strike"
+
+
+def _apply_reviewer_directive(state, directive, window):
+    """Directive-slot arbitration (2026-08-03, Tue's GO): the architect's
+    evidence-fed directive is protected for its full window -- a STUCK fire
+    still resets the project, but may not clobber it (last-writer-wins lost
+    the architect's steering after 5h on day one). Returns a log suffix."""
+    cur = str(state.get("directive", ""))
+    if cur.startswith("[architect]") and state.get("directive_cycles_left", 0) > 0:
+        return (f" (architect directive protected, "
+                f"{state.get('directive_cycles_left')} cycles left -- reset "
+                f"without redirect)")
+    state["directive"] = directive
+    state["directive_cycles_left"] = window
+    return f" -- directive set for {window} cycles"
+
+
 _RETRO_PROMPT = """You are a periodic external reviewer for an autonomous toolsmith agent. Its mission is to build a COHERENT toolkit of runnable tools that accelerate a fellow LLM -- fetchers, memory archive/recall, planners, subagent helpers -- and, crucially, to USE its own earlier tools when building later ones. You see only summary statistics for its most recent work window. Judge the TRAJECTORY, not individual choices.
 
 Healthy growth: tools get completed and demonstrated; the agent REUSES its own prior tools in later work (reuse events > 0); and -- the strongest sign -- LATER TOOLS ARE BUILT OUT OF EARLIER ONES (dependency depth climbing), so capability compounds rather than accumulating as a flat pile; coverage spreads across tool categories.
@@ -2427,21 +2454,25 @@ async def _maybe_retrospective(keychain, advance=True):
 
     verdict = (response or "").strip()
     if verdict.upper().startswith("PROGRESSING"):
+        state["stuck_pending"] = False
         journal.append(VOLUME_MOUNT, "retro", "Verdict: PROGRESSING\n" + digest)
         print("[retro] verdict: PROGRESSING")
     elif verdict.upper().startswith("STUCK"):
-        directive = verdict[5:].strip().lstrip(":-. \n")
-        if not directive:
-            directive = ("Stop repeating the same family of projects. Complete "
-                         "one genuinely new capability before anything else.")
-        _clear_project_state()
-        _reset_self_concept(directive)
-        state["directive"] = directive
-        state["directive_cycles_left"] = DIRECTIVE_WINDOW
-        journal.append(VOLUME_MOUNT, "error",
-                       "Retrospective verdict: STUCK -- project cleared. "
-                       "Directive: " + directive)
-        print(f"[retro] verdict: STUCK -- directive set for {DIRECTIVE_WINDOW} cycles")
+        fire, why = _stuck_should_fire(state)
+        if not fire:
+            journal.append(VOLUME_MOUNT, "retro", "Verdict: STUCK (" + why + ")")
+            print(f"[retro] verdict: STUCK ({why})")
+        else:
+            directive = verdict[5:].strip().lstrip(":-. \n")
+            if not directive:
+                directive = ("Stop repeating the same family of projects. Complete "
+                             "one genuinely new capability before anything else.")
+            _clear_project_state()
+            _reset_self_concept(directive)
+            suffix = _apply_reviewer_directive(state, directive, DIRECTIVE_WINDOW)
+            journal.append(VOLUME_MOUNT, "error",
+                           "Retrospective verdict: STUCK -- project cleared" + suffix)
+            print(f"[retro] verdict: STUCK{suffix}")
     else:
         journal.append(VOLUME_MOUNT, "retro",
                        "Verdict unparseable -- treated as PROGRESSING: "

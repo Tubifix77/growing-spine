@@ -448,6 +448,21 @@ async def main():
           and "3 tools so far" in _lp._toolkit_framing(count=3)
           and _lp.BROAD_TOOLKIT_THRESHOLD == 25)
 
+    # ---- retro hysteresis + directive arbitration (2026-08-03) ----
+    _st = {}
+    _f1, _ = _lp._stuck_should_fire(_st)
+    _f2, _ = _lp._stuck_should_fire(_st)
+    check("retro hysteresis: first strike watches, second fires",
+          _f1 is False and _st.get("stuck_pending") is False and _f2 is True)
+    _st2 = {"directive": "[architect] chain, do not sibling", "directive_cycles_left": 9}
+    _sfx = _lp._apply_reviewer_directive(_st2, "expand now", 20)
+    check("directive arbitration: architect slot protected mid-window",
+          _st2["directive"].startswith("[architect]") and "protected" in _sfx)
+    _st3 = {"directive": "old reviewer note", "directive_cycles_left": 0}
+    _lp._apply_reviewer_directive(_st3, "expand now", 20)
+    check("directive arbitration: expired/plain slots are writable",
+          _st3["directive"] == "expand now" and _st3["directive_cycles_left"] == 20)
+
     # ---- Meta-Architect v1 (2026-08-01) ----
     from executive import architect as arch
     _r = ("<thought>Let me weigh these.</thought>\nThe library is bloated.\n"
