@@ -517,6 +517,14 @@ async def main():
           bool(arch.LINEAGE_RE.search("subagent_summarize_archive_upgraded"))
           and bool(arch.LINEAGE_RE.search("catchup_x_v2.py"))
           and not arch.LINEAGE_RE.search("plan_from_question"))
+    _ev_t = {"total": 350, "zero_use_count": 100, "lineage_count": 5,
+             "top_used": [("a", 3)], "born_24h": [], "lineage_variants": []}
+    _pr = arch.build_prompt([{"title": "x", "brief": "y",
+                              "gate": ("DUPLICATE", "tool_x")}], _ev_t)
+    check("architect prompt: covered ideas are upgrade candidates, not deletions",
+          "an UPGRADE of tool_x, not a new file" in _pr
+          and "KEEP them by default" in _pr
+          and "DROP a covered item only if" in _pr)
     check("batch judge scan: gemma <thought> preamble does not block the block",
           _scan_verdict_lines("<thought>musing</thought>\nVERDICTS:\n1: NEW\n2: NEW\n3: NEW", 3)[0] == 3)
 

@@ -59,14 +59,21 @@ def build_prompt(items, ev):
     lines = []
     for i, it in enumerate(items, 1):
         g = it.get("gate")
-        tag = f" [gate: covered by {g[1]}]" if g else " [gate: new]"
+        tag = (f" [gate: covered by {g[1]} -- an UPGRADE of {g[1]},"
+               f" not a new file]" if g else " [gate: new]")
         lines.append(f"IDEA {i}: {it.get('title', '')} -- "
                      f"{str(it.get('brief', ''))[:160]}{tag}")
     top = ", ".join(f"{n}({c})" for n, c in ev.get("top_used", [])[:8])
     return f"""You are the meta-architect for an autonomous toolsmith agent. Its library has {ev['total']} tools; {ev['zero_use_count']} were unused in 14 days; {ev['lineage_count']} are lineage variants (files like X_upgraded or X_v2 spawned INSTEAD of editing X -- drift to stop). Most-used: {top or '-'}.
 Born in the last 24h: {', '.join(ev['born_24h'][:12]) or '-'}.
 
-Rule on each idea below. KEEP the good (add one line of build guidance; prefer editing existing files in place and CHAINING existing tools over new siblings). DROP redundant capability. RESHAPE only by rewriting the brief into something the library truly lacks.
+Rule on each idea below.
+
+Items tagged [gate: covered by X] have ALREADY been judged by the deduplication gate: the agent will receive them as a choice to UPGRADE X by editing that file in place -- never as a new sibling file. This is the library's depth work, so KEEP them by default and use your guidance line to say what X should gain. DROP a covered item only if X itself is not worth deepening (dead, unused, superseded by something better).
+
+Items tagged [gate: new] are candidate NEW capabilities. KEEP the ones the library truly lacks -- guidance should prefer CHAINING existing tools over writing from scratch. DROP ones that duplicate capability the census shows it already has.
+
+RESHAPE either kind only by rewriting the brief into something the library truly lacks.
 
 {chr(10).join(lines)}
 
