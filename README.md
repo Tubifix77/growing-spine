@@ -60,6 +60,10 @@ tool claims to do and how often it actually ran in the last fortnight. The
 interactive [framework map](docs/framework-map.html) shows the machinery —
 every LLM prompt verbatim, every gate in place — that shaped this growth.
 
+## Current status (2026-08-03, v0.14)
+
+354 own tools, growing under law: the gate serves choices, the done-gate verifies that "upgrade" changed the actual file (lineage-variant births: 62/day before, zero since), and a **Meta-Architect** now rules every refill from evidence — its maiden run parsed 18/18 ideas, kept three, and asked unprompted for timeline tools and "chaining without new sibling files". The judge twins are fused (one prompt, one parser, everywhere), the trajectory Reviewer needs two consecutive STUCK verdicts to act and can no longer overwrite the architect's steering. The creature, for its part, was discovered to be version-controlling its own library under the self-chosen author name **GrowthAgent** — its full self-written changelog and all 348 tool files are published unmodified in [docs/creature-snapshot-2026-08-02](docs/creature-snapshot-2026-08-02/MANIFEST.md).
+
 ## Current status (2026-07-30, v0.13)
 
 274 own tools. The embedding idea-gate is ACTIVE: name collisions and paraphrase-duplicates are caught deterministically for zero tokens, the middle band goes to an LLM judge under a terminal-VERDICTS contract (first clean live parses 2026-07-19 and -30; failures fail open), and a covered idea serves the creature a choice — upgrade the existing tool, or find something genuinely new — announced on its chat channel and acknowledged in its own words. Cognition flows through nine free windows across five model families (Gemini, two Groq buckets, Cerebras until 2026-08-17, Gemma-4-31B direct at 14,400/day, and an OpenRouter ladder ranked by measured intelligence with 10-minute upward re-probe), watched by a weekly free-tier diff sensor whose first catch was the July 19 purge. The container has run as the host user since v0.9.1; the quota tracker remains timestamps-only.
