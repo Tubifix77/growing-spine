@@ -72,6 +72,8 @@ NODES = [
   "Only fenced bash blocks become action. A think with no block is an exec_skip - the objective quality proxy we measure models by (big three ~20%, gemma 33%, gpt-oss 48%).",None),
  ("wake","a5","world","EXEC in the body","docker container, /mind mounted","volume/",
   "Commands run inside the mortal body container as the host user. Tools live at /mind/tools/own; the framework layer at /mind/tools/framework; the attic keeps every retired tool, reversibly.",None),
+ ("wake","a5b","world","tool-find (the librarian)","semantic search over its own library","framework-tools/tool-find + executive/toolfind.py",
+  "The creature's on-demand pull channel (2026-08-03, Tue's design): tool-find 'what you need' writes a request onto /mind/state, a host watcher answers in under a second from the gate's own live embedding index -- one geometry, no LLM, no new body packages. Presented as doctrine in the constitution and advertised at the top of every catalogue: with 350+ tools, asking by meaning replaces skimming by name.",None),
  ("wake","a6","gate","DONE-GATE suite","four checks before a completion counts","executive/loop.py:~1935-2075",
   "The law layer. Blocks: (1) hollow completions - the tool is still a tool-new placeholder; (2) completions on top of an abandoned-stub backlog; (3) false completions (claims contradicted by failing checks); (4) since Aug 2: gate-choice UPGRADEs where the chosen target file is unchanged - a spawned sibling does not count (escape for honest go-new: remember gate-choice-new). Every block message teaches the fix.",None),
  ("wake","a7","llm","Completion classifier","category + coverage bump","executive/loop.py:472",

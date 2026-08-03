@@ -75,6 +75,7 @@ def build_catalogue(volume_mount: str) -> str:
     fw = os.path.join(volume_mount, "tools", "framework")
     own = os.path.join(volume_mount, "tools", "own")
     lines = ["Your tools (run them as commands in a bash block):",
+             "(too many to skim -- ask by meaning: tool-find \"what you need\")",
              "", "Built-in (always available):"]
     if os.path.isdir(fw) and os.listdir(fw):
         for name in sorted(os.listdir(fw)):
