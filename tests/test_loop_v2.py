@@ -463,6 +463,29 @@ async def main():
     check("directive arbitration: expired/plain slots are writable",
           _st3["directive"] == "expand now" and _st3["directive_cycles_left"] == 20)
 
+    # ---- tool-find membrane (2026-08-03): host answers over /mind/state ----
+    from executive import toolfind as _tfm
+    _ok, _err = _tfm.answer("")
+    check("toolfind: empty query answered honestly", _ok is False and "empty" in _err)
+    from executive import embed_gate as _eg
+    if _eg.available():
+        _ok2, _res2 = _tfm.answer("make a plan from a question", k=5)
+        if _ok2:
+            check("toolfind: live index returns bare live names",
+                  0 < len(_res2) <= 5 and all(":" not in n for n, _ in _res2))
+            import tempfile, json as _j
+            with tempfile.TemporaryDirectory() as _td:
+                _j.dump({"id": "t1", "q": "search the archive", "k": 3},
+                        open(os.path.join(_td, "toolfind_req.json"), "w"))
+                _tfm._handle_once(_td)
+                _r = _j.load(open(os.path.join(_td, "toolfind_res_t1.json")))
+                check("toolfind: request file round-trip answers",
+                      _r.get("ok") is True and len(_r.get("results", [])) > 0)
+        else:
+            print("SKIP toolfind live tests (index busy)")
+    else:
+        print("SKIP toolfind live tests (embed unavailable)")
+
     # ---- Meta-Architect v1 (2026-08-01) ----
     from executive import architect as arch
     _r = ("<thought>Let me weigh these.</thought>\nThe library is bloated.\n"

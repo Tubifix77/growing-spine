@@ -37,5 +37,7 @@ if __name__ == "__main__":
             sys.exit(0)
     except Exception as _e:
         print(f"[main] boot_check skipped: {_e}")
-    from executive.loop import run_forever
+    from executive.loop import run_forever, VOLUME_MOUNT as _VM
+    from executive import toolfind as _tf
+    _tf.start_watcher(_VM)  # answers the creature's tool-find requests
     asyncio.run(run_forever(dockerfile_dir=REPO_ROOT))
