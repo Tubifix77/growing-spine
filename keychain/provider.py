@@ -35,7 +35,6 @@ async def call(cfg: dict, messages: list, max_tokens: int = 2048) -> dict:
         # (groq, error 1010, seen 2026-07-30); a real UA passes.
         "User-Agent": "growing-spine/1.0",
         "Authorization": f"Bearer {cfg['api_key']}",
-        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
     }
 
     req = urllib.request.Request(cfg["endpoint"], data=payload, headers=headers)

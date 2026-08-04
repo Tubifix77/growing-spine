@@ -3,7 +3,7 @@ loop.py Ã¢ÂÂ the executive loop, step 4: wake/sleep runtime wired in.
 """
 import asyncio, os, time, re, json
 from collections import Counter
-from . import sandbox, journal, parser
+from . import sandbox, journal, parser, embed_gate
 from .runtime import (managed_exec, ensure_body, wake_entry,
                       sleep_entry, sleep_duration_seconds)
 from keychain import Keychain
@@ -251,21 +251,189 @@ def _load_workspace_map() -> str:
     return ""
 
 
-def _build_tool_catalogue() -> str:
+# --- curated catalogue (2026-08-04, incident fix) -------------------------
+# The old catalogue printed EVERY own tool, alphabetically, every wake:
+# 11,082 tokens at 354 tools. Discovered cause of a 55h google_gemma outage
+# (Aug 2-4): that alone pushed real thinks past ~12k input tokens, where
+# gemma's free tier silently 429s (confirmed by direct probe: 8k tok OK,
+# 12k+ tok 429, every time). This curates instead of dumping: built-ins
+# verbatim (small, load-bearing) + four short, DEDUPED, merit-diverse
+# sections instead of a phone book. Usage counts are all-time via an
+# incrementally-updated cache (the 69MB journal makes a live 14-day scan
+# per-wake unaffordable); least-recently-shown rotation guarantees every
+# tool -- including ones usage will never surface -- reaches the
+# attention-rich top of the prompt on a bounded cycle, immune to a
+# rich-get-richer basin (Tue's catch, 2026-08-03: ranking risks
+# calcifying exposure bias as merit).
+CATALOGUE_TOOL_BUDGET = 70
+USAGE_CACHE_PATH = os.path.join(VOLUME_MOUNT, "state", "tool_usage_cache.json")
+SURFACED_STATE_PATH = os.path.join(VOLUME_MOUNT, "state", "tool_last_surfaced.json")
+_TOOL_REF_RE = re.compile(r"tools/own/([A-Za-z0-9_.\-]+)")
+
+
+def _update_usage_cache():
+    """Incremental: seek to the last read byte, count new tool refs, save
+    the new offset. One-time O(journal size) cost the very first run;
+    O(new lines) forever after. Self-heals on rotation/truncation."""
+    jpath = os.path.join(VOLUME_MOUNT, "journal.jsonl")
     try:
-        raw = toolmod.build_catalogue(VOLUME_MOUNT)
+        with open(USAGE_CACHE_PATH, encoding="utf-8") as f:
+            cache = json.load(f)
     except Exception:
-        return ""
-    if not raw:
-        return ""
-    # Drop self-made tools whose 'does:' line is a placeholder -- pure noise that
-    # crowds out the working memory below it. Built-ins and well-described tools
-    # are kept verbatim. (The toolkit OVERVIEW with reuse counts is rendered
-    # separately by _build_knowledge_block.)
-    junk = ("provides the ", "describe what this tool does",
-            "(no description)", "- edit this line")
-    kept = [ln for ln in raw.split("\n") if not any(j in ln.lower() for j in junk)]
-    return "\n".join(kept)
+        cache = {"offset": 0, "counts": {}}
+    try:
+        size = os.path.getsize(jpath)
+    except OSError:
+        return cache.get("counts", {})
+    if size < cache.get("offset", 0):
+        cache = {"offset": 0, "counts": {}}  # rotated/truncated -- rescan
+    try:
+        with open(jpath, encoding="utf-8") as f:
+            f.seek(cache.get("offset", 0))
+            for line in f:
+                try:
+                    e = json.loads(line)
+                except Exception:
+                    continue
+                if e.get("kind") == "exec_start":
+                    for m in _TOOL_REF_RE.finditer(e.get("content", "")):
+                        n = m.group(1)
+                        cache["counts"][n] = cache["counts"].get(n, 0) + 1
+            cache["offset"] = f.tell()
+    except OSError:
+        return cache.get("counts", {})
+    try:
+        os.makedirs(os.path.dirname(USAGE_CACHE_PATH), exist_ok=True)
+        tmp = USAGE_CACHE_PATH + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(cache, f)
+        os.replace(tmp, USAGE_CACHE_PATH)
+    except OSError:
+        pass
+    return cache.get("counts", {})
+
+
+def _current_focus_text() -> str:
+    for key in ("current_focus", "current-project", "current-plan"):
+        try:
+            v = mem.recall(VOLUME_MOUNT, key)
+        except Exception:
+            v = None
+        if v:
+            return str(v)[:300]
+    return ""
+
+
+def _mark_surfaced(names, surfaced):
+    try:
+        try:
+            with open(SURFACED_STATE_PATH, encoding="utf-8") as f:
+                state = json.load(f)
+        except Exception:
+            state = {}
+        now = time.time()
+        for n in names:
+            if n in surfaced:
+                state[n] = now
+        os.makedirs(os.path.dirname(SURFACED_STATE_PATH), exist_ok=True)
+        tmp = SURFACED_STATE_PATH + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(state, f)
+        os.replace(tmp, SURFACED_STATE_PATH)
+    except OSError:
+        pass
+
+
+def _build_tool_catalogue() -> str:
+    own = os.path.join(VOLUME_MOUNT, "tools", "own")
+    fw = os.path.join(VOLUME_MOUNT, "tools", "framework")
+    try:
+        names = sorted(n for n in os.listdir(own)
+                       if not embed_gate._is_junk(n))
+    except OSError:
+        names = []
+
+    if not names or not embed_gate.available():
+        # No index yet, or a very young library -- the old full listing is
+        # a fine fallback; there is nothing to curate below ~40 tools.
+        try:
+            raw = toolmod.build_catalogue(VOLUME_MOUNT)
+        except Exception:
+            return ""
+        if not raw:
+            return ""
+        junk = ("provides the ", "describe what this tool does",
+                "(no description)", "- edit this line")
+        return "\n".join(ln for ln in raw.split("\n")
+                         if not any(j in ln.lower() for j in junk))
+
+    def doc(n):
+        return toolmod._first_doc_line(os.path.join(own, n))
+
+    lines = ["Your tools (run them as commands in a bash block):",
+             '(this is a CURATED slice, not the whole library -- ask by '
+             'meaning: tool-find "what you need", or list everything: tools)',
+             "", "Built-in (always available):"]
+    if os.path.isdir(fw) and os.listdir(fw):
+        for n in sorted(os.listdir(fw)):
+            lines.append(f"  {n} - {toolmod._first_doc_line(os.path.join(fw, n))}")
+    else:
+        lines.append("  (none)")
+
+    now = time.time()
+    counts = _update_usage_cache()
+    try:
+        with open(SURFACED_STATE_PATH, encoding="utf-8") as f:
+            surfaced_at = json.load(f)
+    except Exception:
+        surfaced_at = {}
+
+    shown = set()
+
+    def section(title, ordered_names, cap):
+        picked = [n for n in ordered_names if n not in shown][:cap]
+        shown.update(picked)
+        if not picked:
+            return
+        lines.append(f"\n{title}:")
+        for n in picked:
+            lines.append(f"  {n} - {doc(n)}")
+
+    section("Your most-used tools",
+             sorted(names, key=lambda n: -counts.get(n, 0)), 6)
+
+    focus = _current_focus_text()
+    if focus and embed_gate.available():
+        try:
+            hits = embed_gate.top_matches(focus, k=20, labels=["live"])
+            ranked = [h.split(":", 1)[1] for h, _s in hits]
+            ranked = [n for n in ranked if n in names]
+        except Exception:
+            ranked = []
+        section("Relevant to what you're working on now", ranked, 12)
+
+    day_new = []
+    for n in names:
+        try:
+            if now - os.path.getmtime(os.path.join(own, n)) < 7 * 86400:
+                day_new.append(n)
+        except OSError:
+            pass
+    section("Born or edited in the last 7 days",
+             sorted(day_new, key=lambda n: -os.path.getmtime(os.path.join(own, n))), 10)
+
+    remaining = [n for n in names if n not in shown]
+    dusty = sorted(remaining, key=lambda n: surfaced_at.get(n, 0))
+    section("Due for a look (haven't come up in a while)", dusty,
+             max(0, CATALOGUE_TOOL_BUDGET - len(shown)))
+
+    left = len(names) - len(shown)
+    if left > 0:
+        lines.append(f"\n...and {left} more. Run `tools` to list everything, "
+                     f'or tool-find "what you need" to search by meaning.')
+
+    _mark_surfaced(names, shown)
+    return "\n".join(lines)
 
 
 

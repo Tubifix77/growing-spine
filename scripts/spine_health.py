@@ -20,6 +20,9 @@ OWN, ATTIC = os.path.join(MIND, "tools", "own"), os.path.join(MIND, "tools", "at
 LOG = os.path.expanduser("~/spine-health.log")
 AGE_OUT_DAYS = 3
 PLACEHOLDER = "DESCRIBE WHAT THIS TOOL DOES"
+QUOTA_STATE = os.path.join(REPO, "keychain", "quota_state.json")
+CONFIG = os.path.join(REPO, "config.yaml")
+FLATLINE_HOURS = 12  # google_gemma sat dead 55h before anyone noticed, 2026-08-02
 
 def norm(s): return re.sub(r"[^a-z0-9]", "", (s or "").lower())
 
@@ -145,10 +148,40 @@ def journal_integrity():
     return f"JOURNAL:REPAIRED {len(bad)} torn (recovered {recovered}, dropped {dropped})"
 
 
+def check_flatline():
+    """FLATLINE: an ENABLED provider with no success in FLATLINE_HOURS.
+    Silence is the failure mode that already bit once -- google_gemma
+    (82%% of all thinks) sat with zero successes for 55h, Aug 2->4, 2026,
+    masked because smaller thinks kept succeeding elsewhere and nothing
+    ever printed "gemma is down". A wall alone is normal (quota exhaustion
+    is the free tier working); FLATLINE fires only when last_success is
+    older than the threshold, regardless of exhausted_at -- catches a
+    provider that keeps failing on every re-probe just as well as one that
+    stopped being tried at all."""
+    try:
+        import yaml
+        cfg = yaml.safe_load(open(CONFIG))
+        enabled = {p["key"] for p in cfg.get("providers", []) if p.get("enabled", True)}
+    except Exception as e:
+        return f"FLATLINE:fail(config:{type(e).__name__})"
+    try:
+        state = json.load(open(QUOTA_STATE))
+    except Exception as e:
+        return f"FLATLINE:fail(state:{type(e).__name__})"
+    now = time.time()
+    dead = []
+    for key in sorted(enabled):
+        last = state.get(key, {}).get("last_success_at")
+        age_h = (now - last) / 3600 if last else None
+        if age_h is None or age_h >= FLATLINE_HOURS:
+            dead.append(f"{key}({'never' if age_h is None else str(int(age_h)) + 'h'})")
+    return "FLATLINE:!!" + ",".join(dead) if dead else "FLATLINE:ok"
+
+
 if __name__ == "__main__":
     line = (time.strftime("%Y-%m-%d %H:%M") + "  "
             + "  ".join([check_sensor(), check_fallbacks(), stub_janitor(),
-                         journal_integrity()]))
+                         journal_integrity(), check_flatline()]))
     with open(LOG, "a") as f:
         f.write(line + "\n")
     print(line)

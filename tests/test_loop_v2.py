@@ -7,7 +7,7 @@ Usage (from repo root):
     python tests/test_loop_v2.py
 Must print ALL TESTS PASS.
 """
-import asyncio, json, os, shutil, sys, tempfile, inspect
+import asyncio, json, os, shutil, sys, tempfile, inspect, time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from executive import loop
 from volume import memory as mem
@@ -131,15 +131,21 @@ async def main():
     check("B2 retro prompt forbids naming a specific project",
           "do NOT name" in loop._RETRO_PROMPT)
 
-    # B7: junk catalogue lines filtered
+    # B7: junk catalogue lines filtered -- specifically the FALLBACK path
+    # (curated catalogue, 2026-08-04, has no reason to hit the junk phrases
+    # since it reads does-lines directly; the fallback is what a young/
+    # embed-unavailable library still uses, and must still filter junk).
     orig = loop.toolmod.build_catalogue
+    orig_avail = loop.embed_gate.available
     loop.toolmod.build_catalogue = lambda vm: (
         "Built-in:\n  remember - Save a fact.\n"
         "Made:\n  foo - Provides the foo functionality.\n"
         "  baz - Archives notes under keywords.\n")
+    loop.embed_gate.available = lambda: False
     cat = loop._build_tool_catalogue()
     loop.toolmod.build_catalogue = orig
-    check("B7 junk lines removed + real kept",
+    loop.embed_gate.available = orig_avail
+    check("B7 junk lines removed + real kept (fallback path)",
           "Provides the foo" not in cat and "Archives notes" in cat)
 
     # B4: loop warning uses intent-based language
@@ -452,6 +458,76 @@ async def main():
     _st = {}
     _f1, _ = _lp._stuck_should_fire(_st)
     _f2, _ = _lp._stuck_should_fire(_st)
+    # ---- curated catalogue (2026-08-04 incident fix) ----
+    _cown = os.path.join(TMP, "tools", "own")
+    _cfw = os.path.join(TMP, "tools", "framework")
+    os.makedirs(_cown, exist_ok=True)
+    os.makedirs(_cfw, exist_ok=True)
+    open(os.path.join(_cfw, "tool-find"), "w").write(
+        "#!/usr/bin/env python3\n# does: search tools by meaning\n")
+    open(os.path.join(_cfw, "tool-new"), "w").write(
+        "#!/usr/bin/env bash\n# does: create a new tool\n")
+    for i in range(90):  # exceed the 70-tool budget so a real remainder exists
+        open(os.path.join(_cown, f"ctool_{i}"), "w").write(
+            f"#!/usr/bin/env bash\n# does: does thing number {i} with archives\n")
+    _cj = os.path.join(TMP, "journal.jsonl")
+    with open(_cj, "w") as f:
+        for _ in range(9):
+            f.write(json.dumps({"kind": "exec_start",
+                                "content": "Block 1: /mind/tools/own/ctool_3 run"}) + "\n")
+    loop.USAGE_CACHE_PATH = os.path.join(TMP, "state", "usage_cache_test.json")
+    loop.SURFACED_STATE_PATH = os.path.join(TMP, "state", "surfaced_test.json")
+    _counts = loop._update_usage_cache()
+    check("usage cache: cold scan counts the referenced tool",
+          _counts.get("ctool_3") == 9)
+    with open(_cj, "a") as f:
+        f.write(json.dumps({"kind": "exec_start",
+                            "content": "Block 1: /mind/tools/own/ctool_3 run"}) + "\n")
+    _counts2 = loop._update_usage_cache()
+    check("usage cache: incremental scan only adds the NEW line (10, not 18)",
+          _counts2.get("ctool_3") == 10)
+    _sz_before = os.path.getsize(_cj)
+    with open(_cj, "w") as f:
+        f.write(json.dumps({"kind": "exec_start",
+                            "content": "Block 1: /mind/tools/own/ctool_7 run"}) + "\n")
+    check("usage cache: shrunk journal (rotation) triggers a safe rescan, not a crash",
+          loop._update_usage_cache().get("ctool_7") == 1)
+
+    _cat = loop._build_tool_catalogue()
+    check("curated catalogue: built-ins present verbatim",
+          "tool-find" in _cat and "tool-new" in _cat)
+    _names_seen = [ln.strip().split(" - ")[0].strip()
+                   for ln in _cat.splitlines() if ln.startswith("  ")]
+    check("curated catalogue: no tool listed twice across sections",
+          len(_names_seen) == len(set(_names_seen)))
+    check("curated catalogue: far smaller than the old full alphabetical dump",
+          len(_cat) < 6000)
+    check("curated catalogue: honest tail names how many are hidden + how to find them",
+          "more. Run `tools`" in _cat and "tool-find" in _cat)
+
+    # ---- flatline sensor (2026-08-04 incident fix) ----
+    import sys as _sys
+    _sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
+    import spine_health as _H
+    _H.CONFIG = os.path.join(TMP, "config_health_test.yaml")
+    _H.QUOTA_STATE = os.path.join(TMP, "quota_health_test.json")
+    with open(_H.CONFIG, "w") as f:
+        f.write("providers:\n- key: alive\n  enabled: true\n"
+                "- key: dead\n  enabled: true\n- key: off\n  enabled: false\n")
+    _now = time.time()
+    json.dump({"alive": {"last_success_at": _now - 3600},
+               "dead": {"last_success_at": _now - 20 * 3600},
+               "off": {}}, open(_H.QUOTA_STATE, "w"))
+    _flat = _H.check_flatline()
+    check("flatline sensor: recent success is fine, disabled providers are ignored",
+          "alive" not in _flat and "off" not in _flat)
+    check("flatline sensor: a silent enabled provider past the threshold is flagged loudly",
+          "FLATLINE:!!" in _flat and "dead(20h)" in _flat)
+    json.dump({"alive": {"last_success_at": _now - 3600}},
+              open(_H.QUOTA_STATE, "w"))  # 'dead' never even attempted
+    check("flatline sensor: a provider with NO recorded success ever is also flagged",
+          "dead(never)" in _H.check_flatline())
+
     check("retro hysteresis: first strike watches, second fires",
           _f1 is False and _st.get("stuck_pending") is False and _f2 is True)
     _st2 = {"directive": "[architect] chain, do not sibling", "directive_cycles_left": 9}
