@@ -613,6 +613,45 @@ async def main():
           "an UPGRADE of tool_x, not a new file" in _pr
           and "KEEP them by default" in _pr
           and "DROP a covered item only if" in _pr)
+
+    # ---- (a) partial-parse diagnostics (2026-08-05): a 3/17 run used to
+    # print like a success while 14 ideas sailed through unruled ----
+    check("architect ruled-index runs: leading run vs scattered vs none",
+          arch._fmt_ruled({0: ("KEEP", ""), 1: ("DROP", ""), 2: ("KEEP", "")})
+          == "1-3"
+          and arch._fmt_ruled({0: ("KEEP", ""), 4: ("DROP", "")}) == "1,5"
+          and arch._fmt_ruled({}) == "none")
+    import contextlib as _ctx
+    import io as _io
+    _items5 = [{"title": str(_i), "brief": "b"} for _i in range(5)]
+    _partial_reply = ("Let me weigh all five.\nARCHITECT:\n"
+                      "IDEA 1: KEEP | deepen it\nIDEA 2: DROP | dead target\n"
+                      "IDEA 3: KEEP | chain it\n")
+
+    async def _stub_partial(prompt, max_tokens=0):
+        return _partial_reply
+
+    _buf = _io.StringIO()
+    with _ctx.redirect_stdout(_buf):
+        _k5, _drp5, _dir5, _w5 = await arch.run_architect(
+            _items5, _ev_t, _stub_partial)
+    _out = _buf.getvalue()
+    check("architect report: partial parse names fail-opens, run and budget",
+          "3/5 ruled [1-3]" in _out and "(2 fail-open)" in _out
+          and "2 unruled" in _out and "vs budget 1600 tok" in _out
+          and "... tail:" in _out and len(_k5) == 4 and _drp5 == 1)
+
+    async def _stub_full(prompt, max_tokens=0):
+        return "ARCHITECT:\n" + "".join(
+            f"IDEA {_i}: KEEP | ok\n" for _i in range(1, 6))
+
+    _buf2 = _io.StringIO()
+    with _ctx.redirect_stdout(_buf2):
+        await arch.run_architect(_items5, _ev_t, _stub_full)
+    check("architect report: a full parse prints no diagnostic noise",
+          "5/5 ruled [1-5]" in _buf2.getvalue()
+          and "fail-open" not in _buf2.getvalue()
+          and "unruled" not in _buf2.getvalue())
     check("batch judge scan: gemma <thought> preamble does not block the block",
           _scan_verdict_lines("<thought>musing</thought>\nVERDICTS:\n1: NEW\n2: NEW\n3: NEW", 3)[0] == 3)
 

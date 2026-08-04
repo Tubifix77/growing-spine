@@ -144,24 +144,54 @@ def apply_architect(items, decisions):
     return out, dropped
 
 
+def _fmt_ruled(dec):
+    """1-based ruled indices, compressed to runs ('1-3,7'). A leading run
+    that stops short is the signature of a reply truncated mid-block;
+    'none' or a scattered set means the block was never written properly."""
+    idx = sorted(i + 1 for i in dec)
+    if not idx:
+        return "none"
+    runs, start, prev = [], idx[0], idx[0]
+    for i in idx[1:]:
+        if i == prev + 1:
+            prev = i
+            continue
+        runs.append((start, prev))
+        start = prev = i
+    runs.append((start, prev))
+    return ",".join(str(a) if a == b else f"{a}-{b}" for a, b in runs)
+
+
 async def run_architect(items, evidence, complete):
     """One call, fail-open. Returns (items, dropped, directive, wanted)."""
     if not items:
         return items, 0, "", []
+    budget = 200 * len(items) + 600
     try:
         raw = await complete(build_prompt(items, evidence),
-                             max_tokens=200 * len(items) + 600) or ""
+                             max_tokens=budget) or ""
     except Exception as e:
         print(f"[architect] call failed ({type(e).__name__}) -- fail-open, "
               f"batch unchanged")
         return items, 0, "", []
     parsed, dec, directive, wanted = parse_architect(raw, len(items))
     kept, dropped = apply_architect(items, dec)
-    print(f"[architect] {parsed}/{len(items)} ruled: kept {len(kept)}, "
-          f"dropped {dropped}"
+    fail_open = len(items) - parsed
+    print(f"[architect] {parsed}/{len(items)} ruled [{_fmt_ruled(dec)}]: "
+          f"kept {len(kept)}"
+          + (f" ({fail_open} fail-open)" if fail_open else "")
+          + f", dropped {dropped}"
           + ("; directive set" if directive else "")
           + (f"; wanted: {len(wanted)}" if wanted else ""))
-    if parsed == 0 and raw:
-        h = re.sub(r"\s+", " ", raw)[:110]
-        print(f"[architect] UNPARSED head: '{h}'")
+    if fail_open and raw:
+        # A PARTIAL parse used to wear a victory costume: unruled ideas are
+        # silent fail-open KEEPs, and the old diagnostic only spoke at 0/N.
+        # Speak whenever anything went unruled, and give the two numbers that
+        # separate the causes: reply length against the token budget (a reply
+        # near 4*budget chars was cut off mid-block) plus the ruled-index run
+        # above (a leading run = truncation, 'none' = no block at all).
+        flat = re.sub(r"\s+", " ", raw)
+        print(f"[architect] {fail_open} unruled -- reply {len(flat)} chars "
+              f"vs budget {budget} tok; head: '{flat[:110]}'")
+        print(f"[architect] ... tail: '{flat[-160:]}'")
     return kept, dropped, directive, wanted
