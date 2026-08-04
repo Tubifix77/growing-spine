@@ -17,11 +17,13 @@ import time
 # they embed like real tools -- `--show` (whose contents are just the words
 # "step-planner-tracker") took the #1 slot on a meaning query, 2026-08-03.
 # The librarian must only ever recommend things worth running.
-JUNK_RE = re.compile(r"(^--|^\.|^(own|dummy)$|\.bak(_\d+)?$|\.broken|\.tmp$)")
 
 
 def _is_junk(name):
-    return bool(JUNK_RE.search(name))
+    """Delegates to the canonical predicate in embed_gate (lazy import: the
+    gate is the lower layer, and toolfind already imports it per call)."""
+    from . import embed_gate
+    return embed_gate._is_junk(name)
 
 
 REQ = "toolfind_req.json"

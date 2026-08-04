@@ -611,8 +611,40 @@ async def main():
                               "gate": ("DUPLICATE", "tool_x")}], _ev_t)
     check("architect prompt: covered ideas are upgrade candidates, not deletions",
           "an UPGRADE of tool_x, not a new file" in _pr
-          and "KEEP them by default" in _pr
-          and "DROP a covered item only if" in _pr)
+          and "KEEP them unless X itself is not worth deepening" in _pr
+          and "is NOT a keep -- it is a keep with no guidance" in _pr)
+    # 2026-08-05: "KEEP them by default" read as licence to omit the line;
+    # a fork's guidance IS the ruling, so the contract now states the count.
+    _pr3 = arch.build_prompt([{"title": "a", "brief": "b"},
+                              {"title": "c", "brief": "d",
+                               "gate": ("EXTEND", "tool_c")},
+                              {"title": "e", "brief": "f"}], _ev_t)
+    check("architect prompt: block contract demands a line for every idea",
+          "IDEA 1 through IDEA 3, in order" in _pr3
+          and "All 3 lines are required, covered and new alike" in _pr3
+          and "continuing to IDEA 3" in _pr3)
+
+    # ---- canonical junk predicate (2026-08-05) ----
+    # Three copies of "is this file actually a tool?" had drifted: b741e07
+    # taught only tool-find about --show / dummy / X.bak_<epoch>, so those kept
+    # reaching the embed index and the wake catalogue. embed_gate is now the
+    # single source and the other two delegate; this asserts they stay agreed.
+    from executive import embed_gate as _eg
+    from executive import idea_gate as _ig
+    from executive import toolfind as _tf
+    _junk_yes = ["--show", "dummy", "own", "x.bak", "x.bak_1785553447",
+                 "wake_orient_digest.broken_20260709164649", ".hidden",
+                 "keyword-archive.jsonl", "notes.md", "state.json", "a.log"]
+    _junk_no = ["plan_from_question", "wake_catchup_fetcher.real", "tool_v2",
+                "subagent_memory_helper.py", "helper.sh", "ascii_plot",
+                "NewsInsightGenerator", "backup_workspace"]
+    check("junk predicate: birth accidents, timestamped .bak and data files caught",
+          all(_eg._is_junk(_n) for _n in _junk_yes))
+    check("junk predicate: real tools survive (.py/.sh/_v2/.real/backup_ names)",
+          not any(_eg._is_junk(_n) for _n in _junk_no))
+    check("junk predicate: all three modules agree (they drifted once)",
+          all(_eg._is_junk(_n) == _tf._is_junk(_n) == _ig._is_junk(_n)
+              for _n in _junk_yes + _junk_no))
 
     # ---- (a) partial-parse diagnostics (2026-08-05): a 3/17 run used to
     # print like a success while 14 ideas sailed through unruled ----

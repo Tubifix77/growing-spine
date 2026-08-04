@@ -66,9 +66,19 @@ def _tool_text(dirpath, name):
     return f"{name.replace('_', ' ').replace('-', ' ')}: {d}"
 
 
+# CANONICAL junk predicate for "is this file in tools/own actually a tool?".
+# Was duplicated three ways (here, idea_gate, toolfind) and they DISAGREED:
+# 2026-08-03 `b741e07` taught only tool-find about birth accidents (--show,
+# dummy, own) and the creature's timestamped backups (X.bak_<epoch>), so those
+# three files kept reaching the embedding index and the wake catalogue for two
+# more days. Both other modules now delegate here; a test asserts all three
+# agree on a fixture list, because this drifted once already.
+JUNK_RE = re.compile(
+    r'(^--|^\.|^(own|dummy)$|\.bak(_\d+)?$|\.broken|\.(tmp|swp|md|json|jsonl|log)$)')
+
+
 def _is_junk(name):
-    return (name.startswith(".") or ".broken" in name
-            or name.endswith((".bak", ".tmp", ".swp", ".md", ".json")))
+    return bool(JUNK_RE.search(name))
 
 
 def _sig(path):

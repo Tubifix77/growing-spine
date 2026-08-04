@@ -65,6 +65,7 @@ def gather_evidence(own_dir, journal_path, now=None, days=14):
 
 
 def build_prompt(items, ev):
+    n = len(items)
     lines = []
     for i, it in enumerate(items, 1):
         g = it.get("gate")
@@ -78,7 +79,7 @@ Born in the last 24h: {', '.join(ev['born_24h'][:12]) or '-'}.
 
 Rule on each idea below.
 
-Items tagged [gate: covered by X] have ALREADY been judged by the deduplication gate: the agent will receive them as a choice to UPGRADE X by editing that file in place -- never as a new sibling file. This is the library's depth work, so KEEP them by default and use your guidance line to say what X should gain. DROP a covered item only if X itself is not worth deepening (dead, unused, superseded by something better).
+Items tagged [gate: covered by X] have ALREADY been judged by the deduplication gate: the agent will receive them as a choice to UPGRADE X by editing that file in place -- never as a new sibling file. This is the library's depth work, so KEEP them unless X itself is not worth deepening (dead, unused, superseded by something better). A KEEP still needs its own line: the guidance on that line, naming what X should gain, is the whole value you add to a fork. Leaving a covered idea out of the block is NOT a keep -- it is a keep with no guidance at all, which wastes the ruling.
 
 Items tagged [gate: new] are candidate NEW capabilities. KEEP the ones the library truly lacks -- guidance should prefer CHAINING existing tools over writing from scratch. DROP ones that duplicate capability the census shows it already has.
 
@@ -86,12 +87,13 @@ RESHAPE either kind only by rewriting the brief into something the library truly
 
 {chr(10).join(lines)}
 
-You may think first. Then END your reply with exactly this block, one decision line per idea, nothing after the block:
+You may think first. Then END your reply with exactly this block: one decision line for EVERY idea, IDEA 1 through IDEA {n}, in order, nothing after the block. All {n} lines are required, covered and new alike.
 
 ARCHITECT:
 IDEA 1: KEEP | <one line of guidance>
 IDEA 2: DROP | <reason>
 IDEA 3: RESHAPE | <replacement one-line brief>
+... one line per idea, continuing to IDEA {n}
 DIRECTIVE: <one line steering the agent for the next 25 cycles>
 WANTED: <capability 1>; <capability 2>; <capability 3>
 """

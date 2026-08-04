@@ -59,11 +59,10 @@ def extract_description(path):
     return text[:DESC_CAP].strip()
 
 
-_JUNK_SUFFIXES = (".bak", ".tmp", ".swp")
 
 
 def _is_junk(name, desc=None):
-    if name.startswith(".") or name.endswith(_JUNK_SUFFIXES) or ".broken" in name:
+    if embed_gate._is_junk(name):
         return True
     if desc and desc.upper().startswith("DESCRIBE WHAT THIS TOOL DOES"):
         return True
