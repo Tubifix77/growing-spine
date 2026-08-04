@@ -24,6 +24,7 @@ def gather_evidence(own_dir, journal_path, now=None, days=14):
     except OSError:
         names = []
     day_new, lineage = [], []
+    stems = {}
     for n in names:
         try:
             if now - os.path.getmtime(os.path.join(own_dir, n)) < 86400:
@@ -32,6 +33,14 @@ def gather_evidence(own_dir, journal_path, now=None, days=14):
             pass
         if LINEAGE_RE.search(n):
             lineage.append(n)
+        elif not re.search(r"(\.bak|\.broken|\.tmp|^\.)", n):
+            # extension twins are lineage too: DigestPlanner.py born next to
+            # DigestPlanner (2026-08-04) -- same capability, new file, and
+            # invisible to the suffix regex above.
+            stems.setdefault(re.sub(r"\.(py|sh|bash|txt)$", "", n), []).append(n)
+    for stem, group in stems.items():
+        if len(group) > 1:
+            lineage.extend(group)
     used = {}
     cutoff = now - days * 86400
     try:

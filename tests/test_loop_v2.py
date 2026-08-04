@@ -517,6 +517,18 @@ async def main():
           bool(arch.LINEAGE_RE.search("subagent_summarize_archive_upgraded"))
           and bool(arch.LINEAGE_RE.search("catchup_x_v2.py"))
           and not arch.LINEAGE_RE.search("plan_from_question"))
+    import tempfile as _tmpf
+    with _tmpf.TemporaryDirectory() as _d:
+        for _n in ["DigestPlanner", "DigestPlanner.py", "solo_tool",
+                   "helper.sh", "helper", "junk.bak", "solo2.py"]:
+            open(os.path.join(_d, _n), "w").write("x")
+        _ev2 = arch.gather_evidence(_d, os.path.join(_d, "nojournal"))
+        check("architect evidence: extension twins counted as lineage drift",
+              _ev2["lineage_count"] == 4
+              and "DigestPlanner.py" in _ev2["lineage_variants"]
+              and "helper" in _ev2["lineage_variants"]
+              and "solo_tool" not in _ev2["lineage_variants"]
+              and "junk.bak" not in _ev2["lineage_variants"])
     _ev_t = {"total": 350, "zero_use_count": 100, "lineage_count": 5,
              "top_used": [("a", 3)], "born_24h": [], "lineage_variants": []}
     _pr = arch.build_prompt([{"title": "x", "brief": "y",
