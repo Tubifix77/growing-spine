@@ -371,6 +371,13 @@ def _resolve_batch_target(verdict, target, new_text, registry, attic_registry):
     return "NEW", None
 
 
+def _strip_thoughts(raw: str) -> str:
+    """Reasoning models wrap deliberation in tags; gemma-4 emits <thought>,
+    others <think>/<thinking>. Strip before parsing."""
+    return re.sub(r"<(think|thinking|thought)>.*?</\1>", "", raw or "",
+                  flags=re.S | re.I)
+
+
 def _scan_verdict_lines(raw, n_items):
     """Pure line-scan: (parsed_count, {idx: (VERDICT, raw_target)}).
     Tolerant of markdown junk, IDEA prefixes, and any amount of prose
@@ -379,7 +386,7 @@ def _scan_verdict_lines(raw, n_items):
     for ln in raw.splitlines():
         m = re.match(
             r"[\s*#>\-]*(?:idea\s*)?(\d+)[\s*]*[:.\)\-][\s*]*"
-            r"(NEW|DUPLICATE|EXTEND)\s*(?:of\s+)?[:\-]?\s*['\"`]?"
+            r"(NEW|DUPLICATE|EXTEND)\b\s*(?:of\s+)?[:\-]?\s*['\"`]?"
             r"([A-Za-z0-9_\-.\[\] ]{2,})?",
             ln.strip(), re.IGNORECASE)
         if not m:
@@ -387,12 +394,14 @@ def _scan_verdict_lines(raw, n_items):
         idx = int(m.group(1)) - 1
         if not (0 <= idx < n_items):
             continue
-        parsed += 1
         hits[idx] = (m.group(2).upper(), (m.group(3) or "").strip())
-    return parsed, hits
+    # Count distinct ideas, not matching lines: incrementing per line let the
+    # printed diagnostic read "9/7 parsed" when a model repeated itself.
+    return len(hits), hits
 
 
-async def batch_judge(items, registry, complete, attic_registry=None, per_idea_k=3):
+async def batch_judge(items, registry, complete, attic_registry=None,
+                      per_idea_k=3, stats=None, was_truncated=None):
     """ONE LLM call, verdicts for a whole ideation batch.
     items: list of dicts with title+brief. Returns {index: (verdict, target)}
     containing ONLY the ideas judged covered (DUPLICATE/EXTEND with a live
@@ -421,11 +430,25 @@ async def batch_judge(items, registry, complete, attic_registry=None, per_idea_k
     # verdicts, but never wrote IDEA-numbered lines -- verdict-first fights
     # how reasoning models generate. The contract now embraces deliberation
     # and requires a terminal VERDICTS block; 160/idea + 400 funds the musing.
-    raw = (await complete(prompt, max_tokens=160 * len(items) + 400)) or ""
-    # reasoning models wrap deliberation in <think> tags; strip before parsing
-    # gemma-4 emits <thought>, others <think>/<thinking> -- strip all
-    raw = re.sub(r"<(think|thinking|thought)>.*?</\1>", "", raw, flags=re.S | re.I)
+    budget = 160 * len(items) + 400
+    raw = _strip_thoughts((await complete(prompt, max_tokens=budget)) or "")
     parsed_lines, hits = _scan_verdict_lines(raw, len(items))
+    if parsed_lines == 0 and raw:
+        # A 0-parse on a reply that ran out of room is not a ruling, it is a
+        # missing ruling -- and absence is contractually NEW, so the dedup organ
+        # fails open on the whole batch. 2026-08-05 saw a live 0/7 with the tail
+        # still deliberating. One retry at double budget, mirroring the existing
+        # one-shot regen round. was_truncated (when the caller can supply it)
+        # reads finish_reason; the char ratio is the fallback heuristic.
+        cut = bool(was_truncated and was_truncated()) or len(raw) >= int(3.5 * budget)
+        if cut:
+            print(f"[idea-gate] batch judge 0/{len(items)} on a truncated reply "
+                  f"({len(raw)} chars vs {budget} tok) -- one retry at 2x budget")
+            raw2 = _strip_thoughts((await complete(prompt, max_tokens=budget * 2)) or "")
+            p2, h2 = _scan_verdict_lines(raw2, len(items))
+            if p2 > 0:
+                raw, parsed_lines, hits, budget = raw2, p2, h2, budget * 2
+                print(f"[idea-gate] retry recovered {p2}/{len(items)} verdicts")
     out = {}
     for idx, (v, raw_target) in hits.items():
         if v == "NEW":
@@ -438,4 +461,9 @@ async def batch_judge(items, registry, complete, attic_registry=None, per_idea_k
     print(f"[idea-gate] batch judge: {parsed_lines}/{len(items)} verdict lines parsed, "
           f"{len(out)} covered" + ("" if parsed_lines else
           f" -- UNPARSED reply head: {raw[:120]!r} tail: {raw[-120:]!r}"))
+    if stats is not None:
+        # Lets the caller tell "the judge cleared these" apart from "no judge
+        # ever ran". It stamped gate_checked=True either way until 2026-08-05.
+        stats.update(parsed=parsed_lines, items=len(items), covered=len(out),
+                     reply_chars=len(raw), budget=budget)
     return out

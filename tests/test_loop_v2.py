@@ -756,6 +756,57 @@ async def main():
           _cls("empty completion (reasoning-only, answer truncated)") == "flaky"
           and _cls("empty completion (content and reasoning both null)") == "flaky")
 
+    # ---- judge honesty + the parser precedence fixes (2026-08-05) ----
+    import json as _js
+    _bji = [{"title": "T1", "brief": "b1"}, {"title": "T2", "brief": "b2"},
+            {"title": "T3", "brief": "b3"}]
+    _bjr = {"fetch_url": "fetch a page"}
+    _calls = []
+
+    async def _bj_trunc(prompt, max_tokens=None):
+        _calls.append(max_tokens)
+        # First call: deliberation only, no terminal block (the live 0/7 shape).
+        # Retry at double budget: the block arrives.
+        if len(_calls) == 1:
+            return "We should weigh each. We used: 1 DUPLICATE" + ("x" * 6000)
+        return "VERDICTS:\n1: DUPLICATE:fetch_url\n2: NEW\n3: NEW"
+
+    _st = {}
+    _out = await idea_gate.batch_judge(_bji, _bjr, _bj_trunc, stats=_st)
+    check("judge: a 0-parse on a truncated reply is retried once at 2x budget",
+          len(_calls) == 2 and _calls[1] == _calls[0] * 2
+          and _st.get("parsed") == 3 and _out.get(0) == ("DUPLICATE", "fetch_url"))
+    _st2, _calls2 = {}, []
+
+    async def _bj_prose2(prompt, max_tokens=None):
+        _calls2.append(max_tokens)
+        return "I think they all look new to me."
+
+    await idea_gate.batch_judge(_bji, _bjr, _bj_prose2, stats=_st2)
+    check("judge: a short prose reply is NOT retried (nothing was truncated)",
+          len(_calls2) == 1 and _st2.get("parsed") == 0)
+    check("judge: stats let a caller tell 'cleared' from 'never ran'",
+          _st2.get("items") == 3 and _st2.get("covered") == 0)
+    _p, _h = idea_gate._scan_verdict_lines(
+        "1: EXTENDed the archive tool earlier\nVERDICTS:\n1: NEW", 1)
+    check("judge: \\b stops 'EXTENDed' in prose from parsing as an EXTEND verdict",
+          _h.get(0, ("", ""))[0] == "NEW")
+    _p2, _h2 = idea_gate._scan_verdict_lines("1: NEW\n1: NEW\n1: DUPLICATE:x", 1)
+    check("judge: the parse count is distinct ideas, not matching lines",
+          _p2 == 1)
+
+    _ar = ("IDEA 1: KEEP or DROP? let me check the census first\n"
+           "ARCHITECT:\nIDEA 1: DROP | the target is dead\n"
+           "DIRECTIVE: edit in place\nWANTED: a; b\n")
+    _an, _ad, _adir, _aw = arch.parse_architect(_ar, 1)
+    check("architect: LAST wins, so the terminal block beats the deliberation",
+          _an == 1 and _ad[0][0] == "DROP" and "target is dead" in _ad[0][1])
+
+    _ex = loop._composition_batch_prompt(3, "<horizon>")
+    _blk = _ex[_ex.find("["):_ex.find("]", _ex.find("[")) + 1]
+    check("composition prompt: its own STRICT-JSON example is valid JSON",
+          len(_js.loads(_blk)) == 2)
+
     # ---- fork targets are validated at USE, not just at gate time ----
     # 2026-08-05: a gate tag frozen at refill time pointed at `--show`, a birth
     # accident that cannot be invoked as a command. The creature was handed

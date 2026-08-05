@@ -103,16 +103,21 @@ def parse_architect(raw, n):
     """Tolerant scan: (parsed_count, {idx: (VERB, tail)}, directive, wanted).
     Same philosophy as the batch judge's terminal-block contract."""
     raw = THOUGHT_RE.sub("", raw or "")
-    decisions, directive, wanted, parsed = {}, "", [], 0
+    decisions, directive, wanted = {}, "", []
     for ln in raw.splitlines():
         s = ln.strip()
         m = re.match(r"[\s*#>\-]*(?:idea\s*)?(\d+)\s*[:.\)\-]\s*"
                      r"(KEEP|DROP|RESHAPE)\b[\s|:\-]*(.*)", s, re.I)
         if m:
             idx = int(m.group(1)) - 1
-            if 0 <= idx < n and idx not in decisions:
+            if 0 <= idx < n:
+                # LAST wins. The prompt licenses thinking BEFORE the terminal
+                # block, so first-wins let a deliberation line ("IDEA 3: KEEP or
+                # DROP? let me check") beat the real ruling -- and its tail was
+                # then injected into the brief as guidance to the creature. The
+                # sibling judge chose last-wins for exactly this reason, and
+                # DIRECTIVE/WANTED below were already last-wins.
                 decisions[idx] = (m.group(2).upper(), m.group(3).strip()[:220])
-                parsed += 1
             continue
         m = re.match(r"[\s*#>\-]*DIRECTIVE\s*[:\-]\s*(.+)", s, re.I)
         if m:
@@ -122,7 +127,7 @@ def parse_architect(raw, n):
         if m:
             wanted = [w.strip()[:90] for w in m.group(1).split(";")
                       if w.strip()][:5]
-    return parsed, decisions, directive, wanted
+    return len(decisions), decisions, directive, wanted
 
 
 def apply_architect(items, decisions):

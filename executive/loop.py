@@ -985,8 +985,9 @@ def _composition_batch_prompt(n: int, inspiration: str = "") -> str:
         '    "brief": "2-3 sentences: what the composed tool does, WHICH CLUSTERS it bridges, and why the combination accelerates the cousin",\n'
         '    "demonstration": "one sentence: how to PROVE it works by RUNNING it on real input",\n'
         '    "category": "composition"\n'
-        "  }\n"
-        "  // ... " + str(n) + " total\n"
+        "  },\n"
+        "  {\"title\": \"SecondCompositionName\", \"brief\": \"...\", "
+        "\"demonstration\": \"...\", \"category\": \"composition\"}\n"
         "]"
     )
 
@@ -1214,14 +1215,33 @@ async def _gate_composition_batch(batch: list, keychain) -> list:
                 it["gate"] = (det["verdict"], det["target"])
             else:
                 band.append(it)
+        band_ids, judged, stats = {id(it) for it in band}, False, {}
         if band and keychain.any_available():
-            verdicts = await idea_gate.batch_judge(band, reg, keychain.complete,
-                                                   attic_registry=attic_reg)
+            verdicts = await idea_gate.batch_judge(
+                band, reg, keychain.complete, attic_registry=attic_reg,
+                stats=stats,
+                was_truncated=lambda: bool(getattr(keychain, "last_truncated", False)))
             for idx, (v, tgt) in verdicts.items():
                 band[idx]["gate"] = (v, tgt)
+            judged = stats.get("parsed", 0) > 0
+            if not judged:
+                # Journal it. Until 2026-08-05 this only reached stdout, so the
+                # organ that fails open most often was invisible to every
+                # consumer that reads journal.jsonl.
+                journal.append(VOLUME_MOUNT, "idea_gate",
+                               f"batch judge parsed 0/{len(band)} -- band left "
+                               f"UNJUDGED (reply {stats.get('reply_chars', 0)} "
+                               f"chars vs {stats.get('budget', 0)} tok budget)")
         for it in batch:
-            if not it.get("gate"):
-                it["gate_checked"] = True
+            if it.get("gate"):
+                continue
+            if id(it) in band_ids and not judged:
+                # The judge never ran, or parsed nothing. Do NOT stamp these as
+                # "already LLM-judged": serve time trusts that stamp and skips
+                # its own gate, so a quota wall or a 0-parse used to downgrade
+                # the dedup gate to name+embedding checks permanently.
+                continue
+            it["gate_checked"] = True
     except Exception as e:
         print(f"[idea-gate] batch gate skipped (error: {type(e).__name__}) -- queue ungated")
     return batch
@@ -1725,15 +1745,24 @@ async def _is_basin_relapse(proposed: str, keychain) -> bool:
     """True if the creature's pick is output-for-a-reader rather than a runnable
     cousin-tool. Model decides; falls back to the lexical signature on error."""
     try:
-        verdict = (await keychain.complete(
-            _BASIN_CHECK_PROMPT.format(proposed=proposed[:300]), max_tokens=10
-        ) or "").strip().upper()
-        if verdict.startswith("OUTPUT"):
-            return True
-        if verdict.startswith("TOOL"):
-            return False
-    except Exception:
-        pass
+        # 10 tokens could not host a preamble, so "The project is a TOOL" failed
+        # startswith and a thinking rung burned the whole budget before emitting
+        # content -> empty completion -> flaky -> the keychain walked the LADDER,
+        # one request per rung, and then answered with the keyword grep anyway.
+        raw = (await keychain.complete(
+            _BASIN_CHECK_PROMPT.format(proposed=proposed[:300]), max_tokens=60
+        ) or "")
+        hits = re.findall(r"\b(TOOL|OUTPUT)\b", raw.upper())
+        if hits:
+            print(f"[basin] {hits[-1]} (model)")
+            return hits[-1] == "OUTPUT"
+    except Exception as e:
+        print(f"[basin] lexical fallback ({type(e).__name__})")
+        return any(b in proposed.lower() for b in _BASIN_SIGNATURE)
+    # No verdict in the reply. Say so: this fallback IS the lexical signature the
+    # LLM call exists to improve on, and it used to answer with no provenance at
+    # all, so a dead judge looked exactly like a working one.
+    print("[basin] lexical fallback (no TOOL/OUTPUT in reply)")
     return any(b in proposed.lower() for b in _BASIN_SIGNATURE)
 
 
