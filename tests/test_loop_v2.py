@@ -10,6 +10,7 @@ Must print ALL TESTS PASS.
 import asyncio, json, os, shutil, sys, tempfile, inspect, time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from executive import loop
+from volume import tools as vtools
 from volume import memory as mem
 
 TMP = tempfile.mkdtemp(prefix="spine_v2_")
@@ -677,6 +678,49 @@ async def main():
     _win_clean = dict(_win_forced, forced_clears=0)
     check("retro digest: no forced-clear clause when the reviewer stayed out",
           "this reviewer" not in loop._build_digest(_snap_m, _now_m, _win_clean, 20))
+
+    # ---- tool-edit: the verb the fork law needed and the toolkit lacked ----
+    # 2026-08-05: the gate says "edit /mind/tools/own/X ITSELF" for nearly every
+    # project, tool-new REFUSES to overwrite, and no edit primitive existed. The
+    # creature reached for apply_patch ~1685 times and tool-edit ~140 times
+    # across the journal -- verbs from its training prior that did not exist
+    # here -- and never once wrote one itself.
+    import subprocess as _sp
+    _te = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                       "framework-tools", "tool-edit")
+    _te_own = os.path.join(TMP, "te_own")
+    os.makedirs(_te_own, exist_ok=True)
+    _env = dict(os.environ, SPINE_OWN_DIR=_te_own)
+
+    def _run_te(arg, stdin_text):
+        return _sp.run([sys.executable, _te, arg], input=stdin_text, env=_env,
+                       capture_output=True, text=True)
+
+    check("tool-edit: exists and is executable", os.access(_te, os.X_OK))
+    _victim = os.path.join(_te_own, "victim")
+    open(_victim, "w").write("#!/bin/sh\necho v1\n")
+    os.chmod(_victim, 0o755)
+    check("tool-edit: refuses a tool that does not exist, points at tool-new",
+          _run_te("nope_xyz", "x\n").returncode == 1
+          and "tool-new nope_xyz" in _run_te("nope_xyz", "x\n").stdout)
+    check("tool-edit: refuses empty stdin rather than blanking a live tool",
+          _run_te("victim", "").returncode == 1
+          and open(_victim).read() == "#!/bin/sh\necho v1\n")
+    check("tool-edit: refuses a no-op rewrite (an upgrade must change the file)",
+          _run_te("victim", "#!/bin/sh\necho v1\n").returncode == 1)
+    _r = _run_te("victim", "#!/bin/sh\n# does: v2\necho v2\n")
+    check("tool-edit: rewrites in place, keeps the exec bit, leaves one backup",
+          _r.returncode == 0
+          and open(_victim).read().endswith("echo v2\n")
+          and os.access(_victim, os.X_OK)
+          and os.path.exists(_victim + ".bak")
+          and open(_victim + ".bak").read() == "#!/bin/sh\necho v1\n")
+    check("tool-edit: accepts a full path as well as a bare name",
+          _run_te(_victim, "#!/bin/sh\necho v3\n").returncode == 0
+          and open(_victim).read().endswith("echo v3\n"))
+    check("tool-edit: its catalogue line describes itself, not its example",
+          "Rewrite one of your own existing tools in place"
+          in vtools._first_doc_line(_te))
 
     # ---- (a) partial-parse diagnostics (2026-08-05): a 3/17 run used to
     # print like a success while 14 ideas sailed through unruled ----

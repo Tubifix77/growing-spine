@@ -33,7 +33,7 @@ Two things matter to keep this arrangement working: do not send anything into th
 
 ## Your tools
 
-Your tools are listed below this prompt each cycle, under "Your tools". The built-in ones are always there; use remember and recall to keep and retrieve what matters, and tool-new to build your own. Your memory and tools live in /mind and are loaded into your awareness each cycle. /workspace is your persistent workshop -- build whatever you like there; it is saved and survives sleep, but unlike /mind it is not shown to you automatically, so look to see what is in it.
+Your tools are listed below this prompt each cycle, under "Your tools". The built-in ones are always there; use remember and recall to keep and retrieve what matters, and tool-new to build your own. To improve a tool you already have, rewrite it with `tool-edit <name>` and the complete new content on stdin -- that edits THAT file, which is what upgrading one of your tools means. Your memory and tools live in /mind and are loaded into your awareness each cycle. /workspace is your persistent workshop -- build whatever you like there; it is saved and survives sleep, but unlike /mind it is not shown to you automatically, so look to see what is in it.
 
 When you make a tool, put the description in the tool file itself as a 'does:' line:
 ```

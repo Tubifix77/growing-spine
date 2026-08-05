@@ -1,0 +1,94 @@
+#!/usr/bin/env python3
+# does: Rewrite one of your own existing tools in place -- the mirror of tool-new, and how you UPGRADE a tool you already have.
+"""Rewrite one of your own existing tools, in place.
+Usage: tool-edit <name>        (the complete new file content on stdin)
+Example:
+  tool-edit rss_digest <<'EOF'
+  #!/usr/bin/env bash
+  # tool: rss_digest
+  # does: Fetch an RSS feed and store a one-line digest per item.
+  ...
+  EOF
+
+The mirror of tool-new: tool-new refuses to overwrite an existing tool,
+tool-edit refuses to create a missing one. Use tool-edit when you decide to
+UPGRADE a tool you already have -- it edits THAT file, so the upgrade counts."""
+import os
+import shutil
+import stat
+import sys
+
+# Overridable only so the suite can exercise the guards; the creature never
+# sets it, so its view is always /mind/tools/own.
+OWN = os.environ.get("SPINE_OWN_DIR", "/mind/tools/own")
+
+if len(sys.argv) < 2 or not sys.argv[1].strip():
+    print('Usage: tool-edit <name>   (complete new content on stdin)')
+    print('  tool-edit my_tool <<\'EOF\'')
+    print('  ...new file content...')
+    print('  EOF')
+    sys.exit(1)
+
+# Accept a bare name or a full path; only your own tools are editable.
+name = os.path.basename(sys.argv[1].strip().rstrip("/"))
+path = os.path.join(OWN, name)
+
+if not os.path.exists(path):
+    print(f"No tool named '{name}' in {OWN}.")
+    print(f"tool-edit only rewrites tools that already exist -- use "
+          f"tool-new {name} \"<what it does>\" to create it.")
+    sys.exit(1)
+if not os.path.isfile(path):
+    print(f"'{path}' is not a file.")
+    sys.exit(1)
+
+body = sys.stdin.read()
+if not body.strip():
+    # Never let an empty heredoc silently blank a working tool.
+    print(f"Refusing to write empty content over '{name}' -- nothing was "
+          f"read on stdin. Pass the complete new file content, e.g.")
+    print(f"  tool-edit {name} <<'EOF' ... EOF")
+    sys.exit(1)
+if not body.endswith("\n"):
+    body += "\n"
+
+try:
+    with open(path, encoding="utf-8", errors="replace") as f:
+        old = f.read()
+except OSError:
+    old = ""
+
+if old == body:
+    # An unchanged file leaves mtime untouched, and an upgrade that changes
+    # nothing is not an upgrade -- say so rather than reporting success.
+    print(f"'{name}' is already exactly this content -- nothing changed.")
+    sys.exit(1)
+
+# One rolling backup, same convention as your own .bak files. It is overwritten
+# on the next edit rather than accumulating, and it is filtered out of your
+# catalogue, so it costs you no attention.
+try:
+    shutil.copy2(path, path + ".bak")
+except OSError as e:
+    print(f"Warning: could not write backup ({e}) -- continuing.")
+
+mode = stat.S_IMODE(os.stat(path).st_mode) | 0o755
+tmp = path + ".tmp"
+try:
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(body)
+    os.chmod(tmp, mode)
+    os.replace(tmp, path)
+except OSError as e:
+    try:
+        os.unlink(tmp)
+    except OSError:
+        pass
+    print(f"Failed to write '{name}': {e}")
+    sys.exit(1)
+
+before, after = old.count("\n"), body.count("\n")
+sign = "+" if after >= before else ""
+print(f"Rewrote {path} ({before} -> {after} lines, {sign}{after - before}). "
+      f"Previous version kept at {name}.bak")
+print("Now run it and show the improvement working.")
