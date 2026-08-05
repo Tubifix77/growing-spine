@@ -2916,8 +2916,24 @@ async def run_cycle(keychain: Keychain, dockerfile_dir: str):
 
     bash_blocks = parser.parse_bash_blocks(response)
     if not bash_blocks:
-        journal.append(VOLUME_MOUNT, "exec_skip",
-                       "Thought, but proposed no commands (no ```bash block in the response) -- nothing to execute this cycle.")
+        # Do not assert "proposed no commands" without checking. An unclosed
+        # fence means commands WERE proposed and the token ceiling ate them;
+        # 21 of the last 60 exec_skips looked like that on 2026-08-05, and the
+        # framework map has been reading this counter as model quality.
+        truncated = bool(getattr(keychain, "last_truncated", False))
+        open_fence = response.count("```") % 2 == 1
+        if truncated or open_fence:
+            why = ("the reply hit the token ceiling"
+                   if truncated else "the reply ends on an unclosed ``` fence")
+            journal.append(VOLUME_MOUNT, "exec_skip",
+                           f"Proposed commands were LOST, not absent: {why} "
+                           f"(finish_reason="
+                           f"{getattr(keychain, 'last_finish_reason', '') or 'unknown'}"
+                           f"). Nothing executed this cycle.")
+            print(f"[executive] exec_skip from TRUNCATION, not silence: {why}")
+        else:
+            journal.append(VOLUME_MOUNT, "exec_skip",
+                           "Thought, but proposed no commands (no ```bash block in the response) -- nothing to execute this cycle.")
         return False  # non-substantive: no bash executed this cycle
 
     cycle_start = time.time()

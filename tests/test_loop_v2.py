@@ -402,18 +402,26 @@ async def main():
           bj_out.get(0) == ("DUPLICATE", "fetch_url"))
 
     # ---- provider extraction None-safety (the 02:00 len(None) cycle-killer) ----
+    # Arity grew to 4 on 2026-08-05 (finish_reason, reasoning_only). The
+    # reasoning-fallback case below used to assert the substitution was DESIRED;
+    # it was only ever a crash fix, and downstream it meant a truncated
+    # deliberation arrived at scanning parsers as if it were the answer. The
+    # text is still returned for diagnosis, but the flag now says what it is.
     from keychain import provider as kc_provider
-    pt, pn = kc_provider._extract_text_tokens(
+    pt, pn, pf, pr = kc_provider._extract_text_tokens(
         {"choices": [{"message": {"content": "hi"}}], "usage": {"total_tokens": 7}})
-    check("provider extract: normal content + usage", pt == "hi" and pn == 7)
-    pt, pn = kc_provider._extract_text_tokens(
+    check("provider extract: normal content + usage", pt == "hi" and pn == 7
+          and pr is False)
+    pt, pn, pf, pr = kc_provider._extract_text_tokens(
         {"choices": [{"message": {"content": None, "reasoning": "thought"}}], "usage": None})
     check("provider extract: null content falls to reasoning, null usage safe",
           pt == "thought" and pn == len("thought") // 4)
-    pt, pn = kc_provider._extract_text_tokens(
+    check("provider extract: and that fallback is now MARKED reasoning-only",
+          pr is True)
+    pt, pn, pf, pr = kc_provider._extract_text_tokens(
         {"choices": [{"message": {"content": None, "reasoning": None}}]})
     check("provider extract: both null -> empty text, no len(None)",
-          pt == "" and pn == 0)
+          pt == "" and pn == 0 and pr is False)
 
     # ---- keychain error taxonomy (tonight's real strings, 2026-07-17) ----
     from keychain.keychain import classify_error
@@ -719,6 +727,34 @@ async def main():
           and loop.GATE_CHOICE_STATE_PATH.startswith(TMP))
     check("suite isolation: embed_gate took the temp mind dir at import",
           _eg._MIND == TMP)
+
+    # ---- transport: truncation used to be invisible system-wide ----
+    from keychain import provider as _prov
+    from keychain.keychain import classify_error as _cls
+
+    def _resp(content=None, reasoning=None, finish="stop", tokens=7):
+        return {"choices": [{"finish_reason": finish,
+                             "message": {"content": content,
+                                         "reasoning": reasoning}}],
+                "usage": {"total_tokens": tokens}}
+
+    _t, _tok, _fin, _ro = _prov._extract_text_tokens(_resp("hello"))
+    check("transport: a normal completion reports finish_reason and no reasoning-only",
+          _t == "hello" and _fin == "stop" and _ro is False and _tok == 7)
+    _t, _tok, _fin, _ro = _prov._extract_text_tokens(
+        _resp(content=None, reasoning="Let me think about this", finish="length"))
+    check("transport: reasoning-only is flagged, not silently returned as the answer",
+          _ro is True and _fin == "length" and _t == "Let me think about this")
+    _t, _tok, _fin, _ro = _prov._extract_text_tokens(
+        _resp(content=None, reasoning=None, finish="length", tokens=None))
+    check("transport: both-null survives (the 2026-07-17 len(None) crash)",
+          _t == "" and _tok == 0 and _fin == "length" and _ro is False)
+    check("transport: a truncated reply is distinguishable from a finished one",
+          _prov._extract_text_tokens(_resp("x", finish="length"))[2] == "length"
+          and _prov._extract_text_tokens(_resp("x"))[2] == "stop")
+    check("transport: reasoning-only routes to the flaky class (hop, do not parse)",
+          _cls("empty completion (reasoning-only, answer truncated)") == "flaky"
+          and _cls("empty completion (content and reasoning both null)") == "flaky")
 
     # ---- fork targets are validated at USE, not just at gate time ----
     # 2026-08-05: a gate tag frozen at refill time pointed at `--show`, a birth

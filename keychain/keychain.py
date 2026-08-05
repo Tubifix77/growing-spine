@@ -74,6 +74,11 @@ class Keychain:
     def __init__(self):
         self.providers = _load_config()
         self.state = qs.load_state(self.providers)
+        # Metadata about the most recent successful completion. Truncation was
+        # invisible system-wide until 2026-08-05.
+        self.last_used = None
+        self.last_finish_reason = ""
+        self.last_truncated = False
 
     async def complete(self, prompt: str, system: str = "",
                        max_tokens: int = 2048, **_kwargs) -> str:
@@ -106,6 +111,16 @@ class Keychain:
                         print(f"[keychain] {cfg['key']} window REOPENED "
                               f"(probe of a believed-exhausted provider succeeded)")
                     self.last_used = cfg["key"]
+                    # Truncation metadata for the caller. complete() still
+                    # returns a plain str -- ten call sites depend on that -- so
+                    # the flag rides on the instance beside last_used. A caller
+                    # that cares (the think loop, the batch judge) reads it; the
+                    # rest are unaffected.
+                    self.last_finish_reason = result.get("finish_reason") or ""
+                    self.last_truncated = bool(result.get("truncated"))
+                    if self.last_truncated:
+                        print(f"[keychain] {cfg['key']} reply hit the "
+                              f"{max_tokens}-token ceiling (finish_reason=length)")
                     qs.record_success(self.state, cfg["key"])
                     return result["text"]
 
