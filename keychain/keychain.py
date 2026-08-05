@@ -75,7 +75,12 @@ class Keychain:
         self.providers = _load_config()
         self.state = qs.load_state(self.providers)
         # Metadata about the most recent successful completion. Truncation was
-        # invisible system-wide until 2026-08-05.
+        # invisible system-wide until 2026-08-05, and WHICH provider answered a
+        # given call was never recorded anywhere -- the doctrine is
+        # timestamps-only, which is right for scheduling and wrong for
+        # diagnosis. Reconstructing "who served the architect at 00:52" during
+        # the gemma outage was impossible for exactly this reason.
+        self.last_used = None
         self.last_finish_reason = ""
         self.last_truncated = False
 
@@ -109,11 +114,12 @@ class Keychain:
                     if cfg["key"] in exhausted_keys:
                         print(f"[keychain] {cfg['key']} window REOPENED "
                               f"(probe of a believed-exhausted provider succeeded)")
+                    self.last_used = cfg["key"]
                     # Truncation metadata for the caller. complete() still
                     # returns a plain str -- ten call sites depend on that -- so
-                    # the flag rides on the instance. A caller that cares (the
-                    # think loop, the batch judge) reads it; the rest are
-                    # unaffected.
+                    # the flags ride on the instance beside last_used. A caller
+                    # that cares (the think loop, the batch judge) reads them;
+                    # the rest are unaffected.
                     self.last_finish_reason = result.get("finish_reason") or ""
                     self.last_truncated = bool(result.get("truncated"))
                     if self.last_truncated:

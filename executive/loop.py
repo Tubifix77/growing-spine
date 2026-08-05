@@ -2900,6 +2900,13 @@ async def run_cycle(keychain: Keychain, dockerfile_dir: str):
                 journal.append(VOLUME_MOUNT, "chat_retry",
                                f"no <reply> tag; message re-queued (attempt {n}/3)")
 
+    # Which rung answered this think. Nothing recorded this before 2026-08-05,
+    # so "who served the architect at 00:52" was unanswerable during the outage
+    # post-mortem. One journal line per think closes that permanently.
+    journal.append(VOLUME_MOUNT, "served_by",
+                   f"{getattr(keychain, 'last_used', None) or 'unknown'}"
+                   f" finish={getattr(keychain, 'last_finish_reason', '') or '?'}")
+
     bash_blocks = parser.parse_bash_blocks(response)
     if not bash_blocks:
         # Do not assert "proposed no commands" without checking. An unclosed

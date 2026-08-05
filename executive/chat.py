@@ -4,7 +4,12 @@ chat.jsonl on the volume stores all entries with these kinds:
   from_tue      -- message Tue sent, may be unread (read=false) or read (read=true)
   from_creature -- creature's text reply to Tue's last message
 """
-import contextlib, fcntl, json, os, time
+import contextlib, json, os, time
+
+try:
+    import fcntl  # POSIX only
+except ImportError:  # pragma: no cover -- Windows dev checkouts
+    fcntl = None
 
 CHAT_FILENAME = "chat.jsonl"
 
@@ -16,6 +21,14 @@ def _locked(volume_mount: str):
     write). An append landing between the executive's read and its replace was
     silently dropped -- Tue's message could vanish after appearing sent (audit
     P1-F12). flock on a sidecar covers both processes and both access patterns."""
+    if fcntl is None:
+        # Windows dev checkout: the race this guards needs the observer and the
+        # executive running as separate processes, which only happens on the
+        # Linux host. Importability matters more here than a lock nobody needs --
+        # an unconditional import made the whole test suite unrunnable on the
+        # PC peer (found 2026-08-05, hours after I added it).
+        yield
+        return
     lock_path = _path(volume_mount) + ".lock"
     with open(lock_path, "w") as lk:
         fcntl.flock(lk, fcntl.LOCK_EX)

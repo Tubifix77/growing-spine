@@ -54,6 +54,7 @@ def _repoint_all(mod, real, tmp):
     return moved
 
 
+_suite_path = os.path.abspath(__file__)
 REPOINTED = _repoint_all(loop, REAL_MIND, TMP)
 loop.VOLUME_MOUNT = TMP
 loop.journal.append = lambda *a, **k: None
@@ -543,8 +544,21 @@ async def main():
           len(_names_seen) == len(set(_names_seen)))
     check("curated catalogue: far smaller than the old full alphabetical dump",
           len(_cat) < 6000)
-    check("curated catalogue: honest tail names how many are hidden + how to find them",
-          "more. Run `tools`" in _cat and "tool-find" in _cat)
+    # Embedder-dependent: without an index _build_tool_catalogue correctly falls
+    # back to the FULL listing, which has no hidden tail. That made this read as
+    # a hard failure on machines without the model (a WSL run, 2026-08-05) and
+    # cost a parallel session real time deciding whether it had broken something.
+    # Embedder-dependent: with no index _build_tool_catalogue correctly falls back
+    # to the FULL listing, which has no hidden tail and so cannot name one. That
+    # made this read as a hard failure on a machine without the model (a WSL run,
+    # 2026-08-05) and cost a parallel session real time deciding whether it had
+    # broken something. Assert the tail only where a tail can exist.
+    from executive import embed_gate as _eg_probe
+    _eg_ok = _eg_probe.available()
+    check("curated catalogue: honest tail names how many are hidden + how to find them"
+          if _eg_ok else
+          "curated catalogue tail -- SKIPPED (no embedder: full-listing fallback)",
+          (("more. Run `tools`" in _cat and "tool-find" in _cat) if _eg_ok else True))
 
     # ---- flatline sensor (2026-08-04 incident fix) ----
     import sys as _sys
@@ -888,6 +902,37 @@ async def main():
     check("catalogue: embedder-down fallback to the FULL listing announces itself",
           "FULL" in _buf3.getvalue())
 
+    # ---- the gate that gates deploy-self must actually be able to fail ----
+    # Deliberately a SOURCE assertion, not an end-to-end spawn. The end-to-end
+    # version copied this suite, injected a failure and ran the copy -- and the
+    # copy spawned its own copy, each loading the embedding model, until the host
+    # OOMed and had to be power-cycled (2026-08-05, my doing). An env-var guard
+    # would have prevented the recursion, but the honest trade is that running
+    # the whole suite twice on every creature-requested deploy-self is not worth
+    # it. This catches the actual regression -- someone moving the exit back
+    # inside the coroutine -- at zero cost and zero risk.
+    _own_src = open(_suite_path, encoding="utf-8").read()
+    _main_body = _own_src[_own_src.index("async def main():"):_own_src.index("\n_rc = 1")]
+    # The tokens are BUILT, not written, because this check lives inside main()
+    # and a literal would match its own source -- which it did, twice, while
+    # being written. rindex for the same reason: take the last occurrence, which
+    # is the real module-level one, not this description.
+    _E = "sys." + "exit"
+    _R = "asyncio." + "run(main())"
+    check("gate integrity: the failure path RETURNS 1 and the exit happens "
+          "outside the coroutine, where asyncio cannot swallow it",
+          "        return 1" in _main_body
+          and (_E + "(1)") not in _main_body
+          and (_E + "(_rc)") in _own_src
+          and _own_src.rindex(_E + "(_rc)") > _own_src.rindex(_R))
+
+    # chat lock must not be an import-time landmine off POSIX
+    check("chat: fcntl is optional so the suite imports on a Windows checkout",
+          "try:" in open(os.path.join(
+              os.path.dirname(os.path.dirname(_suite_path)),
+              "executive", "chat.py"), encoding="utf-8").read().split(
+              "import contextlib")[1][:120])
+
     # ---- fork targets are validated at USE, not just at gate time ----
     # 2026-08-05: a gate tag frozen at refill time pointed at `--show`, a birth
     # accident that cannot be invoked as a command. The creature was handed
@@ -1033,11 +1078,20 @@ async def main():
     print()
     if fails:
         print("FAILURES: " + ", ".join(fails))
-        sys.exit(1)
+        return 1
     print("ALL TESTS PASS")
+    return 0
 
 
+# sys.exit() INSIDE the coroutine is swallowed by asyncio.run on Python 3.12+
+# (verified 2026-08-05: exit 0 with failures present under 3.12.3, exit 1 under
+# this host's 3.11.2). self_restart.py gates every creature-requested
+# deploy-self on this file's exit code, so a host Python upgrade would have
+# silently disarmed that gate. main() now RETURNS the code and the exit happens
+# at module level, where nothing can swallow it.
+_rc = 1
 try:
-    asyncio.run(main())
+    _rc = asyncio.run(main())
 finally:
     shutil.rmtree(TMP, ignore_errors=True)
+sys.exit(_rc)
