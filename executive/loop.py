@@ -469,7 +469,6 @@ def _build_done_block() -> str:
 
 DONE_MARK_RE = re.compile(r'remember\s+current-phase\s+["\']?done["\']?', re.I)
 PROJECT_SET_RE = re.compile(r'remember\s+current-project\b', re.I)
-PHASE_EXPLORE_RE = re.compile(r'remember\s+current-phase\s+["\']?explore["\']?', re.I)
 
 # Spin trap: track consecutive done-gate blocks on the same failing command.
 # When the same DONE-WHEN check fails SPIN_THRESHOLD times in a row the approach
@@ -675,7 +674,7 @@ async def _classify_completion_category(keychain):
         cat = await _classify_category_cheap(title, keychain)
         state = _load_ideation_state()
         if not state:
-            state = {"categories_built": {}, "block_streak": 0}
+            state = {"categories_built": {}}
         cb = state.setdefault("categories_built", {})
         cb[cat] = cb.get(cat, 0) + 1
         _save_ideation_state(state)
