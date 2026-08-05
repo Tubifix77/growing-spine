@@ -1482,6 +1482,12 @@ async def _oracle_next_spec_raw(keychain) -> dict:
             spec = queue.pop(0)
             _save_composition_queue(queue)
             g = spec.get("gate")
+            if g and not _fork_target_ok(g[1]):
+                print(f"[idea-gate] stale gate tag dropped: target '{g[1]}' is "
+                      f"gone, retired or not an invokable tool -- building "
+                      f"'{_project_title(str(spec.get('title','')))}' as NEW")
+                spec.pop("gate", None)
+                g = None
             if g:
                 v, tgt = g[0], g[1]
                 print(f"[idea-gate] {IDEA_GATE_MODE}: queued idea "
@@ -1583,6 +1589,10 @@ async def _idea_gate_check(spec: dict, keychain) -> dict:
         else:
             print(f"[idea-gate] {IDEA_GATE_MODE}: NEW -- '{disp}'")
         return spec
+    if not _fork_target_ok(tgt):
+        print(f"[idea-gate] {v} of '{tgt}' ignored -- target is gone, retired or "
+              f"not an invokable tool; '{disp}' proceeds as NEW")
+        return spec
     print(f"[idea-gate] {IDEA_GATE_MODE}: {v} of '{tgt}' -- '{disp}' :: {reason}")
     try:
         journal.append(VOLUME_MOUNT, "idea_gate", f"{v}:{tgt} for '{title}' -- {reason}")
@@ -1591,6 +1601,21 @@ async def _idea_gate_check(spec: dict, keychain) -> dict:
     if IDEA_GATE_MODE != "active":
         return spec
     return _gate_choice_spec(v, tgt, brief)
+
+
+def _fork_target_ok(tgt) -> bool:
+    """A fork is only servable if its target is a real, present, invokable tool.
+    Gate tags are frozen into the composition queue at refill time and rot: the
+    target can be renamed, retired to the attic, or -- 2026-08-05 -- turn out to
+    be a birth accident like `--show`, which is filtered from the catalogue and
+    cannot be invoked as a command at all. The creature spent a night building
+    `--show-wrapper` to work around an uninvokable filename because nothing
+    rechecked the target at USE time. Validate here, not only at gate time."""
+    if not tgt:
+        return False
+    if embed_gate._is_junk(str(tgt)):
+        return False
+    return os.path.isfile(os.path.join(VOLUME_MOUNT, "tools", "own", str(tgt)))
 
 
 def _gate_choice_spec(v: str, tgt: str, brief: str) -> dict:
@@ -2436,7 +2461,7 @@ _PROJECT_SET_RE = re.compile(r'remember\s+current-project\s+"?([^"\n]{1,120})')
 def _window_journal_stats(since_line: int) -> dict:
     """Project switches, done-gate blocks, spin fires, and own-tool REUSE events
     since a journal line."""
-    sets, blocks, fires, reuse = [], 0, 0, 0
+    sets, blocks, fires, reuse, forced = [], 0, 0, 0, 0
     own = _own_tool_names()
     own_re = (re.compile(r"(^|[\s/])(" + "|".join(re.escape(n) for n in own)
                          + r")(\s|$)") if own else None)
@@ -2468,11 +2493,14 @@ def _window_journal_stats(since_line: int) -> dict:
                         blocks += 1
                     elif "Spin trap" in content:
                         fires += 1
+                    elif "Retrospective verdict: STUCK" in content:
+                        forced += 1
     except Exception:
         pass
     distinct = list(dict.fromkeys(sets))
     return {"project_sets": len(sets), "distinct_projects": distinct,
-            "blocks": blocks, "spin_fires": fires, "tool_reuse": reuse}
+            "blocks": blocks, "spin_fires": fires, "tool_reuse": reuse,
+            "forced_clears": forced}
 
 
 def _build_digest(snap: dict, now: dict, win: dict, cycles: int) -> str:
@@ -2491,7 +2519,14 @@ def _build_digest(snap: dict, now: dict, win: dict, cycles: int) -> str:
         f"made by the agent (avg depth {_dependency_summary().get('avg_depth', 0)}) "
         f"-- this is the strongest sign of compounding capability",
         f"- tools available in toolkit: {now.get('tools', '?')}",
-        f"- project switches in window: {win['project_sets']}",
+        f"- IN-PLACE EDITS of existing tools in the last 6h: "
+        f"{now.get('edited_existing_6h', '?')} (deepening a tool it already "
+        f"has is first-class progress even when completions stay flat)",
+        f"- project switches in window: {win['project_sets']}"
+        + (f", of which {win.get('forced_clears', 0)} were this reviewer "
+           f"clearing the project on a STUCK verdict -- NOT the agent "
+           f"abandoning its own work"
+           if win.get('forced_clears') else ""),
         f"- distinct project TITLES proposed in window: "
         f"{len(win['distinct_projects'])} (NOTE: proposals set as "
         f"current-project; many are never built -- judge by COMPLETIONS and "
@@ -2628,7 +2663,8 @@ async def _maybe_retrospective(keychain, advance=True):
     elif verdict.upper().startswith("STUCK"):
         fire, why = _stuck_should_fire(state)
         if not fire:
-            journal.append(VOLUME_MOUNT, "retro", "Verdict: STUCK (" + why + ")")
+            journal.append(VOLUME_MOUNT, "retro",
+                            "Verdict: STUCK (" + why + ")\n" + digest)
             print(f"[retro] verdict: STUCK ({why})")
         else:
             directive = verdict[5:].strip().lstrip(":-. \n")
@@ -2639,7 +2675,8 @@ async def _maybe_retrospective(keychain, advance=True):
             _reset_self_concept(directive)
             suffix = _apply_reviewer_directive(state, directive, DIRECTIVE_WINDOW)
             journal.append(VOLUME_MOUNT, "error",
-                           "Retrospective verdict: STUCK -- project cleared" + suffix)
+                           "Retrospective verdict: STUCK -- project cleared"
+                           + suffix + "\n" + digest)
             print(f"[retro] verdict: STUCK{suffix}")
     else:
         journal.append(VOLUME_MOUNT, "retro",

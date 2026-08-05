@@ -646,6 +646,38 @@ async def main():
           all(_eg._is_junk(_n) == _tf._is_junk(_n) == _ig._is_junk(_n)
               for _n in _junk_yes + _junk_no))
 
+    # ---- fork targets are validated at USE, not just at gate time ----
+    # 2026-08-05: a gate tag frozen at refill time pointed at `--show`, a birth
+    # accident that cannot be invoked as a command. The creature was handed
+    # "upgrade --show", wrote a real 3KB tool into it, then started building
+    # `--show-wrapper` to work around the filename.
+    _own_dir = os.path.join(loop.VOLUME_MOUNT, "tools", "own")
+    os.makedirs(_own_dir, exist_ok=True)
+    open(os.path.join(_own_dir, "a_real_tool"), "w").write("#!/bin/sh\necho hi\n")
+    check("fork target: junk, missing and empty targets are not forkable",
+          not loop._fork_target_ok("--show")
+          and not loop._fork_target_ok("dummy")
+          and not loop._fork_target_ok("no_such_tool_xyz")
+          and not loop._fork_target_ok("")
+          and not loop._fork_target_ok(None))
+    check("fork target: a real present tool still forks",
+          loop._fork_target_ok("a_real_tool"))
+
+    # ---- retro digest: the judge was asked to weigh two facts it never saw ----
+    _now_m = {"completed": ["a", "b"], "completions": 2, "memories": 5,
+              "tools": 300, "edited_existing_6h": 11}
+    _snap_m = {"completions": 2, "memories": 4}
+    _win_forced = {"project_sets": 6, "distinct_projects": ["x"], "blocks": 3,
+                   "spin_fires": 0, "tool_reuse": 9, "forced_clears": 5}
+    _dg = loop._build_digest(_snap_m, _now_m, _win_forced, 20)
+    check("retro digest: in-place edits of existing tools are shown",
+          "IN-PLACE EDITS of existing tools in the last 6h: 11" in _dg)
+    check("retro digest: the reviewer's own clears are not the agent's churn",
+          "of which 5 were this reviewer" in _dg)
+    _win_clean = dict(_win_forced, forced_clears=0)
+    check("retro digest: no forced-clear clause when the reviewer stayed out",
+          "this reviewer" not in loop._build_digest(_snap_m, _now_m, _win_clean, 20))
+
     # ---- (a) partial-parse diagnostics (2026-08-05): a 3/17 run used to
     # print like a success while 14 ideas sailed through unruled ----
     check("architect ruled-index runs: leading run vs scattered vs none",
