@@ -1,18 +1,21 @@
 # Growing Spine — provider keychain config
 # Copy to config.yaml and fill in your API keys. config.yaml is gitignored.
+#
+# Walls are discovered from provider errors (429s), not configured — there
+# is no reserve/budget arithmetic here. quota:/is_floor knobs a config might
+# once have had are read by nothing; don't add them back expecting effect.
+#
+# Future idea (not implemented): key the container's env-var mapping off an
+# explicit per-provider field here, e.g. `container_env: GEMINI_API_KEY`,
+# instead of sandbox.py's current hardcoded key allowlist.
 
 providers:
   - key: gemini_flash
     display_name: "Gemini 2.5 Flash"
     enabled: true
-    is_floor: true
     endpoint: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
     model_id: "gemini-2.5-flash"
     api_key: ""
-    quota:
-      type: daily_calls  # track requests, not tokens
-      limit: 250         # free tier: 250 RPD (as of Dec 2025)
-      resets: "00:00 America/Los_Angeles"
 
   - key: groq
     display_name: "Groq (llama-3.3-70b)"
@@ -20,10 +23,6 @@ providers:
     endpoint: "https://api.groq.com/openai/v1/chat/completions"
     model_id: "llama-3.3-70b-versatile"
     api_key: ""
-    quota:
-      type: daily
-      limit: 14400  # tokens/min * minutes — conservative daily cap
-      resets: "00:00 UTC"
 
   - key: cerebras
     display_name: "Cerebras (llama3.1-70b)"
@@ -31,7 +30,3 @@ providers:
     endpoint: "https://api.cerebras.ai/v1/chat/completions"
     model_id: "llama3.1-70b"
     api_key: ""
-    quota:
-      type: daily
-      limit: 30000
-      resets: "00:00 UTC"
