@@ -8,22 +8,54 @@ Usage (from repo root):
 Must print ALL TESTS PASS.
 """
 import asyncio, json, os, shutil, sys, tempfile, inspect, time
+
+TMP = tempfile.mkdtemp(prefix="spine_v2_")
+REAL_MIND = os.path.expanduser("~/growing-spine-mind")
+
+# MUST precede the executive imports: embed_gate freezes VOLUME_MOUNT from the
+# environment at import time (embed_gate.py:22), so a later reassignment would
+# leave the REAL embedding index as the one this suite refreshes.
+os.environ["VOLUME_MOUNT"] = TMP
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from executive import loop
 from volume import tools as vtools
 from volume import memory as mem
 
-TMP = tempfile.mkdtemp(prefix="spine_v2_")
 os.makedirs(os.path.join(TMP, "tools", "own"), exist_ok=True)
+os.makedirs(os.path.join(TMP, "state"), exist_ok=True)
 mem.init_db(TMP)
 
-# Redirect all state to TMP
+
+def _repoint_all(mod, real, tmp):
+    """Repoint EVERY module-level path derived from the real mind dir.
+
+    2026-08-05: this used to be six hand-written assignments, and it had missed
+    FIVE paths -- including GATE_CHOICE_STATE_PATH, the done-gate's arming file.
+    _clear_project_state() deletes that file unconditionally and this suite calls
+    it six times, so every run disarmed the live "the chosen target file must
+    actually change" enforcement -- and self_restart.py runs this suite ON THE
+    LIVE HOST at every creature-requested deploy-self, i.e. precisely during
+    self-modification. Enumerating by hand is what rotted; discover instead, so a
+    new path constant is repointed the day it is added.
+    """
+    moved = []
+    for name in dir(mod):
+        if not name.isupper():
+            continue
+        val = getattr(mod, name)
+        if isinstance(val, str) and val.startswith(real):
+            dest = tmp + val[len(real):]
+            setattr(mod, name, dest)
+            parent = os.path.dirname(dest)
+            if parent:
+                os.makedirs(parent, exist_ok=True)
+            moved.append(name)
+    return moved
+
+
+REPOINTED = _repoint_all(loop, REAL_MIND, TMP)
 loop.VOLUME_MOUNT = TMP
-loop.IDEATION_STATE_PATH = os.path.join(TMP, "ideation_state.json")
-loop.RETRO_STATE_PATH = os.path.join(TMP, "retrospective_state.json")
-loop.DONE_BLOCK_PATH = os.path.join(TMP, "done_block.txt")
-loop.PROJECT_BLOCK_PATH = os.path.join(TMP, "project_block.txt")
-loop.TOOL_USAGE_PATH = os.path.join(TMP, "tool_usage.json")
 loop.journal.append = lambda *a, **k: None
 
 
@@ -44,8 +76,8 @@ class FakeKC:
 fails = []
 
 
-def check(name, cond):
-    print(("PASS " if cond else "FAIL ") + name)
+def check(name, cond, extra=""):
+    print(("PASS " if cond else "FAIL ") + name + ((" -- " + extra) if extra else ""))
     if not cond:
         fails.append(name)
 
@@ -552,7 +584,24 @@ async def main():
                       ["step-planner-tracker", "wake_catchup_fetcher.real",
                        "knowledge_gap_filler", "own_news_digest"]))
     from executive import embed_gate as _eg
+    # 2026-08-05: these two tests used to query the LIVE index -- embed_gate had
+    # frozen the real mind dir at import, so they passed by reading production
+    # data. Now that the suite is isolated they need their own corpus, which also
+    # makes them a real end-to-end check instead of a smoke test.
+    _tf_own = os.path.join(TMP, "tools", "own")
+    for _nm, _doc in (
+            ("plan_from_question", "Turn a question into an ordered plan of steps"),
+            ("archive_search", "Search the keyword archive and return matching notes"),
+            ("rss_timeline", "Render archived events onto a timeline")):
+        open(os.path.join(_tf_own, _nm), "w").write(
+            "#!/usr/bin/env python3\n# tool: %s\n# does: %s\nprint('ok')\n" % (_nm, _doc))
     if _eg.available():
+        # refresh() self-throttles on _REFRESH_INTERVAL (correct in production --
+        # it must not re-embed every wake). An earlier test in this file already
+        # tripped it, so without resetting the clock this refresh is discarded and
+        # the query runs against an empty index.
+        _eg._last_refresh = 0
+        _eg.refresh({"live": _tf_own})
         _ok2, _res2 = _tfm.answer("make a plan from a question", k=5)
         if _ok2:
             check("toolfind: live index returns bare live names",
@@ -563,8 +612,16 @@ async def main():
                         open(os.path.join(_td, "toolfind_req.json"), "w"))
                 _tfm._handle_once(_td)
                 _r = _j.load(open(os.path.join(_td, "toolfind_res_t1.json")))
-                check("toolfind: request file round-trip answers",
-                      _r.get("ok") is True and len(_r.get("results", [])) > 0)
+                _names = [n for n, _ in _r.get("results", [])]
+                # The temp corpus also holds tools other tests wrote, so assert the
+                # SEMANTICS: bare names, and the archive query ranks the archive
+                # tool first. A mere non-empty check passed for months against the
+                # live index and proved nothing.
+                check("toolfind: round-trip ranks the right tool first, bare names",
+                      _r.get("ok") is True and _names
+                      and all(":" not in n for n in _names)
+                      and _names[0] == "archive_search",
+                      extra=str(_names[:4]))
         else:
             print("SKIP toolfind live tests (index busy)")
     else:
@@ -646,6 +703,22 @@ async def main():
     check("junk predicate: all three modules agree (they drifted once)",
           all(_eg._is_junk(_n) == _tf._is_junk(_n) == _ig._is_junk(_n)
               for _n in _junk_yes + _junk_no))
+
+    # ---- suite isolation (2026-08-05) ----
+    # self_restart.py runs THIS FILE on the live host at every deploy-self. Any
+    # module-level path still aimed at the real mind dir is live state this suite
+    # mutates -- and _clear_project_state(), called six times below, deletes the
+    # done-gate's arming file outright.
+    _leaked = sorted(_n for _n in dir(loop) if _n.isupper()
+                     and isinstance(getattr(loop, _n), str)
+                     and getattr(loop, _n).startswith(REAL_MIND))
+    check("suite isolation: no loop path still aims at the live mind dir",
+          not _leaked, extra=(", ".join(_leaked) if _leaked else ""))
+    check("suite isolation: the done-gate arming file is repointed",
+          "GATE_CHOICE_STATE_PATH" in REPOINTED
+          and loop.GATE_CHOICE_STATE_PATH.startswith(TMP))
+    check("suite isolation: embed_gate took the temp mind dir at import",
+          _eg._MIND == TMP)
 
     # ---- fork targets are validated at USE, not just at gate time ----
     # 2026-08-05: a gate tag frozen at refill time pointed at `--show`, a birth
