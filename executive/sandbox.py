@@ -3,7 +3,6 @@ import subprocess, base64, time
 
 CONTAINER_NAME = "growing-spine-body"
 IMAGE_NAME = "growing-spine"
-VOLUME_NAME = "growing-spine-mind"
 
 
 def build_image(dockerfile_dir: str = "."):

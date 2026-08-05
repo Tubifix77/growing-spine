@@ -1,8 +1,6 @@
 """journal.py — append-only JSONL journal on the volume."""
 import json, time, os
 
-JOURNAL_PATH = "/mind/journal.jsonl"  # path inside container / on volume
-
 
 def _host_journal_path(volume_mount: str) -> str:
     """Host-side path when writing from the executive directly."""

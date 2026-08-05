@@ -18,7 +18,6 @@ EDITABLE_PROMPT_PATH = os.path.join(VOLUME_MOUNT, "editable-prompt.md")
 PROTECTED_PROMPT_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "protected-prompt.md")
 SAVEGAME_ROOT = os.path.expanduser("~/growing-spine-saves")
 DONE_BLOCK_PATH = os.path.join(VOLUME_MOUNT, "done_block.txt")
-PROJECT_BLOCK_PATH = os.path.join(VOLUME_MOUNT, "project_block.txt")
 WORKSPACE_DIR = os.path.expanduser("~/growing-spine-workspace")
 RETRO_STATE_PATH = os.path.join(VOLUME_MOUNT, "retrospective_state.json")
 RETRO_INTERVAL = 20      # real creature cycles between retrospectives
@@ -468,55 +467,8 @@ def _build_done_block() -> str:
     return ""
 
 
-def _build_project_block() -> str:
-    """One-shot injection: if the novelty gate blocked a duplicate project last
-    cycle, tell the creature what it duplicated and that it must pick something
-    new. Read-and-delete (shows for one cycle)."""
-    try:
-        if os.path.exists(PROJECT_BLOCK_PATH):
-            with open(PROJECT_BLOCK_PATH, encoding="utf-8") as f:
-                reason = f.read().strip()
-            os.remove(PROJECT_BLOCK_PATH)
-            if reason:
-                return "## Project selection blocked\n" + reason + "\n\n"
-    except Exception:
-        pass
-    return ""
-
-
-def _summarize_completed(entries: list) -> str:
-    """Cheap, deterministic synthesis of the completed-log so its REDUNDANCY is
-    visible at a glance instead of buried in a flat list of near-duplicate
-    titles -- the creature kept rebuilding because it had a list, not an overview."""
-    if not entries:
-        return ""
-    groups = {
-        "reports / indexes / dashboards": ("report", "index", "dashboard",
-                                           "summary", "overview", "stats", "monitor"),
-        "todo / fixme trackers": ("todo", "fixme"),
-        "tool docs / workspace admin": ("tool", "doc", "workspace", "archive",
-                                        "organiz", "persist", "validation"),
-    }
-    counts = {g: 0 for g in groups}
-    other = 0
-    for e in entries:
-        el = e.lower()
-        for g, kws in groups.items():
-            if any(k in el for k in kws):
-                counts[g] += 1
-                break
-        else:
-            other += 1
-    parts = [f"{g} ({n})" for g, n in counts.items() if n]
-    if other:
-        parts.append(f"other ({other})")
-    return (f"You have already completed {len(entries)} projects, concentrated in: "
-            + ", ".join(parts) + ".")
-
-
 DONE_MARK_RE = re.compile(r'remember\s+current-phase\s+["\']?done["\']?', re.I)
 PROJECT_SET_RE = re.compile(r'remember\s+current-project\b', re.I)
-PHASE_EXPLORE_RE = re.compile(r'remember\s+current-phase\s+["\']?explore["\']?', re.I)
 
 # Spin trap: track consecutive done-gate blocks on the same failing command.
 # When the same DONE-WHEN check fails SPIN_THRESHOLD times in a row the approach
@@ -722,7 +674,7 @@ async def _classify_completion_category(keychain):
         cat = await _classify_category_cheap(title, keychain)
         state = _load_ideation_state()
         if not state:
-            state = {"categories_built": {}, "block_streak": 0}
+            state = {"categories_built": {}}
         cb = state.setdefault("categories_built", {})
         cb[cat] = cb.get(cat, 0) + 1
         _save_ideation_state(state)
@@ -1946,24 +1898,6 @@ def _save_tool_usage(u: dict):
         pass
 
 
-def _count_reuse_in(commands) -> int:
-    """How many of the given command strings invoke one of the creature's own
-    prior tools (excluding the tool-new creation command). Whole-word or explicit
-    path match."""
-    own = _own_tool_names()
-    if not own:
-        return 0
-    n = 0
-    for c in commands:
-        if re.search(r"\btool-new\b", c):
-            continue
-        for name in own:
-            if re.search(r"(^|[\s/])" + re.escape(name) + r"(\s|$)", c):
-                n += 1
-                break
-    return n
-
-
 def _track_tool_usage(executed):
     """ADOPTION signal: count when the creature RUNS one of its own prior tools in
     later work (runtime invocation). Surfaced in the knowledge block and the retro
@@ -2922,10 +2856,9 @@ def _build_context(recent_journal: list, tue_message: str = None) -> str:
     knowledge = _build_knowledge_block()
     loop_warning = _build_loop_warning()
     done_block = _build_done_block()
-    project_block = _build_project_block()
     retro_directive = _build_retro_directive_block()
     dup_report = _run_dup_scan_if_due()
-    return (done_block + project_block + retro_directive + dup_report
+    return (done_block + retro_directive + dup_report
             + loop_warning + active_project + knowledge + protected + "\n\n"
             + editable + catalogue_block + workspace_block + memory_text
             + journal_text + chat_block)
