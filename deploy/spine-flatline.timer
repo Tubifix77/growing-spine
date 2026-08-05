@@ -1,0 +1,7 @@
+[Unit]
+Description=Hourly provider-flatline probe (fast tripwire; the daily spine-health.timer also runs this check at 06:30)
+[Timer]
+OnCalendar=*-*-* *:07:00
+Persistent=true
+[Install]
+WantedBy=timers.target

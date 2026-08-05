@@ -45,6 +45,44 @@ Output is appended to `~/spine-health.log` (one line per run). The launcher
 `start-growing-spine.sh` also arms this timer, so a fresh install that has run
 the icon once will have it active.
 
+## Hourly flatline tripwire (spine-flatline.timer)
+
+The one unit that would have caught the 55-hour google_gemma outage of
+2026-08-02. Runs `check_flatline()` only, every hour at :07. **Install this on
+any fresh clone** — until 2026-08-06 these units existed by hand on one laptop
+only, so a fresh install had no tripwire at all.
+
+```
+cp deploy/spine-flatline.service ~/.config/systemd/user/
+cp deploy/spine-flatline.timer   ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now spine-flatline.timer
+systemctl --user list-timers spine-flatline.timer
+```
+
+Both this and the daily probe **exit non-zero when a traffic-carrying rung has
+gone silent**, so the unit shows up in `systemctl --user --failed` rather than
+the finding sitting unread in `~/spine-health.log`. A quiet *low* rung (the
+OpenRouter floor, unreached because the rungs above it are serving) is expected
+and exits 0. Check either with:
+
+```
+systemctl --user --failed
+grep SERIOUS ~/spine-health.log
+```
+
+## Weekly OpenRouter tier diff (openrouter-tier.timer)
+
+The free shelf rotates; this flags a configured rung whose model id has vanished
+(it caught the 2026-07-19 purge). Reports only — never edits config.
+
+```
+cp deploy/openrouter-tier.service ~/.config/systemd/user/
+cp deploy/openrouter-tier.timer   ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now openrouter-tier.timer
+```
+
 ## Observer dashboard (spine-observer.service)
 
 The GUI dashboard runs as a user service too -- hand-launching it (setsid/

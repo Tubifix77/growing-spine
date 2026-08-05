@@ -1,0 +1,5 @@
+[Unit]
+Description=Growing Spine flatline check only (hourly tripwire for a silently-dead enabled provider -- google_gemma sat dead 55h undetected, 2026-08-02, before this existed)
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 %h/growing-spine/scripts/spine_flatline_hourly.py

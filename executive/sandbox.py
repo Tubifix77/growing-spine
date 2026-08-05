@@ -5,6 +5,47 @@ CONTAINER_NAME = "growing-spine-body"
 IMAGE_NAME = "growing-spine"
 
 
+# Legacy env names the creature's OWN tools already reference by hand. Renaming
+# these would silently break its world, so they are emitted as aliases forever.
+LEGACY_KEY_ALIASES = {
+    "groq":         "GROQ_API_KEY",
+    "cerebras":     "CEREBRAS_API_KEY",
+    "gemini_flash": "GEMINI_API_KEY",
+}
+
+
+def env_name_for(provider_key: str) -> str:
+    """Canonical container env var name for a config provider key."""
+    # str(): a bare off/on/yes/no key arrives from YAML as a bool ("Norway problem").
+    safe = "".join(c if c.isalnum() else "_" for c in str(provider_key))
+    return safe.upper() + "_API_KEY"
+
+
+def container_api_env(cfg: dict) -> dict:
+    """Env vars carrying provider keys into the body, so bash tools can call an
+    API without Python or the keychain.
+
+    Was a hardcoded three-entry map keyed on "groq"/"gemini"/"cerebras" while the
+    config keys are gemini_flash/groq/groq_oss120/cerebras/google_gemma/
+    openrouter_* -- so exactly TWO of thirteen providers ever reached the body,
+    and gemini_flash missed by a suffix (2026-08-06). Now derived from the config,
+    so a rung added tomorrow arrives the day it lands.
+
+    DISABLED providers are deliberately excluded: a benched key has no business
+    inside the container.
+    """
+    out = {}
+    for prov in cfg.get("providers", []):
+        key, api_key = str(prov.get("key", "")), prov.get("api_key", "")
+        if not key or not api_key or not prov.get("enabled", True):
+            continue
+        out[env_name_for(key)] = api_key
+        alias = LEGACY_KEY_ALIASES.get(key)
+        if alias:
+            out[alias] = api_key
+    return out
+
+
 def build_image(dockerfile_dir: str = "."):
     subprocess.run(["docker", "build", "-t", IMAGE_NAME, dockerfile_dir], check=True)
 
@@ -38,16 +79,8 @@ def start(dockerfile_dir: str = "."):
     try:
         import yaml as _yaml
         _cfg = _yaml.safe_load(open(os.path.expanduser("~/growing-spine/config.yaml")))
-        _key_map = {
-            "groq":     "GROQ_API_KEY",
-            "gemini":   "GEMINI_API_KEY",
-            "cerebras": "CEREBRAS_API_KEY",
-        }
-        for _p in _cfg.get("providers", []):
-            _env_name = _key_map.get(_p.get("key", ""))
-            _api_key  = _p.get("api_key", "")
-            if _env_name and _api_key:
-                _api_env += ["-e", f"{_env_name}={_api_key}"]
+        for _name, _val in container_api_env(_cfg).items():
+            _api_env += ["-e", f"{_name}={_val}"]
     except Exception:
         pass  # best-effort — container still starts without keys
 

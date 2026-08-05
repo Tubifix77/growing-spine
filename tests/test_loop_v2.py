@@ -655,6 +655,44 @@ async def main():
         try: os.remove(os.path.join(_fsown, _n))
         except OSError: pass
 
+    # ---- A leftovers (2026-08-06): container keys + a sensor that can fail ----
+    from executive import sandbox as _sb
+    _cfgk = {"providers": [
+        {"key": "gemini_flash", "api_key": "k1", "enabled": True},
+        {"key": "groq", "api_key": "k2", "enabled": True},
+        {"key": "google_gemma", "api_key": "k3", "enabled": True},
+        {"key": "openrouter_super", "api_key": "k4", "enabled": True},
+        {"key": "openrouter_gemma", "api_key": "k5", "enabled": False},
+        {"key": "nokey", "api_key": "", "enabled": True}]}
+    _env = _sb.container_api_env(_cfgk)
+    check("container keys: every ENABLED provider reaches the body (was 2 of 13)",
+          _env.get("GEMINI_FLASH_API_KEY") == "k1"
+          and _env.get("GOOGLE_GEMMA_API_KEY") == "k3"
+          and _env.get("OPENROUTER_SUPER_API_KEY") == "k4")
+    check("container keys: legacy names the creature's own tools use still resolve",
+          _env.get("GROQ_API_KEY") == "k2" and _env.get("GEMINI_API_KEY") == "k1")
+    check("container keys: benched providers and keyless entries stay out",
+          "OPENROUTER_GEMMA_API_KEY" not in _env and "NOKEY_API_KEY" not in _env)
+
+    _ladder = {"providers": [
+        {"key": "gemini_flash", "enabled": True}, {"key": "groq", "enabled": True},
+        {"key": "cerebras", "enabled": False}, {"key": "google_gemma", "enabled": True},
+        {"key": "openrouter_super", "enabled": True},
+        {"key": "openrouter_nemotron", "enabled": True}]}
+    _prim = _H.primary_rungs(_ladder)
+    check("severity: traffic carriers are the rungs above the openrouter floor",
+          _prim == {"gemini_flash", "groq", "google_gemma"})
+    check("severity: a silent WORKHORSE fails the unit (the 55h outage shape)",
+          _H.exit_code({"google_gemma"}, _prim) == 1)
+    check("severity: a quiet low rung is expected, not a fault (no crying wolf)",
+          _H.exit_code({"openrouter_nemotron", "openrouter_super"}, _prim) == 0)
+    # YAML's Norway problem: a bare off/on/yes/no key parses as a BOOLEAN, and the
+    # suite's own flatline fixture has `key: off`. Both readers must survive it.
+    _norway = {"providers": [{"key": False, "api_key": "k", "enabled": True}]}
+    check("config keys: a YAML-bool key (off/on/no) does not crash either reader",
+          _H.primary_rungs(_norway) == {"False"}
+          and _sb.container_api_env(_norway).get("FALSE_API_KEY") == "k")
+
     check("retro hysteresis: first strike watches, second fires",
           _f1 is False and _st.get("stuck_pending") is False and _f2 is True)
     _st2 = {"directive": "[architect] chain, do not sibling", "directive_cycles_left": 9}

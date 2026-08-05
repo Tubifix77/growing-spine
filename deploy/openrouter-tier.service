@@ -1,0 +1,6 @@
+[Unit]
+Description=Weekly OpenRouter free-tier diff (reports only)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 %h/growing-spine/scripts/openrouter_tier_check.py

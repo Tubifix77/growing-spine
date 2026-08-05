@@ -160,6 +160,39 @@ def journal_integrity():
     return f"JOURNAL:REPAIRED {len(bad)} torn (recovered {recovered}, dropped {dropped})"
 
 
+# Which flatlines are a FAULT, and which are just a low rung nobody reached.
+#
+# 2026-08-06: the probe never exited non-zero, so systemd could not tell a
+# healthy run from "the 82%-of-thinks workhorse has been dead for 55 hours".
+# But a blanket "any !! fails" would cry wolf permanently: four OpenRouter rungs
+# sit quiet for days BY DESIGN, because they are the floor of the ladder and the
+# rungs above them keep serving. So severity follows ladder position: the rungs
+# listed BEFORE the first openrouter entry are the ones that actually carry
+# traffic, and their silence is the outage shape. Derived from config order, so
+# it needs no maintenance when the ladder changes.
+DEAD_KEYS = set()    # primary rung keys, filled by check_flatline
+SILENT_KEYS = set()  # every flatlined key, filled by check_flatline
+
+
+def primary_rungs(cfg) -> set:
+    """Enabled providers ahead of the first openrouter rung: the traffic carriers."""
+    out = set()
+    for prov in cfg.get("providers", []):
+        # str(): YAML parses a bare off/on/yes/no key as a BOOLEAN (the "Norway
+        # problem"), so a config key is not guaranteed to be a string.
+        key = str(prov.get("key", ""))
+        if key.startswith("openrouter"):
+            break
+        if prov.get("enabled", True):
+            out.add(key)
+    return out
+
+
+def exit_code(silent: set, primaries: set) -> int:
+    """1 if a traffic-carrying rung has gone silent, else 0."""
+    return 1 if (silent & primaries) else 0
+
+
 def check_flatline():
     """FLATLINE: an ENABLED provider with no success in FLATLINE_HOURS.
     Silence is the failure mode that already bit once -- google_gemma
@@ -181,12 +214,15 @@ def check_flatline():
     except Exception as e:
         return f"FLATLINE:fail(state:{type(e).__name__})"
     now = time.time()
+    DEAD_KEYS.clear()
+    DEAD_KEYS.update(primary_rungs(cfg))
     dead = []
     for key in sorted(enabled):
         last = state.get(key, {}).get("last_success_at")
         age_h = (now - last) / 3600 if last else None
         if age_h is None or age_h >= FLATLINE_HOURS:
             dead.append(f"{key}({'never' if age_h is None else str(int(age_h)) + 'h'})")
+            SILENT_KEYS.add(key)
     return "FLATLINE:!!" + ",".join(dead) if dead else "FLATLINE:ok"
 
 
@@ -194,6 +230,10 @@ if __name__ == "__main__":
     line = (time.strftime("%Y-%m-%d %H:%M") + "  "
             + "  ".join([check_sensor(), check_fallbacks(), stub_janitor(),
                          journal_integrity(), check_flatline()]))
+    _rc = exit_code(SILENT_KEYS, DEAD_KEYS)
+    if _rc:
+        line += f"  SERIOUS:{','.join(sorted(SILENT_KEYS & DEAD_KEYS))}"
     with open(LOG, "a") as f:
         f.write(line + "\n")
     print(line)
+    sys.exit(_rc)
