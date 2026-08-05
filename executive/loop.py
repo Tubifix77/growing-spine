@@ -18,7 +18,6 @@ EDITABLE_PROMPT_PATH = os.path.join(VOLUME_MOUNT, "editable-prompt.md")
 PROTECTED_PROMPT_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "protected-prompt.md")
 SAVEGAME_ROOT = os.path.expanduser("~/growing-spine-saves")
 DONE_BLOCK_PATH = os.path.join(VOLUME_MOUNT, "done_block.txt")
-PROJECT_BLOCK_PATH = os.path.join(VOLUME_MOUNT, "project_block.txt")
 WORKSPACE_DIR = os.path.expanduser("~/growing-spine-workspace")
 RETRO_STATE_PATH = os.path.join(VOLUME_MOUNT, "retrospective_state.json")
 RETRO_INTERVAL = 20      # real creature cycles between retrospectives
@@ -463,22 +462,6 @@ def _build_done_block() -> str:
             os.remove(DONE_BLOCK_PATH)
             if reason:
                 return "## Done check failed\n" + reason + "\n\n"
-    except Exception:
-        pass
-    return ""
-
-
-def _build_project_block() -> str:
-    """One-shot injection: if the novelty gate blocked a duplicate project last
-    cycle, tell the creature what it duplicated and that it must pick something
-    new. Read-and-delete (shows for one cycle)."""
-    try:
-        if os.path.exists(PROJECT_BLOCK_PATH):
-            with open(PROJECT_BLOCK_PATH, encoding="utf-8") as f:
-                reason = f.read().strip()
-            os.remove(PROJECT_BLOCK_PATH)
-            if reason:
-                return "## Project selection blocked\n" + reason + "\n\n"
     except Exception:
         pass
     return ""
@@ -2922,10 +2905,9 @@ def _build_context(recent_journal: list, tue_message: str = None) -> str:
     knowledge = _build_knowledge_block()
     loop_warning = _build_loop_warning()
     done_block = _build_done_block()
-    project_block = _build_project_block()
     retro_directive = _build_retro_directive_block()
     dup_report = _run_dup_scan_if_due()
-    return (done_block + project_block + retro_directive + dup_report
+    return (done_block + retro_directive + dup_report
             + loop_warning + active_project + knowledge + protected + "\n\n"
             + editable + catalogue_block + workspace_block + memory_text
             + journal_text + chat_block)
