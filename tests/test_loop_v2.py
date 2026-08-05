@@ -823,6 +823,71 @@ async def main():
                                               _reg_many, None)
           == ("EXTEND", "archive_backed_query"))
 
+    # ---- cluster F: state integrity (2026-08-05) ----
+    _aj = os.path.join(TMP, "state", "aj_probe.json")
+    loop.journal.atomic_json(_aj, {"k": [1, 2, 3]}, indent=2)
+    check("atomic_json: writes valid json and leaves no .tmp behind",
+          json.load(open(_aj)) == {"k": [1, 2, 3]}
+          and not os.path.exists(_aj + ".tmp"))
+    loop._save_retro_state({"cycle_count": 9})
+    check("retro state save is atomic (loader round-trips, no tmp)",
+          loop._load_retro_state().get("cycle_count") == 9
+          and not os.path.exists(loop.RETRO_STATE_PATH + ".tmp"))
+
+    from executive import chat as _chat
+    _chat.enqueue(TMP, "hello creature")
+    _ts0 = _chat.peek_unread(TMP)[0]
+    # the lost-update shape: an append lands between the executive's read and
+    # its rewrite. With the flock the rewrite path serialises against enqueue;
+    # here we assert the atomic rewrite preserves a message appended just before.
+    _chat.enqueue(TMP, "second message")
+    check("chat: mark_read flips only its target and keeps the later append",
+          _chat.mark_read(TMP, _ts0) is True
+          and _chat.peek_unread(TMP)[1] == "second message"
+          and os.path.exists(os.path.join(TMP, "chat.jsonl.lock")))
+
+    # ---- journal_lines: unreadable must not become an all-history window ----
+    _snap_none = {"journal_lines": None, "completions": 0, "memories": 0}
+    _now2 = {"completed": [], "completions": 0, "memories": 0, "tools": 1,
+             "edited_existing_6h": 0}
+    _win_unavail = {"project_sets": 0, "distinct_projects": [], "blocks": 0,
+                    "spin_fires": 0, "tool_reuse": 0, "forced_clears": 0,
+                    "unavailable": True}
+    _dgu = loop._build_digest(_snap_none, _now2, _win_unavail, 5)
+    check("retro digest: missing journal anchor is SAID, not shown as zeros",
+          "window stats unavailable" in _dgu
+          and "project switches in window" not in _dgu)
+
+    # ---- memory unreadable != memory empty ----
+    _real_l1 = loop.mem.layer1
+    try:
+        loop.mem.layer1 = lambda *_a, **_k: (_ for _ in ()).throw(OSError("locked"))
+        _mc = loop._build_memory_context()
+    finally:
+        loop.mem.layer1 = _real_l1
+    check("memory context: a locked DB reports itself instead of reading as amnesia",
+          "unreadable this cycle" in _mc and "NOT an empty memory" in _mc)
+
+    # ---- catalogue fat-listing revert is loud above curation size ----
+    import contextlib as _ctx2, io as _io2
+    _own_dir2 = os.path.join(loop.VOLUME_MOUNT, "tools", "own")
+    _pre = set(os.listdir(_own_dir2))
+    for _i in range(70):
+        open(os.path.join(_own_dir2, f"bulk_tool_{_i:02d}"), "w").write(
+            "#!/bin/sh\n# does: bulk probe\necho ok\n")
+    _real_avail = loop.embed_gate.available
+    _buf3 = _io2.StringIO()
+    try:
+        loop.embed_gate.available = lambda: False
+        with _ctx2.redirect_stdout(_buf3):
+            loop._build_tool_catalogue()
+    finally:
+        loop.embed_gate.available = _real_avail
+        for _n in set(os.listdir(_own_dir2)) - _pre:
+            os.unlink(os.path.join(_own_dir2, _n))
+    check("catalogue: embedder-down fallback to the FULL listing announces itself",
+          "FULL" in _buf3.getvalue())
+
     # ---- fork targets are validated at USE, not just at gate time ----
     # 2026-08-05: a gate tag frozen at refill time pointed at `--show`, a birth
     # accident that cannot be invoked as a command. The creature was handed

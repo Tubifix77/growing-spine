@@ -209,8 +209,15 @@ def _build_memory_context() -> str:
         l1 = mem.layer1(VOLUME_MOUNT)
         l2 = mem.layer2_headlines(VOLUME_MOUNT)
         l3 = mem.layer3_themes(VOLUME_MOUNT)
-    except Exception:
-        return ""
+    except Exception as e:
+        # A locked or corrupt DB used to return "" -- one bad cycle looked like
+        # TOTAL AMNESIA to an identity built on "your memory is whole", with
+        # nothing journaled. Say what happened, to both audiences.
+        journal.append(VOLUME_MOUNT, "diag",
+                       f"memory store unreadable this cycle ({type(e).__name__})")
+        return ("[Your memory store was unreadable this cycle -- a transient "
+                "error, NOT an empty memory. Do not conclude your memories are "
+                "gone; retry next cycle before acting on their absence.]")
 
     parts = []
 
@@ -356,6 +363,14 @@ def _build_tool_catalogue() -> str:
     if not names or not embed_gate.available():
         # No index yet, or a very young library -- the old full listing is
         # a fine fallback; there is nothing to curate below ~40 tools.
+        if len(names) > 60:
+            # At 350+ tools the full listing is the known-bad ~12k-token context
+            # that fat-walled providers in the Aug outage. It used to revert in
+            # total silence (audit P1-F17).
+            journal.append(VOLUME_MOUNT, "diag",
+                           f"embedder unavailable -- catalogue reverted to the "
+                           f"FULL {len(names)}-tool listing this wake")
+            print(f"[catalogue] embedder down: FULL {len(names)}-tool fallback")
         try:
             raw = toolmod.build_catalogue(VOLUME_MOUNT)
         except Exception:
@@ -631,8 +646,7 @@ def _load_ideation_state() -> dict:
 
 def _save_ideation_state(state: dict):
     try:
-        with open(IDEATION_STATE_PATH, "w", encoding="utf-8") as f:
-            json.dump(state, f, indent=2)
+        journal.atomic_json(IDEATION_STATE_PATH, state, indent=2)
     except Exception as e:
         print(f"[ideation] failed to save state: {e}")
 
@@ -1098,8 +1112,7 @@ def _load_composition_queue() -> list:
 
 def _save_composition_queue(queue: list):
     try:
-        with open(COMPOSITION_QUEUE_PATH, "w", encoding="utf-8") as f:
-            json.dump(queue, f, indent=2)
+        journal.atomic_json(COMPOSITION_QUEUE_PATH, queue, indent=2)
     except Exception as e:
         print(f"[oracle] failed to save composition queue: {e}")
 
@@ -1173,10 +1186,8 @@ async def _refill_composition_queue(keychain) -> list:
             _st["directive_cycles_left"] = 25
             _save_retro_state(_st)
         if _wanted:
-            with open(os.path.join(VOLUME_MOUNT, "state",
-                                   "architect_wanted.json"), "w",
-                      encoding="utf-8") as f:
-                json.dump(_wanted, f)
+            journal.atomic_json(os.path.join(VOLUME_MOUNT, "state",
+                                             "architect_wanted.json"), _wanted)
     except Exception as _e:
         print(f"[architect] skipped ({type(_e).__name__})")
     _save_composition_queue(queue)
@@ -1683,9 +1694,9 @@ def _install_gap(spec: dict, category: str):
     # verifies the chosen target actually changed. State lives executive-side.
     try:
         if category == "gate_choice" and spec.get("gate_target"):
-            with open(GATE_CHOICE_STATE_PATH, "w", encoding="utf-8") as f:
-                json.dump({"target": spec["gate_target"],
-                           "mtime": spec.get("gate_target_mtime", 0)}, f)
+            journal.atomic_json(GATE_CHOICE_STATE_PATH,
+                                {"target": spec["gate_target"],
+                                 "mtime": spec.get("gate_target_mtime", 0)})
         elif os.path.exists(GATE_CHOICE_STATE_PATH):
             os.remove(GATE_CHOICE_STATE_PATH)
     except OSError:
@@ -1930,8 +1941,7 @@ def _load_tool_usage() -> dict:
 
 def _save_tool_usage(u: dict):
     try:
-        with open(TOOL_USAGE_PATH, "w", encoding="utf-8") as f:
-            json.dump(u, f, indent=2)
+        journal.atomic_json(TOOL_USAGE_PATH, u, indent=2)
     except Exception:
         pass
 
@@ -2416,8 +2426,7 @@ def _load_retro_state() -> dict:
 
 def _save_retro_state(state: dict):
     try:
-        with open(RETRO_STATE_PATH, "w", encoding="utf-8") as f:
-            json.dump(state, f, indent=2)
+        journal.atomic_json(RETRO_STATE_PATH, state, indent=2)
     except Exception as e:
         print(f"[retro] failed to save state: {e}")
 
@@ -2480,7 +2489,12 @@ def _collect_metrics() -> dict:
                   encoding="utf-8", errors="replace") as f:
             m["journal_lines"] = sum(1 for _ in f)
     except Exception:
-        m["journal_lines"] = 0
+        # None, not 0: a snapshot stamped 0 makes the NEXT retro window start at
+        # line zero and aggregate ALL history as if it happened this window.
+        m["journal_lines"] = None
+        journal.append(VOLUME_MOUNT, "diag",
+                       "journal.jsonl unreadable during metrics -- window "
+                       "stats will be skipped this retro round")
     return m
 
 
@@ -2551,7 +2565,9 @@ def _build_digest(snap: dict, now: dict, win: dict, cycles: int) -> str:
         f"- IN-PLACE EDITS of existing tools in the last 6h: "
         f"{now.get('edited_existing_6h', '?')} (deepening a tool it already "
         f"has is first-class progress even when completions stay flat)",
-        f"- project switches in window: {win['project_sets']}"
+        ("- window stats unavailable this round (journal anchor missing) --"
+         " judge the totals only" if win.get("unavailable") else
+         f"- project switches in window: {win['project_sets']}")
         + (f", of which {win.get('forced_clears', 0)} were this reviewer "
            f"clearing the project on a STUCK verdict -- NOT the agent "
            f"abandoning its own work"
@@ -2666,7 +2682,15 @@ async def _maybe_retrospective(keychain, advance=True):
 
     snap = state.get("snapshot") or {}
     now_m = _collect_metrics()
-    win = _window_journal_stats(int(snap.get("journal_lines", 0)))
+    since = snap.get("journal_lines")
+    if since:
+        win = _window_journal_stats(int(since))
+    else:
+        # No usable line anchor (first run, or a past unreadable journal).
+        # Zeros with a flag beat an all-history window.
+        win = {"project_sets": 0, "distinct_projects": [], "blocks": 0,
+               "spin_fires": 0, "tool_reuse": 0, "forced_clears": 0,
+               "unavailable": True}
     digest = _build_digest(snap, now_m, win, state["cycle_count"])
     digest += ("\nTool files edited in place (existing tools improved, no new "
                f"file) in the last 6h: {now_m.get('edited_existing_6h', '?')}.")

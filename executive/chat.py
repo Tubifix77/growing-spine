@@ -4,9 +4,25 @@ chat.jsonl on the volume stores all entries with these kinds:
   from_tue      -- message Tue sent, may be unread (read=false) or read (read=true)
   from_creature -- creature's text reply to Tue's last message
 """
-import json, os, time
+import contextlib, fcntl, json, os, time
 
 CHAT_FILENAME = "chat.jsonl"
+
+
+@contextlib.contextmanager
+def _locked(volume_mount: str):
+    """Cross-process lock. The observer APPENDS (enqueue, its own process) while
+    the executive REWRITES the whole file (mark_read/bump_attempts read-modify-
+    write). An append landing between the executive's read and its replace was
+    silently dropped -- Tue's message could vanish after appearing sent (audit
+    P1-F12). flock on a sidecar covers both processes and both access patterns."""
+    lock_path = _path(volume_mount) + ".lock"
+    with open(lock_path, "w") as lk:
+        fcntl.flock(lk, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lk, fcntl.LOCK_UN)
 
 
 def _path(volume_mount: str) -> str:
@@ -30,9 +46,12 @@ def _read_all(volume_mount: str) -> list:
 
 
 def _write_all(volume_mount: str, entries: list):
-    with open(_path(volume_mount), "w", encoding="utf-8") as f:
+    # atomic: a crash mid-rewrite must not truncate the whole conversation log
+    tmp = _path(volume_mount) + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
         for e in entries:
             f.write(json.dumps(e) + "\n")
+    os.replace(tmp, _path(volume_mount))
 
 
 def enqueue(volume_mount: str, message: str):
@@ -43,8 +62,9 @@ def enqueue(volume_mount: str, message: str):
         "content": message,
         "read": False,
     }
-    with open(_path(volume_mount), "a", encoding="utf-8") as f:
-        f.write(json.dumps(entry) + "\n")
+    with _locked(volume_mount):
+        with open(_path(volume_mount), "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry) + "\n")
 
 
 def peek_unread(volume_mount: str):
@@ -63,16 +83,17 @@ def peek_unread(volume_mount: str):
 def mark_read(volume_mount: str, ts) -> bool:
     """Mark the from_tue message with this timestamp as read. Returns True if a
     matching unread message was found and flipped."""
-    entries = _read_all(volume_mount)
-    changed = False
-    for e in entries:
-        if e.get("kind") == "from_tue" and not e.get("read") and e.get("ts") == ts:
-            e["read"] = True
-            changed = True
-            break
-    if changed:
-        _write_all(volume_mount, entries)
-    return changed
+    with _locked(volume_mount):
+        entries = _read_all(volume_mount)
+        changed = False
+        for e in entries:
+            if e.get("kind") == "from_tue" and not e.get("read") and e.get("ts") == ts:
+                e["read"] = True
+                changed = True
+                break
+        if changed:
+            _write_all(volume_mount, entries)
+        return changed
 
 
 def pop_unread(volume_mount: str):
@@ -80,13 +101,14 @@ def pop_unread(volume_mount: str):
     message content and marks it read in one step -- which loses the message if
     the cycle later fails. The executive now uses peek_unread + mark_read instead.
     """
-    entries = _read_all(volume_mount)
-    for i, e in enumerate(entries):
-        if e.get("kind") == "from_tue" and not e.get("read"):
-            entries[i]["read"] = True
-            _write_all(volume_mount, entries)
-            return e["content"]
-    return None
+    with _locked(volume_mount):
+        entries = _read_all(volume_mount)
+        for i, e in enumerate(entries):
+            if e.get("kind") == "from_tue" and not e.get("read"):
+                entries[i]["read"] = True
+                _write_all(volume_mount, entries)
+                return e["content"]
+        return None
 
 
 def record_reply(volume_mount: str, reply: str):
@@ -96,8 +118,9 @@ def record_reply(volume_mount: str, reply: str):
         "kind": "from_creature",
         "content": reply,
     }
-    with open(_path(volume_mount), "a", encoding="utf-8") as f:
-        f.write(json.dumps(entry) + "\n")
+    with _locked(volume_mount):
+        with open(_path(volume_mount), "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry) + "\n")
 
 
 def all_messages(volume_mount: str) -> list:
@@ -125,13 +148,14 @@ def extract_text_reply(response: str) -> str:
 def bump_attempts(volume_mount: str, ts) -> int:
     """Increment the delivery-attempt counter on an unread Tue message.
     Returns the new attempt count (0 if the message was not found)."""
-    entries = _read_all(volume_mount)
-    n = 0
-    for e in entries:
-        if e.get("kind") == "from_tue" and not e.get("read") and e.get("ts") == ts:
-            n = int(e.get("attempts", 0)) + 1
-            e["attempts"] = n
-            break
-    if n:
-        _write_all(volume_mount, entries)
-    return n
+    with _locked(volume_mount):
+        entries = _read_all(volume_mount)
+        n = 0
+        for e in entries:
+            if e.get("kind") == "from_tue" and not e.get("read") and e.get("ts") == ts:
+                n = int(e.get("attempts", 0)) + 1
+                e["attempts"] = n
+                break
+        if n:
+            _write_all(volume_mount, entries)
+        return n

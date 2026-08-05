@@ -153,7 +153,9 @@ def refresh(dirs):
     try:
         os.makedirs(_STATE_DIR, exist_ok=True)
         np.savez(_INDEX_NPZ, names=np.array(names), vecs=vecs)
-        json.dump(meta, open(_INDEX_META, "w"))
+        tmp = _INDEX_META + ".tmp"
+        json.dump(meta, open(tmp, "w"))
+        os.replace(tmp, _INDEX_META)
     except Exception as e:
         _log(f"index persist failed ({type(e).__name__}) -- in-memory only")
     _log(f"index: {len(names)} tools ({len(embed_keys)} embedded, {len(removed)} dropped)")

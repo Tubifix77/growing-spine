@@ -55,3 +55,15 @@ def recent(volume_mount: str, n: int = 20) -> list:
         except json.JSONDecodeError:
             pass
     return entries
+
+def atomic_json(path, obj, indent=None):
+    """tmp + os.replace. Five state files were written with a plain
+    open(w)+json.dump, so a crash mid-write truncated them -- and every loader
+    treats corrupt-as-empty, silently amputating that organ's memory (audit
+    cluster F, 2026-08-05). The idiom already existed ten lines from one of the
+    offenders; the habit is what was missing."""
+    import json as _json, os as _os
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        _json.dump(obj, f, indent=indent)
+    _os.replace(tmp, path)

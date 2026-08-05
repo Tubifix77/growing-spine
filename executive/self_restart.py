@@ -38,8 +38,10 @@ def _load(volume_mount):
 
 def _save(volume_mount, d):
     try:
-        with open(_sp(volume_mount, STATE_FILE), "w", encoding="utf-8") as f:
-            json.dump(d, f, indent=2)
+        # atomic: this file arms the crash-rollback net; a truncated write here
+        # is a disarmed net that looks armed
+        from executive import journal as _j
+        _j.atomic_json(_sp(volume_mount, STATE_FILE), d, indent=2)
     except Exception:
         pass
 
