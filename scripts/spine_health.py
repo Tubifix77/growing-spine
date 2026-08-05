@@ -19,7 +19,12 @@ MIND = os.path.expanduser("~/growing-spine-mind")
 OWN, ATTIC = os.path.join(MIND, "tools", "own"), os.path.join(MIND, "tools", "attic")
 LOG = os.path.expanduser("~/spine-health.log")
 AGE_OUT_DAYS = 3
-PLACEHOLDER = "DESCRIBE WHAT THIS TOOL DOES"
+# Third copy of the stub markers used to live here as a single legacy string
+# that tool-new stopped writing -- hence "aged-out 0" on all 28 janitor runs.
+# Canonical list now lives in volume/tools.py; import it, never restate it.
+sys.path.insert(0, REPO)
+from volume.tools import (is_hollow_stub, demand_counts,  # noqa: E402
+                          is_demanded)
 QUOTA_STATE = os.path.join(REPO, "keychain", "quota_state.json")
 CONFIG = os.path.join(REPO, "config.yaml")
 FLATLINE_HOURS = 12  # google_gemma sat dead 55h before anyone noticed, 2026-08-02
@@ -78,26 +83,33 @@ def check_fallbacks():
     return f"STALE-FALLBACKS:{len(stale)}[{'; '.join(stale)}]" if stale else "STALE-FALLBACKS:0"
 
 def stub_janitor():
-    moved, now = [], time.time()
+    moved, spared, now = [], [], time.time()
     try:
         names = os.listdir(OWN)
     except OSError:
         return "JANITOR:no-own-dir"
+    counts = demand_counts(MIND)
     os.makedirs(ATTIC, exist_ok=True)
     for n in names:
         p = os.path.join(OWN, n)
         if not os.path.isfile(p):
             continue
         try:
-            if PLACEHOLDER not in open(p, encoding="utf-8", errors="replace").read(2000):
+            if not is_hollow_stub(open(p, encoding="utf-8", errors="replace").read(2000)):
                 continue
             if (now - os.path.getmtime(p)) / 86400 < AGE_OUT_DAYS:
+                continue
+            if is_demanded(n, counts):
+                spared.append(n)   # demand -> finish_stub organ, not the attic
                 continue
             os.replace(p, os.path.join(ATTIC, n))
             moved.append(n)
         except OSError:
             continue
-    return f"JANITOR:aged-out {len(moved)}" + (f"[{'; '.join(moved)}]" if moved else "")
+    out = f"JANITOR:aged-out {len(moved)}" + (f"[{'; '.join(moved)}]" if moved else "")
+    if spared:
+        out += f"  SPARED-DEMANDED:{len(spared)}[{'; '.join(spared)}]"
+    return out
 
 def journal_integrity():
     """Detect + auto-repair torn/interleaved journal lines (abrupt-shutdown

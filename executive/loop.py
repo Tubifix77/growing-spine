@@ -1399,14 +1399,19 @@ def _finish_stub_spec() -> dict:
     pull in the SAME direction (finish what's started) instead of fighting --
     the gate was blocking completions while the oracle kept handing out new tools.
 
-    Picks the stub with the SHORTEST name as a cheap proxy for 'simplest to
-    finish' (long generated names tend to be the most speculative compositions).
+    Picks the MOST-DEMANDED stub -- the one the creature has reached for most
+    often and got "not implemented yet" from -- tie-broken by shortest name
+    (2026-08-06; was shortest-name-only, a proxy for 'simplest'. Usage data is
+    better evidence than name length: it says which broken promise is costing
+    the most.)
     Reads the stub's own placeholder '# does:' line if present so the brief tells
     the creature what the tool was meant to do."""
     stubs = _library_hollow_tools()
     if not stubs:
         return {}
-    target = min(stubs, key=len)  # shortest name ~= simplest intended tool
+    _dc = toolmod.demand_counts(VOLUME_MOUNT)
+    target = max(stubs, key=lambda n: (_dc.get(toolmod._norm_tool_key(n), 0),
+                                       -len(n)))
     intended = ""
     try:
         p = os.path.join(VOLUME_MOUNT, "tools", "own", target)
@@ -1990,11 +1995,9 @@ def _dependency_summary() -> dict:
 
 
 # Markers left by tool-new in a freshly-scaffolded, not-yet-written tool.
-_TOOL_PLACEHOLDER_MARKERS = (
-    "DESCRIBE WHAT THIS TOOL DOES",
-    "Replace this whole file with real executable code",
-    "A file with no real code fails",
-)
+# Canonical markers live in volume/tools.py -- two copies drifted apart here and
+# in spine_health.py, and neither matched the template tool-new actually writes.
+_TOOL_PLACEHOLDER_MARKERS = toolmod.TOOL_PLACEHOLDER_MARKERS
 
 
 def _hollow_tools_touched(executed) -> list:

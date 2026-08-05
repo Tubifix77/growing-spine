@@ -281,8 +281,14 @@ async def main():
         async def complete(self, *a, **k):
             return "PROGRESSING"  # should never be reached for the finish path
     spec = await loop._oracle_next_spec(_FakeKC())
+    # Asserts the CONTRACT (a finish assignment aimed at a real stub), not the
+    # picker's proxy: 2026-08-06 the picker moved from shortest-name to
+    # most-demanded, and this fixture's owndir carries earlier tests' stubs with
+    # usage, so hardcoding "pend_" was measuring the old heuristic. The demand
+    # ordering itself is covered in isolation further down.
     check("oracle assigns finish_stub when backlog over tolerance",
-          spec.get("category") == "finish_stub" and spec.get("title", "").startswith("pend_"))
+          spec.get("category") == "finish_stub"
+          and spec.get("title") in loop._library_hollow_tools())
     for i in range(loop.HOLLOW_BACKLOG_TOLERANCE + 2):
         try: os.remove(os.path.join(owndir, f"pend_{i}"))
         except Exception: pass
@@ -582,6 +588,72 @@ async def main():
               open(_H.QUOTA_STATE, "w"))  # 'dead' never even attempted
     check("flatline sensor: a provider with NO recorded success ever is also flagged",
           "dead(never)" in _H.check_flatline())
+
+    # ---- hollow-stub organ re-armed (2026-08-06) ----
+    # The markers had never matched what tool-new writes, so six organs no-oped
+    # for their entire existence. These cover the canonical marker list, the
+    # merged demand reader, and the janitor's new sparing rule.
+    check("markers: the CURRENT tool-new template is recognised as hollow",
+          vtools.is_hollow_stub("#!/usr/bin/env python3\n"
+                                "# Replace the body below with real executable code.\n"
+                                "print('not implemented yet: x')\n"))
+    check("markers: legacy template still recognised (old attic residents)",
+          vtools.is_hollow_stub("# does: DESCRIBE WHAT THIS TOOL DOES - edit this line"))
+    check("markers: a real tool is not hollow",
+          vtools.is_hollow_stub("import sys\nprint(sum(int(a) for a in sys.argv[1:]))") is False)
+
+    _dmnd = os.path.join(TMP, "demand_test")
+    os.makedirs(os.path.join(_dmnd, "state"), exist_ok=True)
+    json.dump({"flat_only": 6, "both": 2, "with_ext.py": 9},
+              open(os.path.join(_dmnd, "tool_usage.json"), "w"))
+    json.dump({"offset": 5, "counts": {"both": 10, "/mind/tools/own/pathy": 7}},
+              open(os.path.join(_dmnd, "state", "tool_usage_cache.json"), "w"))
+    _dc = vtools.demand_counts(_dmnd)
+    check("demand: both counters merged, MAX not sum (2 vs 10 -> 10)",
+          _dc.get("both") == 10)
+    check("demand: flat-only entries survive the merge", _dc.get("flat_only") == 6)
+    check("demand: keys normalised across .py suffix and full paths",
+          _dc.get("with_ext") == 9 and _dc.get("pathy") == 7)
+    check("demand: floor sits in the live distribution gap (10 kept, 4 swept)",
+          vtools.is_demanded("both", _dc) and not vtools.is_demanded("nothing", _dc))
+
+    _jown = os.path.join(TMP, "jan", "tools", "own")
+    _jatt = os.path.join(TMP, "jan", "tools", "attic")
+    os.makedirs(_jown, exist_ok=True)
+    _shell = ("#!/usr/bin/env python3\n"
+              "# Replace the body below with real executable code.\n"
+              "print('not implemented yet: x')\n")
+    for _n in ("wanted_stub", "abandoned_stub", "young_stub"):
+        open(os.path.join(_jown, _n), "w").write(_shell)
+    open(os.path.join(_jown, "real_tool"), "w").write("print(1 + 1)\n")
+    _old = time.time() - 9 * 86400
+    for _n in ("wanted_stub", "abandoned_stub", "real_tool"):
+        os.utime(os.path.join(_jown, _n), (_old, _old))
+    json.dump({"wanted_stub": 40, "abandoned_stub": 1},
+              open(os.path.join(TMP, "jan", "tool_usage.json"), "w"))
+    _H.OWN, _H.ATTIC, _H.MIND = _jown, _jatt, os.path.join(TMP, "jan")
+    _jres = _H.stub_janitor()
+    check("janitor: an aged, unwanted shell is finally attic'd (was aged-out 0 forever)",
+          "aged-out 1" in _jres and os.path.exists(os.path.join(_jatt, "abandoned_stub")))
+    check("janitor: an aged shell the creature keeps calling is SPARED, not attic'd",
+          "SPARED-DEMANDED:1" in _jres
+          and os.path.exists(os.path.join(_jown, "wanted_stub")))
+    check("janitor: young shells and real tools are left alone",
+          os.path.exists(os.path.join(_jown, "young_stub"))
+          and os.path.exists(os.path.join(_jown, "real_tool")))
+
+    _fsown = os.path.join(TMP, "tools", "own")
+    os.makedirs(_fsown, exist_ok=True)
+    for _n in ("stub_dull", "stub_wanted"):
+        open(os.path.join(_fsown, _n), "w").write(_shell)
+    json.dump({"stub_wanted": 33, "stub_dull": 1},
+              open(os.path.join(TMP, "tool_usage.json"), "w"))
+    _fspec = _lp._finish_stub_spec()
+    check("finish_stub: the assignment targets the MOST-DEMANDED shell",
+          _fspec.get("title") == "stub_wanted")
+    for _n in ("stub_dull", "stub_wanted"):
+        try: os.remove(os.path.join(_fsown, _n))
+        except OSError: pass
 
     check("retro hysteresis: first strike watches, second fires",
           _f1 is False and _st.get("stuck_pending") is False and _f2 is True)
