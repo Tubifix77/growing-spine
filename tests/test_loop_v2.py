@@ -807,6 +807,22 @@ async def main():
     check("composition prompt: its own STRICT-JSON example is valid JSON",
           len(_js.loads(_blk)) == 2)
 
+    _reg_many = {"archive_backed_query": "query the archive",
+                 "keyword_archive_store": "store notes",
+                 "fetch_url": "fetch a page"}
+    check("judge: a 2-char target no longer binds to an arbitrary tool",
+          idea_gate._resolve_batch_target("EXTEND", "ed", "x", _reg_many, None)
+          == ("NEW", None))
+    check("judge: a generic short target is refused rather than guessed",
+          idea_gate._resolve_batch_target("DUPLICATE", "arch", "x", _reg_many, None)
+          == ("NEW", None))
+    check("judge: an exact name still binds, and a long substring still binds",
+          idea_gate._resolve_batch_target("DUPLICATE", "fetch_url", "x", _reg_many,
+                                          None) == ("DUPLICATE", "fetch_url")
+          and idea_gate._resolve_batch_target("EXTEND", "archive_backed", "x",
+                                              _reg_many, None)
+          == ("EXTEND", "archive_backed_query"))
+
     # ---- fork targets are validated at USE, not just at gate time ----
     # 2026-08-05: a gate tag frozen at refill time pointed at `--show`, a birth
     # accident that cannot be invoked as a command. The creature was handed

@@ -365,9 +365,26 @@ def _resolve_batch_target(verdict, target, new_text, registry, attic_registry):
         if keeper:
             return verdict, keeper
         return "NEW", None
-    match = next((n for n in registry if target in n or n in target), None)
-    if match:
-        return verdict, match
+    # Last resort: fuzzy bind. The scan regex accepts targets of 2+ characters,
+    # so an unguarded bidirectional substring let a generic or hallucinated
+    # emission ("DUPLICATE: archive", or the "ed" left over from a prose
+    # "EXTENDed") bind to whichever of several hundred tool names happened to
+    # contain it -- and _fork_target_ok passes any real file, so the creature was
+    # then pointed at a semi-arbitrary tool. Try the normalized exact name first,
+    # and require NAME_MIN characters before allowing substring matching at all;
+    # that threshold already exists for exactly this reason three screens up.
+    nt = _norm_name(target)
+    if nt and len(nt) >= NAME_MIN:
+        exact = next((n for n in registry if _norm_name(n) == nt), None)
+        if exact:
+            return verdict, exact
+    if len(target) >= NAME_MIN:
+        match = next((n for n in registry if target in n or n in target), None)
+        if match:
+            return verdict, match
+    if target:
+        print(f"[idea-gate] target {target!r} too short or unknown to bind "
+              f"safely -- treating as NEW")
     return "NEW", None
 
 
