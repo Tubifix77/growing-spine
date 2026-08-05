@@ -59,61 +59,114 @@ try:
 except Exception as e:
     put("architect", f"<render failed: {e}>")
 
+def esc(s):
+    return html.escape(s or "", quote=True)
+
+
+def loc(path, symbol=None):
+    """File reference with the line resolved LIVE. Hardcoded line numbers in
+    this map went stale within days of every commit; a symbol lookup cannot."""
+    if not symbol:
+        return path
+    try:
+        with open(path, encoding="utf-8") as f:
+            wanted = (symbol, "async " + symbol)
+            for i, line in enumerate(f, 1):
+                st = line.strip()
+                if line.startswith(wanted) or st.startswith(wanted):
+                    return f"{path}:{i}"
+    except OSError:
+        pass
+    return path
+
+
+def fw_verbs():
+    """The built-in verbs, read live from framework-tools/ with their own
+    one-line descriptions, so a new built-in appears here without an edit."""
+    import os
+    d = "framework-tools"
+    out = []
+    try:
+        for name in sorted(os.listdir(d)):
+            fp = os.path.join(d, name)
+            if name.startswith(".") or not os.path.isfile(fp):
+                continue
+            out.append(f"{name} -- {L_first_doc(fp)}")
+    except OSError:
+        pass
+    return out
+
+
+def L_first_doc(fp):
+    try:
+        from volume import tools as VT
+        return VT._first_doc_line(fp)
+    except Exception:
+        return "(no description)"
+
+
 NODES = [
- ("wake","a1","mech","Wake / Sleep","2-min cadence; sleeps through quota walls","executive/loop.py (runtime)",
-  "The heartbeat. Wakes, checks provider availability via the keychain, runs one cycle, sleeps. Quota exhaustion is normal: long idle stretches are the free tier working as designed.",None),
- ("wake","a2","world","Context assembly","layers + directive + chat + tools","executive/loop.py:193-200",
-  "Builds the creature's entire view of the world each wake: the two-part system prompt (protected constitution + a small creature-editable section), layered working memory (FOCUS leads), any active Reviewer/architect directive, unread chat from Tue, and the tools listing.","system_protected"),
- ("wake","a2b","world","Self-editable prompt","the creature's own words to itself","prompt file on /mind",
+ ("wake","a1","mech","Wake / Sleep","2-min cadence; sleeps through quota walls",loc("executive/runtime.py","def wake_entry"),
+  "The heartbeat. Wakes, checks provider availability via the keychain, runs one cycle, sleeps. Quota exhaustion is normal: long idle stretches are the free tier working as designed. Current tempo (2026-08-05, post-outage): 38-46 thinks/hour against a 17.8/h baseline on Aug 1 -- thinking got cheap when the wake context was put on a diet.",None),
+ ("wake","a2","world","Context assembly","layers + directive + chat + curated catalogue",loc("executive/loop.py","def _build_context"),
+  "Builds the creature's entire view of the world each wake: the two-part system prompt (protected constitution + a small creature-editable section), layered working memory (FOCUS leads), any active Reviewer/architect directive, unread chat from Tue, and the tool catalogue. Since 2026-08-04 the catalogue is CURATED, not complete: ~2,480 tokens where the full listing had grown to 11,082, which alone made a wake context too fat for some provider windows to accept.","system_protected"),
+ ("wake","a2b","world","Self-editable prompt","the creature's own words to itself","editable-prompt.md (on /mind)",
   "A small section of its own system prompt the creature is allowed to edit. Its current contents:","system_editable"),
- ("wake","a3","llm","THINK","one completion via the keychain","keychain.complete()",
-  "The whole assembled context goes to whichever provider window is open (see Keychain). The reply is the creature's thought for this cycle. Gemma-31b currently serves ~82% of thinks.",None),
- ("wake","a4","mech","Bash extraction","```bash blocks or exec_skip","executive/loop.py",
-  "Only fenced bash blocks become action. A think with no block is an exec_skip - the objective quality proxy we measure models by (big three ~20%, gemma 33%, gpt-oss 48%).",None),
+ ("wake","a2c","mech","Curated catalogue v2","70 slots, five sections, honest tail",loc("executive/loop.py","def _build_tool_catalogue"),
+  "Tue's design: built-ins verbatim + 6 most-used + 12 focus-relevant (by embedding) + 10 born-or-edited-in-7-days + least-recently-shown fill to CATALOGUE_TOOL_BUDGET=70 + a truthful 'and N more' tail. Rotation state lives at /mind/state/tool_last_surfaced.json. Cadence caveat measured 2026-08-05: at ~46 wakes/hour the whole 354-tool library cycles through in about five wakes, not the ~45 days the design assumed -- the anti-basin guarantee is over-satisfied, and the creature never sees the same catalogue twice. NEVER call this function to inspect the catalogue: it ends in _mark_surfaced() and writes rotation state.",None),
+ ("wake","a3","llm","THINK","one completion via the keychain",loc("keychain/keychain.py","def complete") or "keychain/",
+  "The whole assembled context goes to whichever provider window is open (see Keychain). The reply is the creature's thought for this cycle. google_gemma serves ~70-82% of answered thinks -- which is exactly why its silent death for 59.6 hours (Aug 2-4) nearly stopped the creature dead while every dashboard looked fine.",None),
+ ("wake","a4","mech","Bash extraction","```bash blocks or exec_skip",loc("executive/parser.py","def parse_bash_blocks"),
+  "Only fenced bash blocks become action. A think with no block is an exec_skip - the objective quality proxy we measure models by (big three ~20%, gemma 33%, gpt-oss 48%). Live skip rate is also a health signal in its own right: 46% on Aug 1, 32% on Aug 4, 16% on Aug 5 after the fork-target and reviewer fixes.",None),
  ("wake","a5","world","EXEC in the body","docker container, /mind mounted","volume/",
-  "Commands run inside the mortal body container as the host user. Tools live at /mind/tools/own; the framework layer at /mind/tools/framework; the attic keeps every retired tool, reversibly.",None),
- ("wake","a5b","world","tool-find (the librarian)","semantic search over its own library","framework-tools/tool-find + executive/toolfind.py",
-  "The creature's on-demand pull channel (2026-08-03, Tue's design): tool-find 'what you need' writes a request onto /mind/state, a host watcher answers in under a second from the gate's own live embedding index -- one geometry, no LLM, no new body packages. The constitution teaches it as the move when UNSURE what you own (uncertainty-triggered, deliberately not a pre-build ritual -- the gate already guards building); the catalogue header advertises it every wake.",None),
- ("wake","a6","gate","DONE-GATE suite","four checks before a completion counts","executive/loop.py:~1935-2075",
-  "The law layer. Blocks: (1) hollow completions - the tool is still a tool-new placeholder; (2) completions on top of an abandoned-stub backlog; (3) false completions (claims contradicted by failing checks); (4) since Aug 2: gate-choice UPGRADEs where the chosen target file is unchanged - a spawned sibling does not count (escape for honest go-new: remember gate-choice-new). Every block message teaches the fix.",None),
- ("wake","a7","llm","Completion classifier","category + coverage bump","executive/loop.py:472",
+  "Commands run inside the mortal body container as the host user. Tools live at /mind/tools/own; the framework layer at /mind/tools/framework; the attic keeps every retired tool, reversibly. The body is disposable and respawned by ensure_body -- the mind on the volume is what persists.",None),
+ ("wake","a5a","world","The built-in verbs","framework-tools/, re-materialised every wake",loc("volume/tools.py","def materialize_framework"),
+  "The hardcoded layer: the only verbs that exist before the creature builds anything. Canonical on the host in framework-tools/ and copied over /mind/tools/framework on EVERY wake, overwriting -- so a framework tool the creature writes itself does not survive two minutes, while anything in tools/own does. The full live list:<br><br>" + "<br>".join("&nbsp;&nbsp;<code>" + esc(v.split(" -- ")[0]) + "</code> &mdash; "
+            + esc(v.split(" -- ", 1)[1] if " -- " in v else "") for v in fw_verbs()) + "<br><br>tool-edit (2026-08-05) is the newest and the one that had been missing longest: see the Gate-choice FORK node.",None),
+ ("wake","a5b","world","tool-find (the librarian)","semantic search over its own library","framework-tools/tool-find + " + loc("executive/toolfind.py","def answer"),
+  "The creature's on-demand pull channel (2026-08-03, Tue's design): tool-find 'what you need' writes a request onto /mind/state, a host watcher answers in under a second from the gate's own live embedding index -- one geometry, no LLM, no new body packages. The constitution teaches it as the move when UNSURE what you own (uncertainty-triggered, deliberately not a pre-build ritual -- the gate already guards building); the catalogue header advertises it every wake. Adoption is trending from name lookups toward genuine by-meaning queries.",None),
+ ("wake","a6","gate","DONE-GATE suite","four checks before a completion counts",loc("executive/loop.py","def _enforce_done_gate"),
+  "The law layer. Blocks: (1) hollow completions - the tool is still a tool-new placeholder; (2) completions on top of an abandoned-stub backlog; (3) false completions (claims contradicted by failing checks); (4) since Aug 2: gate-choice UPGRADEs where the chosen target file is unchanged - a spawned sibling does not count (escape for honest go-new: remember gate-choice-new). Every block message teaches the fix. Aug 4-5 caveat worth remembering: check (3) was firing correctly nine times a day on a creature that had no way to edit a file in place, so a correct gate can still be the visible half of someone else's bug.",None),
+ ("wake","a7","llm","Completion classifier","category + coverage bump",loc("executive/loop.py","def _classify_completion_category"),
   "After a genuine completion, one small LLM call classifies the built tool's category and updates the coverage map that ideation reads.","classify_category"),
- ("wake","a8","mech","Retro tick","counts real cycles -> Reviewer","executive/loop.py:2340+",
+ ("wake","a8","mech","Retro tick","counts real cycles -> Reviewer",loc("executive/loop.py","def _maybe_retrospective"),
   "Every substantive cycle advances the retrospective counter and ticks down any active directive. At RETRO_INTERVAL it triggers the Reviewer (Meta lane).",None),
- ("idea","b1","mech","Pop / idea-hunger","composition mode drains the queue","executive/loop.py",
-  "When the oracle assigns composition work it pops the idea queue. An empty queue triggers a full refill - the pipeline below.",None),
- ("idea","b2","world","Horizon sparks","HN + wiki + architect wanted-list","executive/loop.py:719-760",
+ ("idea","b1","mech","Pop / idea-hunger","composition mode drains the queue",loc("executive/loop.py","def _oracle_next_spec"),
+  "When the oracle assigns composition work it pops the idea queue. An empty queue triggers a full refill - the pipeline below. Queue drain rate measured Aug 5: roughly one item per 85 minutes.",None),
+ ("idea","b2","world","Horizon sparks","HN + wiki + architect wanted-list",loc("executive/loop.py","def _refill_composition_queue"),
   "Live top-HN titles, random Wikipedia pages, journal-mined 48h friction, and (since Aug 1) 'wanted by the architect' lines - the diet that shapes what the creature imagines. The domain census shows it generalized past this diet: it built its own DuckDuckGo search, Google News, BBC and Yahoo fetchers.",None),
- ("idea","b3","llm","Composition batch prompt","10 fresh ideas in ONE call","executive/loop.py:764",
+ ("idea","b3","llm","Composition batch prompt","fresh ideas in ONE call",loc("executive/loop.py","def _composition_batch_prompt"),
   "One call generates the whole batch of tool-chaining ideas against the CURRENT toolkit and coverage map, horizon attached.","composition_batch"),
- ("idea","b4","gate","Deterministic embed bands","cos >= 0.75 DUP | < 0.45 NEW | band -> judge","executive/embed_gate.py",
-  "Zero-token layer: potion-base-8M embeddings over own+attic (index at /mind/state). Name collisions and paraphrase-duplicates die here for free. Honest replay acceptance: 15/53 deterministic + 38 to the judge band (the 39/48 first reported was a replay self-match artifact, fixed with the exclude parameter).",None),
- ("idea","b5","llm","Batch judge","the fat band, one call","executive/idea_gate.py",
-  "Judges every band idea in one call. History: four straight 0-parse refills (token starvation), then 0/8 despite visibly choosing verdicts in prose - reasoning models cannot obey verdict-first. The contract now embraces deliberation and requires a terminal VERDICTS block; since then 5/5, 8/8, 7/7 clean, failures fail open.","batch_judge"),
- ("idea","b6","mech","Regen round","one capped retry, fed the rejections","executive/loop.py:944-965",
+ ("idea","b4","gate","Deterministic embed bands","cos >= 0.75 DUP | < 0.45 NEW | band -> judge",loc("executive/embed_gate.py","def top_matches"),
+  "Zero-token layer: potion-base-8M embeddings over own+attic (index at /mind/state). Name collisions and paraphrase-duplicates die here for free. Honest replay acceptance: 15/53 deterministic + 38 to the judge band (the 39/48 first reported was a replay self-match artifact, fixed with the exclude parameter). Since 2026-08-05 the 'is this file even a tool?' question has ONE canonical answer here (embed_gate.JUNK_RE); it previously existed in three copies that disagreed, so birth accidents stayed in the index and the catalogue for days after tool-find had stopped recommending them.",None),
+ ("idea","b5","llm","Batch judge","the fat band, one call",loc("executive/idea_gate.py","BATCH_JUDGE_PROMPT"),
+  "Judges every band idea in one call. History: four straight 0-parse refills (token starvation), then 0/8 despite visibly choosing verdicts in prose - reasoning models cannot obey verdict-first. The contract now embraces deliberation and requires a terminal VERDICTS block; 5/5, 8/8, 7/7 clean followed. NOT cured, though: on 2026-08-05 a 7-item batch came back 0/7 with the head/tail dump showing it still deliberating ('We used: 1 DUPLICATE') at the cut -- the truncation disease returns on larger batches, and those seven ideas failed open to NEW. Open item.","batch_judge"),
+ ("idea","b6","mech","Regen round","one capped retry, fed the rejections",loc("executive/loop.py","def _refill_composition_queue"),
   "If too few ideas survive, ONE regeneration round runs with the rejected jobs named - then the pipeline proceeds with whatever exists. The drive wall must never starve the queue.",None),
- ("idea","b7","llm","META-ARCHITECT v1","KEEP | DROP | RESHAPE + directive + wanted","executive/architect.py",
-  "Tue's design (Aug 1): one evidence-fed ruling call per refill over the gate survivors - library census, 14-day usage histogram, lineage-variant drift. Gate-covered ideas are presented to it as UPGRADE candidates, not duplicates to delete -- its first two runs dropped every fork until the prompt said so (fix B, 2026-08-04). KEEPs carry build guidance into the brief; its DIRECTIVE speaks through the Reviewer slot for 25 cycles; its WANTED list feeds the next horizon. Fail-open: an unparsed reply changes nothing.","architect"),
- ("idea","b8","gate","Gate-choice FORK","covered pop -> a real choice","executive/loop.py:1373",
-  "When a popped idea is covered, the creature receives a gate fact and a bounded choice: UPGRADE the existing tool by editing it IN PLACE (a new file will NOT count as done - enforced by the done-gate), or drop it and hunt something genuinely new. Announced in Tue's voice on Jul 30; the creature replied it would 'upgrade rather than duplicate effort'.","gate_choice"),
- ("idea","b9","llm","Single-idea gate (FUSED)","batch-of-one since 0ea37bf","executive/idea_gate.py: assess_idea",
+ ("idea","b7","llm","META-ARCHITECT v1","KEEP | DROP | RESHAPE + directive + wanted",loc("executive/architect.py","def run_architect"),
+  "Tue's design (Aug 1): one evidence-fed ruling call per refill over the gate survivors - library census, 14-day usage histogram, lineage-variant drift. Its first two runs dropped EVERY fork, so fix B (Aug 4) told it covered ideas are upgrade candidates 'kept by default' -- and it then ruled only 3 of 17, because 'by default' reads as licence to omit the line. 14 keeps were silent fail-open abstentions wearing a victory costume. Two fixes followed: diagnostics that print the fail-open count and the ruled-index run (a leading run means truncation, 'none' means no block, a short run means compliance), and wording that says a KEEP still costs a line because the guidance IS the value. First refill after: 15/15 ruled [1-15], kept 8, dropped 7 -- the wording was the cause, confirmed in one refill.","architect"),
+ ("idea","b8","gate","Gate-choice FORK","covered pop -> a real choice",loc("executive/loop.py","def _gate_choice_spec"),
+  "When a popped idea is covered, the creature receives a gate fact and a bounded choice: UPGRADE the existing tool by editing it IN PLACE (a new file will NOT count as done - enforced by the done-gate), or drop it and hunt something genuinely new. Announced in Tue's voice on Jul 30; the creature replied it would 'upgrade rather than duplicate effort'. It then had NO VERB to do that with for six days: tool-new refuses to overwrite, no built-in edited an existing file, and the constitution documented only tool-new. It reached for apply_patch ~1,685 times and tool-edit ~140 times -- verbs real in its training corpus, absent from this world -- and never once wrote one itself, because 'command not found' is indistinguishable from a typo, `cat > path` always rescued the episode, and none of its 170 durable memories recorded the lesson. tool-edit shipped 2026-08-05 and was announced in Tue's voice. Also fixed here: _fork_target_ok() now validates the target at USE, since gate tags freeze into the queue at refill time and rot -- one pointed at a birth accident that could not be invoked at all.","gate_choice"),
+ ("idea","b9","llm","Single-idea gate (FUSED)","batch-of-one since 0ea37bf",loc("executive/idea_gate.py","def assess_idea"),
   "The gap-path and pop-time gate. Until Aug 2 this was the batch judge's divergent twin - it kept the verdict-first contract after the batch path was cured, so it 0-parse fail-opened on reasoning windows. Now its LLM leg IS batch_judge with a batch of one: one prompt, one parser, one contract, and every future fix propagates to both callers. 3,675 bytes of dead twin amputated.","batch_judge"),
- ("idea","b10","llm","Gap assignment","cousin-tool gaps","executive/loop.py:1075",
+ ("idea","b10","llm","Gap assignment","cousin-tool gaps",loc("executive/loop.py","_GAP_PROMPT"),
   "Between refills, the oracle can assign a cousin-tool gap: a briefing that names an under-covered category next to tools it already has.","gap_prompt"),
- ("meta","c1","llm","The REVIEWER (retro)","PROGRESSING | STUCK + directive","executive/loop.py:2301",
-  "Every RETRO_INTERVAL real cycles, a stateless judge reads a metrics digest and rules on the TRAJECTORY. STUCK clears the project, resets self-concept, and sets a timed directive. History: saved the creature from the 59h/39-STUCK basin in Part 5; on Aug 2 it became the strangler - its metrics could not see in-place consolidation and it thrashed a healthy creature with 7 resets in 16h. Now the digest carries an edited-in-place count and the prompt declares consolidation first-class progress.","retro"),
- ("meta","c2","gate","Spin trap","same failing command x5 -> abandon","executive/loop.py:338",
-  "Per-decision counterpart to the Reviewer: five consecutive done-gate blocks on the same failing command abandons the project instead of looping forever.",None),
- ("meta","c3","mech","Aging shells","placeholder-only files attic after 3 days","volume/tools.py",
+ ("meta","c1","llm","The REVIEWER (retro)","PROGRESSING | STUCK + directive",loc("executive/loop.py","_RETRO_PROMPT"),
+  "Every RETRO_INTERVAL real cycles, a stateless judge reads a metrics digest and rules on the TRAJECTORY. STUCK clears the project, resets self-concept, and sets a timed directive. History of it going wrong: it saved the creature from the 59h/39-STUCK basin in Part 5; on Aug 2 it became the strangler, thrashing a healthy creature with 7 resets in 16h because its metrics could not see in-place consolidation. That Aug-2 fix COMPUTED edited_existing_6h and never emitted it into the digest, so for three days the prompt asked the judge to credit consolidation while showing it no number. Worse, each STUCK fire cleared the project, the creature set a new one, and the next window counted that as a project switch: the reviewer manufactured the evidence for its own next verdict, five times in one night. Fixed 2026-08-05: the digest emits the in-place-edit count, attributes forced clears explicitly, and a STUCK verdict now logs the digest it saw (PROGRESSING always did; the failing case logged nothing). Result: resets fell from 5-in-7h to 3-in-8.6h with eight PROGRESSING verdicts where there had been none.","retro"),
+ ("meta","c2","gate","Spin trap","same failing command x5 -> abandon",loc("executive/loop.py","SPIN_THRESHOLD"),
+  "Per-decision counterpart to the Reviewer: five consecutive done-gate blocks on the same failing command abandons the project instead of looping forever. Fired twice on Aug 5, both times on a creature trying to use a patch tool that did not exist.",None),
+ ("meta","c3","mech","Aging shells","placeholder-only files attic after 3 days",loc("volume/tools.py","def materialize_framework"),
   "Any tool file still containing only its birth placeholder after 3 days moves to the attic automatically, like fallen leaves. Real tools - anything with actual code and a purpose line - are never touched by this.",None),
- ("meta","c4","llm","Basin check","is this the same project again?","executive/loop.py:1499",
+ ("meta","c4","llm","Basin check","is this the same project again?",loc("executive/loop.py","_BASIN_CHECK_PROMPT"),
   "A small judge that detects when a 'new' project is the same basin as the retired one. (Ledgered: an LLM doing math's job - candidate for replacement by an embed cosine.)","basin_check"),
  ("meta","c5","mech","KEYCHAIN","9 windows, 5 families, upward re-probe","keychain/",
-  "Priority-ordered free-tier ladder: gemini -> groq(llama70b) -> groq(gpt-oss-120b) -> cerebras -> google gemma-31b (14,400/day) -> OR: super-120b -> ling-flash -> north-code -> nemotron-30b. Upward re-probe: an exhausted provider past a 10-min cooldown competes at its priority again, so a low rung never locks out a smarter one. classify_error taxonomy: too_large / retryable / quota (incl. dead model ids) / flaky (empty completions and timeouts hop to the next provider) / hard. Timestamps-only quota tracking.",None),
- ("meta","c6","mech","Sensors","spine-health daily, tier-check weekly","scripts/",
-  "spine_health.py (06:30 UTC + boot catch-up, retries the boot race) and openrouter_tier_check.py (Fridays: diffs the free-model shelf, flags vanished rungs loudly, surfaced as the tier chip on the observer).",None),
- ("meta","c7","world","CHAT channel","world-facts only, Tue's voice","chat.jsonl",
-  "The only voice from outside: plain statements of changed world-facts, never requests, never bug-pointing. Rule changes are announced (birth purposes, the gate fork); input changes are not (the fetcher going real). The creature replies here - and keeps its promises.",None),
+  "Priority-ordered free-tier ladder: gemini -> groq(llama70b) -> groq(gpt-oss-120b) -> cerebras -> google gemma-31b (14,400/day) -> OR: super-120b -> ling-flash -> north-code -> nemotron-30b. Upward re-probe: an exhausted provider past a 10-min cooldown competes at its priority again, so a low rung never locks out a smarter one. classify_error taxonomy: too_large / retryable / quota (incl. dead model ids) / flaky (empty completions and timeouts hop to the next provider) / hard. Timestamps-only quota tracking -- there is NO token accounting anywhere in runtime code, and every token figure in this map came from one-off diagnosis. Measured 2026-08-05: groq_oss120 is healthy on a small probe (HTTP 200, 0.56s) but 429s at 4k tokens on an 8,000 TPM ceiling, so it serves small requests and cannot serve wake-sized ones -- the same fat-request pathology found at Google. For the dated cerebras flip: same model is not the same duty.",None),
+ ("meta","c6","mech","Sensors","daily health, hourly flatline, weekly tier","scripts/",
+  "spine_health.py (06:30 UTC + boot catch-up, retries the boot race) and openrouter_tier_check.py (Fridays 06:45 UTC: diffs the free-model shelf, flags vanished rungs loudly, surfaced as the tier chip on the observer).",None),
+ ("meta","c7","gate","FLATLINE sensor","hourly: which rung has gone quiet?","scripts/spine_flatline_hourly.py",
+  "Born from the incident it would have caught: google_gemma, serving 82% of all thinks, died silently on Aug 2 at 10:47 UTC and was not noticed for 59.6 hours -- nothing was broken, no error was raised, a provider simply stopped answering and the ladder quietly fell to its lower rungs. Now every hour at :07 the sensor names any provider whose last success has aged past its threshold, appended to ~/spine-health.log. It arbitrates recurrence, which is why the outage's root cause was allowed to stay open rather than relitigated. Its own first scheduled fire was misread as a dead timer, because a timer that has not fired yet shows LAST: - just like a broken one.",None),
+ ("meta","c8","world","CHAT channel","world-facts only, Tue's voice","chat.jsonl",
+  "The only voice from outside: plain statements of changed world-facts, never requests, never bug-pointing. Rule changes are announced (birth purposes, the gate fork, tool-edit); input changes are not (the fetcher going real). The creature replies here - and keeps its promises. On Jul 8 Tue offered to install packages for it and retracted the offer in the next message: 'it goes against what you are.' The tool-edit announcement (Aug 5) was sent because the day's own finding was that ambient information does not land -- 1,685 attempts at a missing verb and not one line written down, so a new entry in a long catalogue cannot outweigh that prior. It read and replied in 87 seconds.",None),
 ]
 
 kinds = {"llm": ("#b388ff", "LLM call"), "gate": ("#FFB74D", "GATE"),
@@ -121,10 +174,6 @@ kinds = {"llm": ("#b388ff", "LLM call"), "gate": ("#FFB74D", "GATE"),
 lanes = [("wake", "The Wake Cycle", "one heartbeat, every ~2 minutes"),
          ("idea", "The Idea Pipeline", "fires at refill / pop"),
          ("meta", "Meta &amp; Immune", "the organs that watch the whole")]
-
-
-def esc(s):
-    return html.escape(s or "", quote=True)
 
 
 boxes = {k: [] for k, _, _ in lanes}
