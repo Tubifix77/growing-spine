@@ -1,13 +1,7 @@
 """savegame.py — body savegame (docker commit) + mind snapshot (volume copy)."""
 import os, shutil, time, subprocess, json
 
-SAVEGAME_DIR = None  # set by init; host-side dir outside volume
-
 MAX_SAVEGAMES = 1  # keep only the latest save; rollback only ever uses saves[0]
-
-def _savegame_dir(host_savegame_root: str) -> str:
-    os.makedirs(host_savegame_root, exist_ok=True)
-    return host_savegame_root
 
 def _tag(label: str = "") -> str:
     ts = time.strftime("%Y%m%d-%H%M%S")

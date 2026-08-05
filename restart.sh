@@ -24,7 +24,6 @@ if systemctl --user list-unit-files "$SVC" >/dev/null 2>&1 && \
   state="$(systemctl --user is-active "$SVC")"
   pid="$(systemctl --user show "$SVC" -p MainPID --value)"
   if [ "$state" = "active" ] && [ -n "$pid" ] && [ "$pid" != "0" ]; then
-    echo "$pid" > "$HOME/growing-spine/creature.pid"
     echo "[restart] RESTART OK (pid $pid, systemd-supervised)"
     journalctl --user -u growing-spine -n 3 --no-pager -o short-iso 2>/dev/null | sed 's/^/    /'
     exit 0

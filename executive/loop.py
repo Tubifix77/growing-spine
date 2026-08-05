@@ -467,36 +467,6 @@ def _build_done_block() -> str:
     return ""
 
 
-def _summarize_completed(entries: list) -> str:
-    """Cheap, deterministic synthesis of the completed-log so its REDUNDANCY is
-    visible at a glance instead of buried in a flat list of near-duplicate
-    titles -- the creature kept rebuilding because it had a list, not an overview."""
-    if not entries:
-        return ""
-    groups = {
-        "reports / indexes / dashboards": ("report", "index", "dashboard",
-                                           "summary", "overview", "stats", "monitor"),
-        "todo / fixme trackers": ("todo", "fixme"),
-        "tool docs / workspace admin": ("tool", "doc", "workspace", "archive",
-                                        "organiz", "persist", "validation"),
-    }
-    counts = {g: 0 for g in groups}
-    other = 0
-    for e in entries:
-        el = e.lower()
-        for g, kws in groups.items():
-            if any(k in el for k in kws):
-                counts[g] += 1
-                break
-        else:
-            other += 1
-    parts = [f"{g} ({n})" for g, n in counts.items() if n]
-    if other:
-        parts.append(f"other ({other})")
-    return (f"You have already completed {len(entries)} projects, concentrated in: "
-            + ", ".join(parts) + ".")
-
-
 DONE_MARK_RE = re.compile(r'remember\s+current-phase\s+["\']?done["\']?', re.I)
 PROJECT_SET_RE = re.compile(r'remember\s+current-project\b', re.I)
 PHASE_EXPLORE_RE = re.compile(r'remember\s+current-phase\s+["\']?explore["\']?', re.I)
@@ -1927,24 +1897,6 @@ def _save_tool_usage(u: dict):
         journal.atomic_json(TOOL_USAGE_PATH, u, indent=2)
     except Exception:
         pass
-
-
-def _count_reuse_in(commands) -> int:
-    """How many of the given command strings invoke one of the creature's own
-    prior tools (excluding the tool-new creation command). Whole-word or explicit
-    path match."""
-    own = _own_tool_names()
-    if not own:
-        return 0
-    n = 0
-    for c in commands:
-        if re.search(r"\btool-new\b", c):
-            continue
-        for name in own:
-            if re.search(r"(^|[\s/])" + re.escape(name) + r"(\s|$)", c):
-                n += 1
-                break
-    return n
 
 
 def _track_tool_usage(executed):
