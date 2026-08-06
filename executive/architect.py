@@ -104,6 +104,8 @@ IDEA 3: RESHAPE | <replacement one-line brief>
 ... one line per idea, continuing to IDEA {n}
 DIRECTIVE: <one line steering the agent for the next 25 cycles>
 WANTED: <capability 1>; <capability 2>; <capability 3>
+
+WANTED lines must name capabilities CONCRETELY: what it would DO, on what INPUT, producing what OUTPUT. "Cross-source timeline synthesis from archived articles" is a capability. "Robust automated plan regeneration" is a mood -- it names a quality, not a thing that can be built, and the agent cannot tell whether it has built it or not.
 """
 
 

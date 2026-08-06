@@ -696,6 +696,19 @@ async def main():
           and _pv("")[0] is None)
 
     _J = __import__("json")   # shadow-proof: `_js`/`json` are rebound later in this function
+    from executive import architect as _arch_mod
+    # ---- architect WANTED nudge (2026-08-06) ----
+    _ap = _arch_mod.build_prompt(
+        [{"title": "t", "brief": "b"}],
+        {"total": 1, "zero_use_count": 0, "lineage_count": 0,
+         "top_used": [], "born_24h": []})
+    check("architect: the WANTED contract demands concrete capabilities",
+          "CONCRETELY" in _ap and "on what INPUT" in _ap
+          and "is a mood" in _ap)
+    check("architect: the nudge shows both a good and a bad example",
+          "Cross-source timeline synthesis" in _ap
+          and "Robust automated plan regeneration" in _ap)
+
     # ---- census normalisation (2026-08-06, my own regression) ----
     from executive import architect as _arch
     _cd = os.path.join(TMP, "census_probe", "tools", "own")
@@ -710,6 +723,26 @@ async def main():
           _ev["zero_use_count"] == 0)
     check("census: and its usage reaches top_used",
           dict(_ev["top_used"]).get("lonely_tool") == 12)
+
+    # ---- tool wiring sensor (2026-08-06): do its tools agree where data lives? ----
+    _wown = os.path.join(TMP, "wiring", "tools", "own")
+    os.makedirs(_wown, exist_ok=True)
+    open(os.path.join(_wown, "writer_tool"), "w").write(
+        'out = "/mind/thearchive.jsonl"\n')
+    open(os.path.join(_wown, "reader_tool"), "w").write(
+        'src = "/mind/sub/thearchive.jsonl"\n')
+    open(os.path.join(_wown, "agreeing_tool"), "w").write(
+        'p = "/mind/thearchive.jsonl"\n')
+    _H.MIND = os.path.join(TMP, "wiring")
+    _w = _H.check_tool_wiring()
+    check("wiring: two tools naming the same file at different paths is flagged",
+          _w.startswith("WIRING:!!") and "thearchivejsonl" in _w)
+    check("wiring: tools that AGREE on a path raise nothing by themselves",
+          _w.count("(2 paths)") == 1)
+    open(os.path.join(_wown, "solo_tool"), "w").write('p = "/mind/only_one.json"\n')
+    _w2 = _H.check_tool_wiring()
+    check("wiring: a path only one tool uses is not a clash",
+          "onlyonejson" not in _w2)
 
     # ---- STALE-FALLBACKS (2026-08-06): printed since Aug 2, never read ----
     _fb_built = {"title": "already_built_probe", "brief": "do a thing"}

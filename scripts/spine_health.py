@@ -227,6 +227,69 @@ def exit_code(silent: set, primaries: set) -> int:
     return 1 if (silent & primaries) else 0
 
 
+def check_tool_wiring():
+    """Do the creature's own tools agree with each other about WHERE data lives?
+
+    2026-08-06. `keyword-archive-store` has written 1,670 times to
+    /workspace/keyword_archive.jsonl; `keyword-archive-search` has read 934 times
+    from /mind/memarch/keyword-archive.jsonl, which is 0 bytes. Neither tool ever
+    errored: the reader's contract is "if the archive is missing or empty, return
+    no results without error". The same conceptual archive exists at FIVE paths.
+
+    The cause is in OUR half, not its tools. protected-prompt.md tells it durable
+    data "must store it under /mind or /workspace" -- durability, not IDENTITY.
+    Two acceptable answers, no naming convention, so two obedient tools written on
+    different days cannot find each other. (We had the identical bug: five
+    derivations of the mind root, collapsed into volume/paths.py the same day.)
+
+    This is a SENSOR, not a repair. Its tools are its world; we do not edit them
+    and we do not tell it about its own bugs. It reports to the humans only.
+    """
+    own = os.path.join(MIND, "tools", "own")
+    pathre = re.compile(r"[\"']((?:/mind|/workspace)/[A-Za-z0-9_./\-]+)[\"']")
+    def canon(pth):
+        return re.sub(r"[^a-z0-9]", "", os.path.basename(pth).lower())
+    def host(pth):
+        return (pth.replace("/mind", MIND)
+                   .replace("/workspace", os.path.expanduser("~/growing-spine-workspace")))
+    groups, readers = {}, {}
+    try:
+        names = os.listdir(own)
+    except OSError:
+        return "WIRING:no-own-dir"
+    for n in names:
+        fp = os.path.join(own, n)
+        if not os.path.isfile(fp) or is_junk_name(n):
+            continue
+        try:
+            body = open(fp, encoding="utf-8", errors="replace").read()
+        except Exception:
+            continue
+        for m in pathre.finditer(body):
+            pth = m.group(1)
+            if "." not in os.path.basename(pth):
+                continue
+            groups.setdefault(canon(pth), set()).add(pth)
+            readers.setdefault(pth, set()).add(n)
+    split = {k: v for k, v in groups.items() if len(v) > 1}
+    if not split:
+        return "WIRING:ok"
+    out = []
+    for k, paths in sorted(split.items()):
+        sizes = []
+        for pth in sorted(paths):
+            try:
+                sz = os.path.getsize(host(pth))
+            except OSError:
+                sz = -1
+            sizes.append(f"{pth}={sz}b/{len(readers.get(pth, ()))}t")
+        # the damning signature: someone reads an EMPTY copy while another is fat
+        empty = [x for x in sizes if "=0b" in x]
+        fat = [x for x in sizes if "=0b" not in x and "=-1b" not in x]
+        flag = " ORPHANED-READER" if empty and fat else ""
+        out.append(f"{k}({len(paths)} paths){flag}: " + "; ".join(sizes))
+    return f"WIRING:!!{len(split)}[" + " | ".join(out) + "]"
+
 def check_flatline():
     """FLATLINE: an ENABLED provider with no success in FLATLINE_HOURS.
     Silence is the failure mode that already bit once -- google_gemma
@@ -263,7 +326,8 @@ def check_flatline():
 if __name__ == "__main__":
     line = (time.strftime("%Y-%m-%d %H:%M") + "  "
             + "  ".join([check_sensor(), check_fallbacks(), stub_janitor(),
-                         journal_integrity(), check_flatline()]))
+                         journal_integrity(), check_tool_wiring(),
+                         check_flatline()]))
     _rc = exit_code(SILENT_KEYS, DEAD_KEYS)
     if _rc:
         line += f"  SERIOUS:{','.join(sorted(SILENT_KEYS & DEAD_KEYS))}"
