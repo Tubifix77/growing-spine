@@ -481,6 +481,10 @@ async def batch_judge(items, registry, complete, attic_registry=None,
     if stats is not None:
         # Lets the caller tell "the judge cleared these" apart from "no judge
         # ever ran". It stamped gate_checked=True either way until 2026-08-05.
+        # truncated/finish_reason travel with the stats so the caller's journal
+        # entry can name the CAUSE of a 0-parse (empty vs truncated vs
+        # unparseable) instead of only its outcome.
         stats.update(parsed=parsed_lines, items=len(items), covered=len(out),
-                     reply_chars=len(raw), budget=budget)
+                     reply_chars=len(raw), budget=budget,
+                     truncated=bool(was_truncated and was_truncated()))
     return out

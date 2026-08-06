@@ -14,6 +14,18 @@ LEGACY_KEY_ALIASES = {
 }
 
 
+def _complain(msg: str):
+    """Say it on stdout AND in the creature's journal. A keyless body is a silent
+    disability otherwise: every provider call from inside the container just fails."""
+    print(f"[sandbox] {msg}")
+    try:
+        from executive import journal as _j
+        _j.append(os.path.expanduser("~/growing-spine-mind"), "error",
+                  f"sandbox: {msg}")
+    except Exception:
+        pass
+
+
 def env_name_for(provider_key: str) -> str:
     """Canonical container env var name for a config provider key."""
     # str(): a bare off/on/yes/no key arrives from YAML as a bool ("Norway problem").
@@ -75,14 +87,27 @@ def start(dockerfile_dir: str = "."):
     os.makedirs(host_ws, exist_ok=True)
     # Read API keys from config so bash tools inside the container can use them
     # without needing Python or the keychain module.
+    # Audit P1-F15: this hardcoded ~/growing-spine/config.yaml and swallowed every
+    # failure with a bare `pass`, so a moved checkout or a YAML typo produced a body
+    # with NO api keys, in total silence, and the creature's own tools would fail to
+    # call any provider with no way to find out why. Derive the path from this file,
+    # and say so loudly when the keys do not make it in.
     _api_env = []
+    _cfg_path = os.path.join(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__))), "config.yaml")
     try:
         import yaml as _yaml
-        _cfg = _yaml.safe_load(open(os.path.expanduser("~/growing-spine/config.yaml")))
-        for _name, _val in container_api_env(_cfg).items():
+        with open(_cfg_path, encoding="utf-8") as _cf:
+            _cfg = _yaml.safe_load(_cf)
+        _keys = container_api_env(_cfg)
+        for _name, _val in _keys.items():
             _api_env += ["-e", f"{_name}={_val}"]
-    except Exception:
-        pass  # best-effort — container still starts without keys
+        if not _keys:
+            _complain(f"config at {_cfg_path} yielded NO provider keys -- the body "
+                      f"starts unable to call any API")
+    except Exception as _ce:
+        _complain(f"could not read {_cfg_path} ({type(_ce).__name__}: {_ce}) -- the "
+                  f"body starts with NO api keys")
 
     subprocess.run([
         "docker", "run", "-d",

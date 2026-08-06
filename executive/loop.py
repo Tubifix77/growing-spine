@@ -1200,10 +1200,21 @@ async def _gate_composition_batch(batch: list, keychain) -> list:
                 # Journal it. Until 2026-08-05 this only reached stdout, so the
                 # organ that fails open most often was invisible to every
                 # consumer that reads journal.jsonl.
+                # Name the CAUSE, not just the outcome. The only instance ever
+                # journalled (2026-08-06) read "reply 0 chars vs 1360 tok budget"
+                # -- i.e. the provider returned NOTHING, so the audit's theory for
+                # P4-F5 (the 160n+400 budget starving deliberation) was not what
+                # bit, and the 2x-budget retry in idea_gate correctly did not fire.
+                # Empty, truncated and unparseable are three different repairs, so
+                # record which one happened.
+                _rc = stats.get("reply_chars", 0)
+                _cause = ("EMPTY-REPLY (provider returned nothing)" if not _rc
+                          else "TRUNCATED" if stats.get("truncated")
+                          else "UNPARSEABLE (reply arrived, no verdict lines)")
                 journal.append(VOLUME_MOUNT, "idea_gate",
                                f"batch judge parsed 0/{len(band)} -- band left "
-                               f"UNJUDGED (reply {stats.get('reply_chars', 0)} "
-                               f"chars vs {stats.get('budget', 0)} tok budget)")
+                               f"UNJUDGED. cause={_cause}; reply {_rc} chars vs "
+                               f"{stats.get('budget', 0)} tok budget")
         for it in batch:
             if it.get("gate"):
                 continue
@@ -3033,6 +3044,7 @@ async def run_cycle(keychain: Keychain, dockerfile_dir: str):
     cycle_start = time.time()
     executed = []
     last_cmd = ""
+    aborted = ""
     for i, cmd in enumerate(bash_blocks):
         last_cmd = cmd
 
@@ -3042,15 +3054,34 @@ async def run_cycle(keychain: Keychain, dockerfile_dir: str):
         if not alive:
             journal.append(VOLUME_MOUNT, "error",
                            "Container could not be respawned. Skipping exec.")
-            return False  # non-substantive: container died before any exec
+            aborted = "respawn-failed"
+            break        # NOT return: blocks already run must still be accounted
 
         journal.append(VOLUME_MOUNT, "exec_start", f"Block {i+1}: {cmd[:200]}")
-        stdout, stderr, code = await managed_exec(
-            cmd, VOLUME_MOUNT, SAVEGAME_ROOT, sandbox.CONTAINER_NAME)
+        try:
+            stdout, stderr, code = await managed_exec(
+                cmd, VOLUME_MOUNT, SAVEGAME_ROOT, sandbox.CONTAINER_NAME)
+        except Exception as _xe:
+            journal.append(VOLUME_MOUNT, "error",
+                           f"exec raised {type(_xe).__name__}: {_xe}")
+            aborted = f"exec-raised:{type(_xe).__name__}"
+            break        # same: fall through to the bookkeeping below
         result_summary = f"exit={code} stdout={stdout[:300]} stderr={stderr[:200]}"
         journal.append(VOLUME_MOUNT, "exec_end", result_summary,
                        {"exit_code": code})
         executed.append((cmd, code))
+
+    # Audit P1-F8: a mid-cycle abort used to `return False` from inside the loop,
+    # so the done-gate, usage tracking, the redirect backstop and the gage stamp
+    # were all skipped -- including for blocks that HAD already run. A timed-out
+    # exec or a failed respawn silently disarmed the cycle's entire accounting.
+    if aborted:
+        journal.append(VOLUME_MOUNT, "diag",
+                       f"cycle aborted mid-way ({aborted}) after "
+                       f"{len(executed)} of {len(bash_blocks)} blocks -- "
+                       f"bookkeeping still runs for what did execute")
+    if not executed:
+        return False   # genuinely nothing ran
 
     genuine = _enforce_done_gate(executed)
     if genuine:
