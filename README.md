@@ -60,6 +60,65 @@ tool claims to do and how often it actually ran in the last fortnight. The
 interactive [framework map](docs/framework-map.html) shows the machinery —
 every LLM prompt verbatim, every gate in place — that shaped this growth.
 
+## Current status (2026-08-06, v0.15) — the audit-closure day
+
+346 own tools (an honest count for the first time — three earlier numbers had been
+counting `.bak` backups, docs, and directories the creature had made with
+tool-shaped names). This release contains almost no new capability and a great deal
+of repaired truth.
+
+A four-pass static audit had produced **67 numbered findings**; a synthesis
+shortlist showed ten of them. Every finding now carries a verdict read from live
+code, and all 28 that were open or partial are closed — thirteen commits in a day,
+tests from 146 to 212 green. The full record, with per-finding evidence, is kept
+out of this repo deliberately (it is a file-and-line map of a running system's
+failure modes).
+
+The theme, in one line: **the machine had been measuring itself with instruments
+that quietly stopped working, and nothing noticed because a broken instrument reads
+zero.**
+
+- **The stub-guard organ had never worked.** `tool-new` writes "Replace the body
+  below"; three detectors hunted "Replace this whole file". Six organs no-oped for
+  their entire existence and the janitor logged `aged-out 0` twenty-eight times in
+  a row. Re-armed, and the creature drained its own 11-stub backlog to zero in a
+  day — implementing, in demand order, eight shells it had been calling into the
+  void for weeks (2,304 invocations on the most-used one).
+- **The retrospective judge was told roughly double.** Its in-place-edit metric was
+  a bare mtime count, so every `mv X X.bak` + rewrite counted twice. Live: 11 → 6.
+- **The creature was told a fabricated wake time.** The sleep estimate read a key
+  nothing has ever written, so it always fell through to a flat hour — and printed
+  that hour into the creature's own journal as `Earliest budget return` while the
+  measured shortest recovery was 183 seconds.
+- **Working memory could not be updated.** Recency ordered by insertion, while
+  writing an existing key UPDATEs in place and keeps its row id — so every revised
+  memory sank out of working memory permanently, including the creature's own
+  statement of what it was working on.
+- **The crash-net could only catch a fast crash.** A crash taking ~40s per cycle
+  reached the third restart past the 90-second window, where the success branch
+  fired first: the net congratulated a crash-loop and disarmed itself. It had never
+  fired in the project's life. Bench-tested, fixed, and pinned by five scenarios.
+- **The prompt invited what the checker rejected.** Two cluster taxonomies lived in
+  one pipeline: the model was told eight territories were covered, the check knew
+  six.
+- **Every hardcoded fallback named a tool that already existed** — 8 of 8. The
+  health probe had been printing `STALE-FALLBACKS:8` in every line since Aug 2 and
+  nobody had read it. Stale fallbacks are now reframed as in-place upgrades.
+- **One config line cut wasted calls five-fold.** 28% of thinks were ending on the
+  token ceiling, and the think contract puts the executable block last — so a
+  truncated reply loses the whole action. Raising the cap took exec_skip from 14.9%
+  to 3.0% at unchanged throughput. The prediction was written down before the
+  measurement.
+
+Two findings were left deliberately unfixed with the reasoning recorded, and one
+was declined outright: the judge's token budget stays as it is, because the only
+0-parse ever journalled shows the provider returned nothing at all — tuning a
+constant on no evidence is how voodoo constants are born.
+
+Every de-duplication shipped with a test that fails if the copies drift apart
+again, which is the audit's own lesson pointed forwards: a producer and a checker
+that share a literal *will* drift, and only a test notices.
+
 ## Current status (2026-08-03, v0.14)
 
 354 own tools, growing under law: the gate serves choices, the done-gate verifies that "upgrade" changed the actual file (lineage-variant births: 62/day before, zero since), and a **Meta-Architect** now rules every refill from evidence — its maiden run parsed 18/18 ideas, kept three, and asked unprompted for timeline tools and "chaining without new sibling files". The judge twins are fused (one prompt, one parser, everywhere), the trajectory Reviewer needs two consecutive STUCK verdicts to act and can no longer overwrite the architect's steering. The creature, for its part, was discovered to be version-controlling its own library under the self-chosen author name **GrowthAgent** — its full self-written changelog and all 348 tool files are published unmodified in [docs/creature-snapshot-2026-08-02](docs/creature-snapshot-2026-08-02/MANIFEST.md).
