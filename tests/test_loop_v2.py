@@ -670,6 +670,52 @@ async def main():
         try: os.remove(os.path.join(_fsown, _n))
         except OSError: pass
 
+    # ---- crash-net (2026-08-06): the rollback had NEVER fired in the project's
+    # life, because only a FAST crash-loop could reach it. Bench-tested, fixed,
+    # pinned here. Fake savegame/chat: nothing live is touched.
+    from executive import self_restart as _SR
+
+    class _FakeSave:
+        def __init__(self): self.restored = []
+        def brain_diff(self, a, b): return "fake-diff"
+        def restore_brain(self, c): self.restored.append(c)
+
+    class _FakeChat:
+        def __init__(self): self.msgs = []
+        def enqueue(self, vm, m): self.msgs.append(m)
+
+    _cn_seq = [0]
+
+    def _boot(ago, starts):
+        _cn_seq[0] += 1
+        vm = os.path.join(TMP, "crashnet_%d" % _cn_seq[0])
+        os.makedirs(vm, exist_ok=True)
+        json.dump({"in_flight": True, "good_commit": "AAA", "bad_commit": "BBB",
+                   "armed_at": time.time() - ago, "starts_since_arm": starts,
+                   "good_save_tag": "save-A"},
+                  open(os.path.join(vm, _SR.STATE_FILE), "w"))
+        sv, ch = _FakeSave(), _FakeChat()
+        rolled = _SR.boot_check(vm, sv, ch)
+        st = json.load(open(os.path.join(vm, _SR.STATE_FILE)))
+        return rolled, sv.restored, st.get("in_flight"), ch.msgs
+
+    _r, _rest, _armed, _msgs = _boot(10, 2)
+    check("crash-net: a FAST crash-loop rolls back and tells the creature why",
+          _r is True and _rest == ["AAA"] and _armed is False
+          and _msgs and "rolled back" in _msgs[0])
+    _r, _rest, _armed, _ = _boot(120, 2)
+    check("crash-net: a SLOW crash-loop rolls back too (used to disarm as SUCCESS)",
+          _r is True and _rest == ["AAA"] and _armed is False)
+    _r, _rest, _armed, _ = _boot(300, 5)
+    check("crash-net: a very slow loop is not left armed-and-inert forever",
+          _r is True and _armed is False)
+    _r, _rest, _armed, _ = _boot(300, 0)
+    check("crash-net: a healthy self-restart disarms without rolling back",
+          _r is False and _rest == [] and _armed is False)
+    _r, _rest, _armed, _ = _boot(7200, 4)
+    check("crash-net: a stale arm disarms, never reverts an hours-old change",
+          _r is False and _rest == [] and _armed is False)
+
     # ---- A leftovers (2026-08-06): container keys + a sensor that can fail ----
     from executive import sandbox as _sb
     _cfgk = {"providers": [

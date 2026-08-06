@@ -24,6 +24,7 @@ STATE_FILE = "self_restart_state.json"
 REQUEST_FILE = "restart_request.flag"
 CRASH_LIMIT = 3          # this many starts within the window after a self-restart = crash-loop
 CRASH_WINDOW_SEC = 90    # ...counted within this many seconds of the self-restart
+ARM_EXPIRY_SEC = 3600    # an arm older than this means the new brain survived
 
 
 def _sp(volume_mount, name):
@@ -131,13 +132,24 @@ def boot_check(volume_mount, savegame, chat):
 
     # healthy: if we've been up and this is only the first/second clean start
     # well past the crash window, consider the self-restart a SUCCESS and disarm.
-    if elapsed > CRASH_WINDOW_SEC and st["starts_since_arm"] <= CRASH_LIMIT:
+    # ORDER MATTERS (bench-tested 2026-08-06). Success used to be checked FIRST,
+    # with `starts <= CRASH_LIMIT`, while crash-loop also required
+    # `elapsed <= CRASH_WINDOW_SEC`. A crash taking ~40s per cycle reached start 3
+    # at ~120s, past the window -- so the SUCCESS branch fired and the net
+    # congratulated a crash-loop and disarmed itself. Slower still and NEITHER
+    # branch fired: in_flight stayed True forever, armed and inert. Only a FAST
+    # crash-loop could ever trigger the rollback, which is why it has never fired.
+    if elapsed > ARM_EXPIRY_SEC:
+        # A crash-loop cannot take an hour per cycle when the loop's cadence is
+        # ~2 min: this arm survived, something just left the flag set. Disarm
+        # rather than roll back an hours-old change on an unrelated restart.
         st["in_flight"] = False
         _save(volume_mount, st)
         return False
 
-    # crash-loop: too many starts inside the window -> the new brain is bad.
-    if st["starts_since_arm"] >= CRASH_LIMIT and elapsed <= CRASH_WINDOW_SEC:
+    # crash-loop: enough starts since arming. No upper bound on elapsed -- that
+    # bound WAS the hole.
+    if st["starts_since_arm"] >= CRASH_LIMIT:
         good = st.get("good_commit")
         bad = st.get("bad_commit")
         diff = savegame.brain_diff(good, bad) if good else "(no good commit recorded)"
@@ -164,5 +176,11 @@ def boot_check(volume_mount, savegame, chat):
         st["in_flight"] = False
         _save(volume_mount, st)
         return True
+
+    # healthy: past the crash window on a start count BELOW the limit -> worked.
+    if elapsed > CRASH_WINDOW_SEC and st["starts_since_arm"] < CRASH_LIMIT:
+        st["in_flight"] = False
+        _save(volume_mount, st)
+        return False
 
     return False
