@@ -2415,15 +2415,38 @@ def _collect_metrics() -> dict:
     # tools move no counter above, so a healthily-consolidating creature read
     # as flatlined and the STUCK verdict thrashed it with resets (7 fires in
     # 16h, each interrupting the very completions it demanded).
+    # IN-PLACE EDITS of EXISTING tools. Both words have to be earned, and until
+    # 2026-08-06 neither was: this was a bare recent-mtime count over the whole
+    # directory, and the retro prompt hands it to the judge as evidence of
+    # consolidation. Two ways it lied, both measured on 2026-08-06:
+    #   * JUNK: a tool edit is `mv X X.bak_<ts>` then rewrite X, so ONE genuine
+    #     edit produced TWO recent-mtime entries. The 11 stub fills that day read
+    #     as ~22. Junk is now excluded via the canonical embed_gate predicate.
+    #   * BIRTHS: a brand-new tool has a recent mtime too, so spawning a sibling
+    #     -- the exact drift this metric was added to discriminate -- INFLATED it.
+    #     A name absent from the previous window's snapshot cannot be an edit of
+    #     an existing tool, so it is not counted.
+    # st_birthtime is unavailable on Linux/py3.11 (getctime is inode CHANGE time,
+    # which a write bumps), so the previous snapshot's name list is the instrument.
     try:
         _own = os.path.join(VOLUME_MOUNT, "tools", "own")
         _now = time.time()
-        m["edited_existing_6h"] = sum(
-            1 for n in os.listdir(_own)
-            if 21600 > _now - os.path.getmtime(os.path.join(_own, n)) and
-            _now - os.path.getmtime(os.path.join(_own, n)) >= 0)
+        _names = [n for n in os.listdir(_own) if not embed_gate._is_junk(n)]
+        m["tool_names"] = sorted(_names)   # next window's birth detector
+        _prev = set(_load_retro_state().get("snapshot", {}).get("tool_names") or [])
+        _edited = 0
+        for _n in _names:
+            _age = _now - os.path.getmtime(os.path.join(_own, _n))
+            if not (0 <= _age < 21600):
+                continue
+            if _prev and _n not in _prev:
+                continue          # born inside the window: not an in-place edit
+            _edited += 1
+        m["edited_existing_6h"] = _edited
+        m["edit_count_basis"] = "vs-prev-snapshot" if _prev else "first-window"
     except Exception:
         m["edited_existing_6h"] = -1
+        m["edit_count_basis"] = "error"
     try:
         import subprocess
         r = subprocess.run(["du", "-sm", WORKSPACE_DIR],

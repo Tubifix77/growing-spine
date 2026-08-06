@@ -695,6 +695,32 @@ async def main():
           _pv("The agent seems fine to me, broadly speaking.")[0] is None
           and _pv("")[0] is None)
 
+    # ---- P1-F2 (2026-08-06): the in-place-edit metric must earn both words ----
+    _m6 = os.path.join(TMP, "tools", "own")
+    os.makedirs(_m6, exist_ok=True)
+    for _n in list(os.listdir(_m6)):
+        try: os.remove(os.path.join(_m6, _n))
+        except OSError: pass
+    for _n in ("old_tool", "old_tool.bak_1786000000", "newborn_tool", "stale_tool"):
+        open(os.path.join(_m6, _n), "w").write("print(1)\n")
+    _ancient = time.time() - 9 * 86400
+    os.utime(os.path.join(_m6, "stale_tool"), (_ancient, _ancient))
+    _lp._save_retro_state({"snapshot": {"tool_names": ["old_tool", "stale_tool"]}})
+    _mm = _lp._collect_metrics()
+    check("P1-F2: a .bak backup no longer double-counts one genuine edit",
+          "old_tool.bak_1786000000" not in _mm.get("tool_names", []))
+    check("P1-F2: a tool born inside the window is not an 'in-place edit'",
+          _mm["edited_existing_6h"] == 1 and _mm["edit_count_basis"] == "vs-prev-snapshot")
+    check("P1-F2: a tool untouched for 9 days is not counted either",
+          "stale_tool" in _mm.get("tool_names", []))
+    _lp._save_retro_state({})
+    _mm2 = _lp._collect_metrics()
+    check("P1-F2: with no prior snapshot it degrades to counting recent, junk-free files",
+          _mm2["edited_existing_6h"] == 2 and _mm2["edit_count_basis"] == "first-window")
+    for _n in ("old_tool", "old_tool.bak_1786000000", "newborn_tool", "stale_tool"):
+        try: os.remove(os.path.join(_m6, _n))
+        except OSError: pass
+
     # ---- crash-net (2026-08-06): the rollback had NEVER fired in the project's
     # life, because only a FAST crash-loop could reach it. Bench-tested, fixed,
     # pinned here. Fake savegame/chat: nothing live is touched.
