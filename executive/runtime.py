@@ -71,12 +71,22 @@ async def ensure_body(volume_mount: str, savegame_root: str,
 
 def sleep_duration_seconds(keychain) -> float:
     """How long to sleep when exhausted.
-    Uses last_window_duration (gap between consecutive exhaustions) if known,
-    else a conservative 1 hour. Floor of 60s to avoid hammering the API.
+
+    Uses `last_recovery_secs` -- the measured length of the most recent dark
+    period, written by quota_state.mark_success when an outage ends -- else a
+    conservative 1 hour. Floor of 60s to avoid hammering the API.
+
+    2026-08-06 (audit P1-F10 / P2-F4 / P3-D5): this read `last_window_duration`,
+    which NOTHING has ever written. So every call fell through to the flat 3600,
+    and -- worse than dead code -- sleep_entry prints that fallback into the
+    creature's own journal as `Earliest budget return: <time>`. The creature was
+    being told a fabricated wake time as fact, which is why it could be seen
+    "waking two minutes after" an hour-away estimate. Reading the key the writer
+    actually writes makes the number true.
     """
     durations = []
     for p in keychain.providers:
-        dur = keychain.state.get(p["key"], {}).get("last_window_duration")
+        dur = keychain.state.get(p["key"], {}).get("last_recovery_secs")
         if dur and dur > 0:
             durations.append(dur)
     if durations:

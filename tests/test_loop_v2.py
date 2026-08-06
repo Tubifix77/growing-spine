@@ -695,6 +695,21 @@ async def main():
           _pv("The agent seems fine to me, broadly speaking.")[0] is None
           and _pv("")[0] is None)
 
+    # ---- P1-F10/P2-F4/P3-D5 (2026-08-06): read the key the writer writes ----
+    from executive import runtime as _rt
+
+    class _FakeKC:
+        def __init__(self, st): self.state = st; self.providers = [{"key": "a"}, {"key": "b"}]
+    check("sleep estimate: uses the measured last_recovery_secs",
+          abs(_rt.sleep_duration_seconds(
+              _FakeKC({"a": {"last_recovery_secs": 600},
+                       "b": {"last_recovery_secs": 200}})) - 220.0) < 1)
+    check("sleep estimate: the never-written last_window_duration is no longer consulted",
+          _rt.sleep_duration_seconds(
+              _FakeKC({"a": {"last_window_duration": 600}})) == 3600)
+    check("sleep estimate: floor of 60s still holds",
+          _rt.sleep_duration_seconds(_FakeKC({"a": {"last_recovery_secs": 5}})) == 60.0)
+
     # ---- P1-F2 (2026-08-06): the in-place-edit metric must earn both words ----
     _m6 = os.path.join(TMP, "tools", "own")
     os.makedirs(_m6, exist_ok=True)

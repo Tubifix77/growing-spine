@@ -395,7 +395,8 @@ def _build_tool_catalogue() -> str:
         lines.append("  (none)")
 
     now = time.time()
-    counts = _update_usage_cache()
+    _update_usage_cache()          # keep the incremental cache current...
+    counts = toolmod.demand_counts(VOLUME_MOUNT)   # ...but rank on the MERGE
     try:
         with open(SURFACED_STATE_PATH, encoding="utf-8") as f:
             surfaced_at = json.load(f)
@@ -708,7 +709,15 @@ def _most_used_tools(n: int = 8) -> list:
     These are the strong building blocks a composition tool should orchestrate."""
     try:
         own = set(_own_tool_names())
-        usage = _load_tool_usage()
+        # ONE definition of "use" (2026-08-06, audit P1-F5/P2-F3). There were
+        # three: this function read the executed-command counter, the catalogue
+        # read the journal path-prefix counter, and the architect kept a private
+        # copy of the same regex -- and the two were printed side by side in one
+        # prompt meaning different things. The path-prefix counter cannot see a
+        # bare invocation, and tools are on PATH, so it under-counts real use.
+        # toolmod.demand_counts merges both persisted counters by MAX: "reached
+        # for at least this often".
+        usage = toolmod.demand_counts(VOLUME_MOUNT)
         ranked = sorted(((k, v) for k, v in usage.items() if k in own),
                         key=lambda kv: kv[1], reverse=True)
         return ranked[:n]

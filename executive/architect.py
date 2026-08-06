@@ -20,7 +20,9 @@ def gather_evidence(own_dir, journal_path, now=None, days=14):
     usage top/zero. Never raises; empty evidence on any filesystem trouble."""
     now = now or time.time()
     try:
-        names = [n for n in os.listdir(own_dir) if not n.startswith('.')]
+        from executive.embed_gate import _is_junk as _junk
+        names = [n for n in os.listdir(own_dir)
+                 if not n.startswith('.') and not _junk(n)]
     except OSError:
         names = []
     day_new, lineage = [], []
@@ -41,21 +43,18 @@ def gather_evidence(own_dir, journal_path, now=None, days=14):
     for stem, group in stems.items():
         if len(group) > 1:
             lineage.extend(group)
-    used = {}
-    cutoff = now - days * 86400
-    try:
-        with open(journal_path) as f:
-            for line in f:
-                try:
-                    e = json.loads(line)
-                except Exception:
-                    continue
-                if e.get('ts', 0) >= cutoff and e.get('kind') == 'exec_start':
-                    for m in re.finditer(r'tools/own/([A-Za-z0-9_.\-]+)',
-                                         e.get('content', '')):
-                        used[m.group(1)] = used.get(m.group(1), 0) + 1
-    except OSError:
-        pass
+    # The third copy of "what counts as use" used to live here: the same
+    # `tools/own/` path-prefix regex as loop.py, over a 14-day journal window.
+    # It could not see a bare invocation, and tools are on PATH -- so its
+    # zero_use_count was inflated and its top_used disagreed with the catalogue
+    # printed in the SAME prompt (audit P1-F5, P2-F3). Now the canonical merge.
+    # Note the semantics changed with it: the counters are cumulative, so this is
+    # "never used", not "unused in 14 days" -- the prompt says so.
+    from volume import tools as toolmod
+    _mind = os.path.dirname(os.path.dirname(own_dir))   # <mind>/tools/own -> <mind>
+    own_set = set(names)
+    used = {k: v for k, v in toolmod.demand_counts(_mind).items()
+            if k in own_set}
     top = sorted(used.items(), key=lambda kv: -kv[1])[:10]
     zero = len([n for n in names if n not in used])
     return {"total": len(names), "born_24h": sorted(day_new)[:20],
@@ -74,7 +73,7 @@ def build_prompt(items, ev):
         lines.append(f"IDEA {i}: {it.get('title', '')} -- "
                      f"{str(it.get('brief', ''))[:160]}{tag}")
     top = ", ".join(f"{n}({c})" for n, c in ev.get("top_used", [])[:8])
-    return f"""You are the meta-architect for an autonomous toolsmith agent. Its library has {ev['total']} tools; {ev['zero_use_count']} were unused in 14 days; {ev['lineage_count']} are lineage variants (files like X_upgraded or X_v2 spawned INSTEAD of editing X -- drift to stop). Most-used: {top or '-'}.
+    return f"""You are the meta-architect for an autonomous toolsmith agent. Its library has {ev['total']} tools; {ev['zero_use_count']} have never been used; {ev['lineage_count']} are lineage variants (files like X_upgraded or X_v2 spawned INSTEAD of editing X -- drift to stop). Most-used: {top or '-'}.
 Born in the last 24h: {', '.join(ev['born_24h'][:12]) or '-'}.
 
 Rule on each idea below.
