@@ -696,6 +696,17 @@ async def main():
           and _pv("")[0] is None)
 
     _J = __import__("json")   # shadow-proof: `_js`/`json` are rebound later in this function
+    # ---- P4-F11 / P1-F21 (2026-08-06): quoted keys, and a chip that admits it ----
+    check("P4-F11: a QUOTED key is matched now (was invisible to the done-gate)",
+          bool(_lp.DONE_MARK_RE.search('remember "current-phase" done'))
+          and bool(_lp.DONE_MARK_RE.search("remember current-phase done"))
+          and bool(_lp.PROJECT_SET_RE.search('remember "current-project" x')))
+    _psm = _lp._PROJECT_SET_RE.search('remember "current-project" archive indexer')
+    check("P4-F11: and the project NAME still extracts from a quoted form",
+          bool(_psm) and _psm.group(1).startswith("archive indexer"))
+    check("P4-F11: an unrelated remember is still not a done-mark",
+          not _lp.DONE_MARK_RE.search("remember current-phase testing"))
+
     # ---- P2-F2 / P2-F14 (2026-08-06): one answer to "is this a tool" ----
     _td = os.path.join(TMP, "tools", "own")
     os.makedirs(os.path.join(_td, "a_directory_named_like_a_tool"), exist_ok=True)

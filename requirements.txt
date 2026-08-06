@@ -1,3 +1,9 @@
-model2vec
-pytz>=2024.1
+# Host-side Python dependencies. Referenced by deploy/INSTALL-systemd.md.
+# Audit P3-D11: this file was read by nothing -- no `pip install -r` in the
+# Dockerfile, restart.sh, deploy/ or the docs, which installed model2vec by hand.
+# It was also WRONG as a manifest: it listed pytz (imported nowhere) and omitted
+# PyQt6, which the observer needs -- so a fresh machine bootstrapped from it got a
+# working brain and a broken dashboard.
 pyyaml>=6.0
+model2vec          # embed_gate: semantic dedup + the curated catalogue
+PyQt6              # observer.py dashboard only; the brain runs without it

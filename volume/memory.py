@@ -208,20 +208,6 @@ def retrieve(volume_mount: str, key: str) -> dict:
     return {"key": row[0], "value": row[1], "tags": row[2], "updated": row[3]}
 
 
-def search_by_tag(volume_mount: str, tag: str) -> list:
-    """Find all memories matching a tag."""
-    with _db(volume_mount) as conn:
-        rows = conn.execute(
-            "SELECT key, value, tags, updated FROM memories "
-            "WHERE tags LIKE ? ORDER BY id DESC",
-            (f"%{tag}%",)
-        ).fetchall()
-    return [
-        {"key": r[0], "value": r[1], "tags": r[2], "updated": r[3]}
-        for r in rows
-    ]
-
-
 def delete(volume_mount: str, key: str) -> bool:
     """Delete a memory by key. Returns True if deleted, False if not found.
 
@@ -237,7 +223,6 @@ def count(volume_mount: str) -> int:
     """Count total number of memories."""
     with _db(volume_mount) as conn:
         return conn.execute("SELECT COUNT(*) FROM memories").fetchone()[0]
-
 
 
 def recall(volume_mount: str, query: str, limit: int = 10) -> list:

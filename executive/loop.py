@@ -481,8 +481,12 @@ def _build_done_block() -> str:
     return ""
 
 
-DONE_MARK_RE = re.compile(r'remember\s+current-phase\s+["\']?done["\']?', re.I)
-PROJECT_SET_RE = re.compile(r'remember\s+current-project\b', re.I)
+# Audit P4-F11: quoted VALUES were handled, quoted KEYS were not -- so
+# `remember "current-phase" done` matched nothing and the done-gate never saw the
+# completion. `["\']?` around the key costs nothing and closes it.
+DONE_MARK_RE = re.compile(
+    r'remember\s+["\']?current-phase["\']?\s+["\']?done["\']?', re.I)
+PROJECT_SET_RE = re.compile(r'remember\s+["\']?current-project["\']?\b', re.I)
 
 # Spin trap: track consecutive done-gate blocks on the same failing command.
 # When the same DONE-WHEN check fails SPIN_THRESHOLD times in a row the approach
@@ -2522,7 +2526,8 @@ def _collect_metrics() -> dict:
     return m
 
 
-_PROJECT_SET_RE = re.compile(r'remember\s+current-project\s+"?([^"\n]{1,120})')
+_PROJECT_SET_RE = re.compile(
+    r'remember\s+["\']?current-project["\']?\s+["\']?([^"\n]{1,120})')
 
 
 def _window_journal_stats(since_line: int) -> dict:

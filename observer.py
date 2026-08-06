@@ -451,12 +451,19 @@ class Dashboard(QMainWindow):
             with open(QUOTA) as f:
                 state = json.load(f)
         except OSError:
-            state = None
+            state = None          # file absent -> renders "no state file"
         except Exception:
-            return
+            # Audit P1-F21: this was a bare `return`, so a corrupt/half-written
+            # quota_state.json left every chip rendering whatever it last showed
+            # -- FOREVER, and looking healthy while doing it. A missing file was
+            # honest ("no state file"); an unreadable one was a silent freeze.
+            state = False         # sentinel: present but unreadable
         now = time.time()
 
         def render(key, name):
+            if state is False:
+                return (f'<span style="color:#E0A030">{_esc(name)}<br>'
+                        f'state unreadable</span>')
             if state is None:
                 return f'<span style="color:#9E9E9E">{_esc(name)}<br>no state file</span>'
             ps = state.get(key, {})

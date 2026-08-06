@@ -109,21 +109,6 @@ def mark_read(volume_mount: str, ts) -> bool:
         return changed
 
 
-def pop_unread(volume_mount: str):
-    """DEPRECATED (kept for backwards compatibility). Returns the first unread
-    message content and marks it read in one step -- which loses the message if
-    the cycle later fails. The executive now uses peek_unread + mark_read instead.
-    """
-    with _locked(volume_mount):
-        entries = _read_all(volume_mount)
-        for i, e in enumerate(entries):
-            if e.get("kind") == "from_tue" and not e.get("read"):
-                entries[i]["read"] = True
-                _write_all(volume_mount, entries)
-                return e["content"]
-        return None
-
-
 def record_reply(volume_mount: str, reply: str):
     """Executive calls this after think_end when a Tue message was in context."""
     entry = {
@@ -134,11 +119,6 @@ def record_reply(volume_mount: str, reply: str):
     with _locked(volume_mount):
         with open(_path(volume_mount), "a", encoding="utf-8") as f:
             f.write(json.dumps(entry) + "\n")
-
-
-def all_messages(volume_mount: str) -> list:
-    """Observer calls this to render the chat tab."""
-    return _read_all(volume_mount)
 
 
 def extract_text_reply(response: str) -> str:

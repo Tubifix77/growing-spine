@@ -1,7 +1,7 @@
 """test_parser.py — tests for executive/parser.py"""
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-from executive.parser import parse_bash_blocks, strip_bash_blocks
+from executive.parser import parse_bash_blocks
 
 def test_basic_bash():
     text = "Here is a command:\n```bash\necho hello\n```\nDone."
@@ -46,23 +46,3 @@ def test_multiline_command():
     assert "echo line1" in blocks[0]
     assert "echo line3" in blocks[0]
     print("  test_multiline_command: PASS")
-
-def test_strip_bash_blocks():
-    text = "Before\n```bash\necho hi\n```\nAfter"
-    stripped = strip_bash_blocks(text)
-    assert "echo hi" not in stripped
-    assert "Before" in stripped
-    assert "After" in stripped
-    print("  test_strip_bash_blocks: PASS")
-
-if __name__ == "__main__":
-    print("Running parser tests...")
-    test_basic_bash()
-    test_sh_lang()
-    test_multiple_blocks()
-    test_ignores_python()
-    test_empty_block_skipped()
-    test_no_blocks()
-    test_multiline_command()
-    test_strip_bash_blocks()
-    print("ALL PASS test_parser (8/8)")

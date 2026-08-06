@@ -45,6 +45,17 @@ Output is appended to `~/spine-health.log` (one line per run). The launcher
 `start-growing-spine.sh` also arms this timer, so a fresh install that has run
 the icon once will have it active.
 
+## Host dependencies
+
+`requirements.txt` is the manifest (audit P3-D11: it used to be read by nothing,
+listed a package nothing imports, and omitted the one the observer needs).
+
+```
+pip install -r requirements.txt
+```
+
+`PyQt6` is only needed for the observer dashboard -- the brain runs without it.
+
 ## Hourly flatline tripwire (spine-flatline.timer)
 
 The one unit that would have caught the 55-hour google_gemma outage of

@@ -48,12 +48,6 @@ def _save(volume_mount, d):
 
 
 # ---- called by the creature's tool (host side) ----------------------------
-def request_restart(volume_mount, reason=""):
-    """Creature asks for a brain reload. Just drops a flag; the executive acts
-    on it at the end of the current cycle."""
-    with open(_sp(volume_mount, REQUEST_FILE), "w", encoding="utf-8") as f:
-        f.write(reason or "self-requested restart")
-
 def has_request(volume_mount):
     return os.path.exists(_sp(volume_mount, REQUEST_FILE))
 

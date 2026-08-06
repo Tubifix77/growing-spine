@@ -23,6 +23,3 @@ def parse_bash_blocks(text: str) -> list:
     return blocks
 
 
-def strip_bash_blocks(text: str) -> str:
-    cleaned = _CODE.sub("", text)
-    return re.sub(r"\n{3,}", "\n\n", cleaned).strip()
