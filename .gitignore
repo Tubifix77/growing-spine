@@ -7,3 +7,8 @@ growing-spine.log
 
 # dev/assistant working reference — laptop-local, like config.yaml/quota_state.json
 DEV-LEDGER.md
+
+# Static-audit working papers: a file-and-line map of every silent failure mode
+# in a LIVE system, in a PUBLIC repo. Never commit these. Ignored rather than
+# merely untracked, because `git add -A` would otherwise publish the lot.
+audit/
