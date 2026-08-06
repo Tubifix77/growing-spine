@@ -696,6 +696,22 @@ async def main():
           and _pv("")[0] is None)
 
     _J = __import__("json")   # shadow-proof: `_js`/`json` are rebound later in this function
+    # ---- STALE-FALLBACKS (2026-08-06): printed since Aug 2, never read ----
+    _fb_built = {"title": "already_built_probe", "brief": "do a thing"}
+    open(os.path.join(TMP, "tools", "own", "already_built_probe"), "w").write("print(1)\n")
+    check("stale fallbacks: a fallback naming an existing tool is detected",
+          _lp._fallback_is_stale(_fb_built) is True)
+    check("stale fallbacks: one naming an unbuilt tool is not",
+          _lp._fallback_is_stale({"title": "nothing_like_this_exists"}) is False)
+    _up = _lp._as_upgrade(_fb_built)
+    check("stale fallbacks: an all-stale pool becomes IN-PLACE UPGRADES, not duplicates",
+          _up["upgrade_of"] == "already_built_probe"
+          and "ALREADY EXISTS" in _up["brief"]
+          and "_v2" in _up["brief"])
+    check("stale fallbacks: a fresh pool is returned untouched",
+          _lp._fresh_fallbacks([{"title": "nothing_like_this_exists", "brief": "b"}])
+          == [{"title": "nothing_like_this_exists", "brief": "b"}])
+
     # ---- P4-F11 / P1-F21 (2026-08-06): quoted keys, and a chip that admits it ----
     check("P4-F11: a QUOTED key is matched now (was invisible to the done-gate)",
           bool(_lp.DONE_MARK_RE.search('remember "current-phase" done'))

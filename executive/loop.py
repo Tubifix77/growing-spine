@@ -1134,7 +1134,7 @@ async def _refill_composition_queue(keychain) -> list:
     from_llm = bool(batch)
     if not batch:
         import random
-        fbs = list(_COMPOSITION_FALLBACKS)
+        fbs = _fresh_fallbacks(_COMPOSITION_FALLBACKS)   # skip already-built
         random.shuffle(fbs)
         batch = [dict(x) for x in fbs[:COMPOSITION_BATCH_SIZE]]
         print(f"[oracle] composition queue seeded from {len(batch)} fallback(s)")
@@ -1428,9 +1428,70 @@ async def _oracle_composition_spec(keychain) -> dict:
     if spec:
         return spec
     import random
-    fb = dict(random.choice(_COMPOSITION_FALLBACKS))
+    fb = dict(random.choice(_fresh_fallbacks(_COMPOSITION_FALLBACKS)))
     print("[oracle] using fallback composition gap")
     return fb
+
+
+def _fallback_is_stale(fb: dict) -> bool:
+    """Has this hardcoded fallback's tool ALREADY been built?
+
+    The health probe has been printing STALE-FALLBACKS:8 in every line since at
+    least 2026-08-02 and nobody read it. Eight of the hardcoded specs name tools
+    that now exist in own/ or the attic -- so every time the LLM composition or
+    gap path failed and fell back, the creature was handed work it had already
+    done: a guaranteed duplicate, or a gate rejection and a wasted cycle. The
+    list was curated by hand and the library grew past it.
+
+    Checked at USE time rather than by re-curating the list, because the library
+    keeps growing and a hand-maintained list will go stale again.
+    """
+    # same normalisation the health probe uses (scripts/spine_health.py norm),
+    # so "already built" means the same thing to the sensor and to the chooser
+    _n = lambda x: re.sub(r"[^a-z0-9]", "", (x or "").lower())
+    t = _n(fb.get("title", ""))
+    if not t:
+        return False
+    try:
+        built = {_n(n) for n in toolmod.list_tools(
+            os.path.join(VOLUME_MOUNT, "tools", "own"))}
+        built |= {_n(n) for n in toolmod.list_tools(
+            os.path.join(VOLUME_MOUNT, "tools", "attic"))}
+    except Exception:
+        return False
+    return t in built
+
+
+def _fresh_fallbacks(pool) -> list:
+    """Fallbacks whose tool does not exist yet, newest-idea-first is irrelevant:
+    caller shuffles. Falls back to the whole pool if EVERY entry is stale, since
+    a duplicate proposal still beats no proposal at all."""
+    fresh = [fb for fb in pool if not _fallback_is_stale(fb)]
+    if fresh:
+        return fresh
+    # ALL of them are stale -- measured 2026-08-06: 3 of 3 composition fallbacks
+    # and 5 of 5 gap fallbacks name tools that already exist. Two bad options and
+    # one good one: proposing a known duplicate invites the sibling-spawn drift
+    # the whole gate architecture exists to stop, and refusing to propose leaves
+    # the caller with nothing. So convert it into what the doctrine already says
+    # to do with an existing tool -- UPGRADE IT IN PLACE.
+    print("[oracle] every hardcoded fallback is already built -- reframing as "
+          "in-place upgrades of the existing tools")
+    return [_as_upgrade(fb) for fb in pool]
+
+
+def _as_upgrade(fb: dict) -> dict:
+    """Rewrite a stale fallback into an in-place deepening of the tool that exists."""
+    out = dict(fb)
+    title = out.get("title", "that tool")
+    out["brief"] = (
+        f"`{title}` ALREADY EXISTS in your toolkit. Do NOT create a new file and "
+        f"do NOT make a sibling like {title}_v2 or {title}_upgraded. EDIT THE "
+        f"EXISTING FILE IN PLACE to make it genuinely better: "
+        + (out.get("brief") or "deepen what it already does.")
+    )
+    out["upgrade_of"] = title
+    return out
 
 
 async def _oracle_gap_spec(category: str, keychain) -> dict:
@@ -1447,6 +1508,16 @@ async def _oracle_gap_spec(category: str, keychain) -> dict:
     if spec:
         return spec
     fb = dict(_FALLBACK_GAPS.get(category, _FALLBACK_GAPS["memory_archive"]))
+    if _fallback_is_stale(fb):
+        _alt = [v for k, v in _FALLBACK_GAPS.items() if not _fallback_is_stale(v)]
+        if _alt:
+            fb = dict(_alt[0])
+            print(f"[oracle] category={category} fallback was already built -- "
+                  f"substituted {fb.get('title','?')!r}")
+        else:
+            fb = _as_upgrade(fb)   # all stale: deepen it in place instead
+            print(f"[oracle] category={category} fallback already built -- "
+                  f"reframed as an in-place upgrade")
     print(f"[oracle] using fallback gap for category={category}")
     return fb
 
