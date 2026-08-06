@@ -134,9 +134,7 @@ def _best_jaccard(nk, registry):
 
 def _refresh_embed_index():
     try:
-        mind = os.environ.get("VOLUME_MOUNT", os.path.expanduser("~/growing-spine-mind"))
-        embed_gate.refresh({"live": os.path.join(mind, "tools", "own"),
-                            "attic": os.path.join(mind, "tools", "attic")})
+        embed_gate.refresh_standard()   # canonical mapping lives in embed_gate
     except Exception:
         pass
 

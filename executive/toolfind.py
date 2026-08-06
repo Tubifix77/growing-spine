@@ -38,6 +38,10 @@ def answer(query, k=6):
     from . import embed_gate
     if not embed_gate.available():
         return False, "index unavailable"
+    try:
+        embed_gate.refresh_standard()   # P3-D9: was searching a stale index
+    except Exception:
+        pass
     want = max(1, min(int(k or 6), 12))
     try:  # over-fetch, because junk is filtered out below
         hits = embed_gate.top_matches(q, k=min(want * 3 + 6, 48),

@@ -99,6 +99,23 @@ def _load_index():
         _index = {"names": [], "vecs": None, "meta": {}}
 
 
+def refresh_standard():
+    """Refresh the index over the standard live+attic mapping.
+
+    Audit P3-D9: `refresh()` had exactly ONE caller (the idea-gate/oracle path),
+    so tool-find and the curated catalogue -- the two surfaces the creature reads
+    every cycle -- searched whatever index that path happened to leave behind. A
+    tool born this cycle was invisible to tool-find until an ideation refill ran.
+    Cheap to call from anywhere: refresh() is incremental AND self-throttled to
+    once per _REFRESH_INTERVAL, so extra callers cost a clock comparison.
+    The mapping lives here so there is one definition of it, not three.
+    """
+    mind = os.environ.get("VOLUME_MOUNT",
+                          os.path.expanduser("~/growing-spine-mind"))
+    refresh({"live": os.path.join(mind, "tools", "own"),
+             "attic": os.path.join(mind, "tools", "attic")})
+
+
 def refresh(dirs):
     """Incrementally (re)embed changed/new tool files in the given
     {label: dirpath} mapping. Names in the index are 'label:filename'."""

@@ -320,13 +320,21 @@ def _update_usage_cache():
 
 
 def _current_focus_text() -> str:
+    """The creature's own statement of what it is working on.
+
+    Audit P1-F14/P2-F8: this called `mem.recall`, which is a SUBSTRING SEARCH
+    returning a LIST of row dicts -- not `mem.retrieve`, the exact-key lookup that
+    was meant. So a non-empty list was truthy and `str(v)[:300]` rendered a Python
+    list repr (`[{'id': 41, 'key': ..., 'value': ...}]`) straight into the prompt,
+    and a query matching any OTHER key's text won instead of the key asked for.
+    """
     for key in ("current_focus", "current-project", "current-plan"):
         try:
-            v = mem.recall(VOLUME_MOUNT, key)
+            row = mem.retrieve(VOLUME_MOUNT, key)
         except Exception:
-            v = None
-        if v:
-            return str(v)[:300]
+            row = None
+        if row and (row.get("value") or "").strip():
+            return str(row["value"])[:300]
     return ""
 
 
@@ -419,6 +427,10 @@ def _build_tool_catalogue() -> str:
 
     focus = _current_focus_text()
     if focus and embed_gate.available():
+        try:
+            embed_gate.refresh_standard()   # P3-D9: rank on a CURRENT index
+        except Exception:
+            pass
         try:
             hits = embed_gate.top_matches(focus, k=20, labels=["live"])
             ranked = [h.split(":", 1)[1] for h, _s in hits]
@@ -641,6 +653,17 @@ def _parse_category(reply: str) -> str:
     2) keyword backstop; 3) 'other'."""
     n = _normcat(reply)
     if not n:
+        # Audit P4-F15: an empty or reasoning-substituted reply became "other",
+        # indistinguishable from a genuine "other" classification, and silently
+        # became a data point in the coverage map the ideation prompt reads.
+        # Still fails to "other" -- the category set is a closed contract -- but
+        # it no longer does so invisibly.
+        try:
+            journal.append(VOLUME_MOUNT, "diag",
+                           "category classifier got an unreadable/empty reply "
+                           "-- recorded as 'other', which is a GUESS not a ruling")
+        except Exception:
+            pass
         return "other"
     for c in TOOL_CATEGORIES:
         if c in n:

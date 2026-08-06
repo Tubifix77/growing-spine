@@ -695,6 +695,29 @@ async def main():
           _pv("The agent seems fine to me, broadly speaking.")[0] is None
           and _pv("")[0] is None)
 
+    # ---- P1-F13 (2026-08-06): a re-stored memory must climb back ----
+    mem.store(TMP, "sinker", "first value", tags=["t"])
+    for _i in range(8):
+        mem.store(TMP, f"filler_{_i}", f"v{_i}")
+    _l1 = [r["key"] for r in mem.layer1(TMP)]
+    check("P1-F13: an old memory has indeed sunk out of working memory",
+          "sinker" not in _l1)
+    time.sleep(0.01)
+    mem.store(TMP, "sinker", "REFRESHED value")
+    _l1b = [r["key"] for r in mem.layer1(TMP)]
+    check("P1-F13: re-storing it brings it BACK (was insertion-ordered, so it never did)",
+          _l1b[0] == "sinker")
+    check("P1-F13: and the refreshed VALUE is what surfaces",
+          mem.retrieve(TMP, "sinker")["value"] == "REFRESHED value")
+
+    # ---- P1-F14/P2-F8: exact-key lookup, not substring search ----
+    mem.store(TMP, "current_focus", "build the archive indexer")
+    mem.store(TMP, "unrelated_note", "current_focus is a red herring string")
+    _ft = _lp._current_focus_text()
+    check("P1-F14: focus text is the exact key's VALUE, not a list repr",
+          _ft == "build the archive indexer"
+          and not _ft.startswith("[") and "'key'" not in _ft)
+
     # ---- P1-F10/P2-F4/P3-D5 (2026-08-06): read the key the writer writes ----
     from executive import runtime as _rt
 

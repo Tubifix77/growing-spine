@@ -116,11 +116,23 @@ def _state(project: str, cur: str) -> int:
 
 
 def _candidates(volume_mount: str) -> list:
-    """All non-control memories, newest-first by id, each carrying project."""
+    """All non-control memories, newest-FIRST BY UPDATE TIME, carrying project.
+
+    Audit P1-F13, resolved 2026-08-06: this ordered by `id DESC`, i.e. INSERTION
+    order, while `store()` on an existing key does `UPDATE ... WHERE key=?` and
+    keeps the original row id. So a re-stored memory could never climb back into
+    working memory (layer1 = top LAYER1_SIZE) however fresh its content was. That
+    is why `last_thought` was inert after the FIRST sleep: written once, updated
+    every sleep thereafter, sinking further behind each newly inserted memory.
+    The bug was general -- every updated key sank, including current_focus and
+    the plan keys -- and the docstring already claimed "newest-first", which
+    ordering by id only delivers for rows that are never touched again.
+    Tie-break on id keeps the order stable for equal timestamps.
+    """
     with _db(volume_mount) as conn:
         rows = conn.execute(
             "SELECT id, key, value, tags, updated, project "
-            "FROM memories ORDER BY id DESC"
+            "FROM memories ORDER BY updated DESC, id DESC"
         ).fetchall()
     return [
         {"id": r[0], "key": r[1], "value": r[2], "tags": r[3],
