@@ -796,6 +796,55 @@ _COMPOSITION_PROMPT = (
 )
 
 
+# THE tool-cluster taxonomy. One table, three fields (audit P2-F9).
+#
+# There were two, inside one pipeline: `_cluster_summary` showed the model EIGHT
+# covered clusters, while the title-check that policed its answers knew only SIX
+# -- "research / pipeline" and "question -> answer" were missing. So the prompt
+# told the model those territories were already done and the check then waved a
+# ninth research tool straight through. The audit's phrasing: the prompt invites
+# what the parser rejects, and vice versa. Splitting them again is a silent
+# regression, so they read the same rows now.
+#
+#   label       what the model is told is covered
+#   member_kws  matches TOOL FILENAMES -> is this cluster saturated?
+#   title_kws   matches a PROPOSED TITLE -> does this land in that cluster?
+TOOL_CLUSTERS = [
+    ("fetch / HTTP / JSON download",
+     ("fetch", "http", "json", "url", "web_json", "webfetch", "wget"),
+     {"fetch", "http", "json", "url", "web", "download", "get", "curl"}),
+    ("memory archive (store)",
+     ("archive", "memarch", "memstore", "mem_store", "mem-archive",
+      "keyword-archive-store", "keyword_archive_store"),
+     {"archive", "store", "persist", "save", "memarch", "memstore"}),
+    ("memory search / recall",
+     ("memsearch", "memgrep", "recall", "keyword-archive-search",
+      "keyword_archive_search", "archive-search", "archive_search"),
+     {"search", "recall", "retrieve", "lookup", "memgrep"}),
+    ("LLM subagent / orchestration",
+     ("subagent", "llm_", "llm-", "orchestrat", "forker", "spawner",
+      "dispatcher", "delegate"),
+     {"subagent", "llm", "orchestrat", "delegate", "spawn", "dispatch"}),
+    ("planning / task tracking",
+     ("plan", "task", "step", "planner", "tracker", "goal", "todo"),
+     {"plan", "task", "step", "track", "goal", "todo", "schedule"}),
+    ("wake / news / catchup",
+     ("wake", "news", "catchup", "hn", "briefing", "orient", "digest"),
+     {"wake", "news", "catchup", "briefing", "orient", "digest", "hn"}),
+    # These two existed only in the summary table until 2026-08-06, so the check
+    # could never recognise a proposal landing in either.
+    ("research / pipeline",
+     ("research", "pipeline", "insight", "kg_", "build-wiki",
+      "knowledge_gap", "knowledge-gap"),
+     {"research", "pipeline", "insight", "knowledge", "gap", "wiki", "kg"}),
+    ("question -> answer (compose)",
+     ("question_to", "question-to", "recall_and", "ask_and",
+      "ask_with", "ask_mem", "decompose", "deep_answer", "memsearch_ask",
+      "memsearch_llm"),
+     {"question", "answer", "ask", "decompose", "deep", "compose"}),
+]
+
+
 def _cluster_summary() -> str:
     """Build a compact cluster map: group existing tools by functional purpose
     and return a short block the batch prompt injects so the model understands
@@ -810,39 +859,14 @@ def _cluster_summary() -> str:
         return ""
     usage = _load_tool_usage()
 
-    # Cluster definitions: (label, keywords that put a tool in this cluster)
-    # Order matters: first match wins.
-    CLUSTERS = [
-        ("fetch / HTTP / JSON download",
-         ("fetch", "http", "json", "url", "web_json", "webfetch", "wget")),
-        ("memory archive (store)",
-         ("archive", "memarch", "memstore", "mem_store", "mem-archive",
-          "keyword-archive-store", "keyword_archive_store")),
-        ("memory search / recall",
-         ("memsearch", "memgrep", "recall", "keyword-archive-search",
-          "keyword_archive_search", "archive-search", "archive_search")),
-        ("LLM subagent / orchestration",
-         ("subagent", "llm_", "llm-", "orchestrat", "forker", "spawner",
-          "dispatcher", "delegate")),
-        ("planning / task tracking",
-         ("plan", "task", "step", "planner", "tracker", "goal", "todo")),
-        ("wake / news / catchup",
-         ("wake", "news", "catchup", "hn", "briefing", "orient", "digest")),
-        ("research / pipeline",
-         ("research", "pipeline", "insight", "kg_", "build-wiki",
-          "knowledge_gap", "knowledge-gap")),
-        ("question → answer (compose)",
-         ("question_to", "question-to", "recall_and", "ask_and",
-          "ask_with", "ask_mem", "decompose", "deep_answer", "memsearch_ask",
-          "memsearch_llm")),
-    ]
+    # Rows come from the module-level TOOL_CLUSTERS (audit P2-F9).
 
     groups: dict = {}
     ungrouped = []
     for nm in own:
         nl = nm.lower()
         matched = False
-        for label, kws in CLUSTERS:
+        for label, kws, _tkws in TOOL_CLUSTERS:
             if any(k in nl for k in kws):
                 groups.setdefault(label, []).append(nm)
                 matched = True
@@ -1023,20 +1047,7 @@ def _parse_composition_batch(raw: str, n: int) -> list:
     # Cluster saturation map: clusters with >= 3 tools are "covered".
     # Reject any proposed title whose keywords land it inside a covered cluster
     # UNLESS the brief explicitly mentions bridging a SECOND cluster.
-    CLUSTER_KWS = [
-        ({"fetch","http","json","url","webfetch","wget"},
-         {"fetch","http","json","url","web","download","get","curl"}),
-        ({"archive","memarch","memstore"},
-         {"archive","store","persist","save","memarch","memstore"}),
-        ({"memsearch","recall","memgrep"},
-         {"search","recall","retrieve","lookup","memgrep"}),
-        ({"subagent","llm_","orchestrat","forker","dispatcher"},
-         {"subagent","llm","orchestrat","delegate","spawn","dispatch"}),
-        ({"plan","task","step","planner","tracker","goal"},
-         {"plan","task","step","track","goal","todo","schedule"}),
-        ({"wake","news","catchup","briefing","orient","digest"},
-         {"wake","news","catchup","briefing","orient","digest","hn"}),
-    ]
+    # Rows come from the module-level TOOL_CLUSTERS (audit P2-F9).
     own_names = _own_tool_names()
     def _cluster_covered(kw_set) -> bool:
         return sum(1 for nm in own_names
@@ -1044,13 +1055,13 @@ def _parse_composition_batch(raw: str, n: int) -> list:
     def _title_in_covered_cluster(title: str, brief: str) -> bool:
         tl = title.lower()
         bl = brief.lower()
-        for member_kws, title_kws in CLUSTER_KWS:
+        for _lbl, member_kws, title_kws in TOOL_CLUSTERS:
             if not _cluster_covered(member_kws):
                 continue  # cluster not yet saturated — allow
             if any(k in tl for k in title_kws):
                 # Title lands in a covered cluster.
                 # Allow only if brief explicitly bridges a second cluster.
-                other_clusters = [kws for m, kws in CLUSTER_KWS
+                other_clusters = [kws for _l, m, kws in TOOL_CLUSTERS
                                   if m != member_kws and _cluster_covered(m)]
                 bridges = any(any(k in bl for k in kws)
                               for kws in other_clusters)
@@ -1931,9 +1942,7 @@ def _own_tool_names() -> list:
         d = os.path.join(VOLUME_MOUNT, "tools", "own")
         out = []
         for f in os.listdir(d):
-            if f.startswith(".") or f.endswith((".md", ".json", ".txt")):
-                continue
-            if embed_gate._is_junk(f):
+            if not toolmod.is_tool_file(f):     # P2-F2: one definition
                 continue
             if os.path.isfile(os.path.join(d, f)):
                 out.append(f)
@@ -2149,8 +2158,7 @@ def _extension_collision_pairs() -> list:
     from collections import defaultdict
     stems = defaultdict(list)
     for name in own:
-        # strip a single trailing .py/.sh (only the extensions we actually see)
-        stem = re.sub(r"\.(py|sh)$", "", name)
+        stem = toolmod.tool_stem(name)      # P2-F14: one definition
         stems[stem].append(name)
     pairs = []
     for stem, names in stems.items():
@@ -2475,7 +2483,9 @@ def _collect_metrics() -> dict:
     try:
         _own = os.path.join(VOLUME_MOUNT, "tools", "own")
         _now = time.time()
-        _names = [n for n in os.listdir(_own) if not embed_gate._is_junk(n)]
+        # canonical: excludes junk, docs AND directories with tool-shaped names
+        # (the creature has created some) -- audit P2-F2
+        _names = toolmod.list_tools(_own)
         m["tool_names"] = sorted(_names)   # next window's birth detector
         _prev = set(_load_retro_state().get("snapshot", {}).get("tool_names") or [])
         _edited = 0

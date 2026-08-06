@@ -20,9 +20,8 @@ def gather_evidence(own_dir, journal_path, now=None, days=14):
     usage top/zero. Never raises; empty evidence on any filesystem trouble."""
     now = now or time.time()
     try:
-        from executive.embed_gate import _is_junk as _junk
-        names = [n for n in os.listdir(own_dir)
-                 if not n.startswith('.') and not _junk(n)]
+        from volume.tools import list_tools as _list_tools   # P2-F2
+        names = _list_tools(own_dir)
     except OSError:
         names = []
     day_new, lineage = [], []
@@ -39,7 +38,8 @@ def gather_evidence(own_dir, journal_path, now=None, days=14):
             # extension twins are lineage too: DigestPlanner.py born next to
             # DigestPlanner (2026-08-04) -- same capability, new file, and
             # invisible to the suffix regex above.
-            stems.setdefault(re.sub(r"\.(py|sh|bash|txt)$", "", n), []).append(n)
+            from volume.tools import tool_stem as _stem     # P2-F14
+            stems.setdefault(_stem(n), []).append(n)
     for stem, group in stems.items():
         if len(group) > 1:
             lineage.extend(group)

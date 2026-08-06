@@ -696,6 +696,40 @@ async def main():
           and _pv("")[0] is None)
 
     _J = __import__("json")   # shadow-proof: `_js`/`json` are rebound later in this function
+    # ---- P2-F2 / P2-F14 (2026-08-06): one answer to "is this a tool" ----
+    _td = os.path.join(TMP, "tools", "own")
+    os.makedirs(os.path.join(_td, "a_directory_named_like_a_tool"), exist_ok=True)
+    open(os.path.join(_td, "real_one.py"), "w").write("print(1)\n")
+    open(os.path.join(_td, "notes.md"), "w").write("# notes\n")
+    open(os.path.join(_td, "real_one.py.bak_1"), "w").write("print(1)\n")
+    _listed = vtools.list_tools(_td)
+    check("P2-F2: a DIRECTORY with a tool-shaped name is not a tool",
+          "a_directory_named_like_a_tool" not in _listed)
+    check("P2-F2: docs and .bak backups are not tools either",
+          "notes.md" not in _listed and "real_one.py.bak_1" not in _listed)
+    check("P2-F2: loop and the canonical lister agree on the same directory",
+          set(_lp._own_tool_names()) == set(_listed))
+    check("P2-F14: one stem definition -- .bash and .txt strip like .py and .sh",
+          (vtools.tool_stem("x.bash"), vtools.tool_stem("x.txt"),
+           vtools.tool_stem("x.py"), vtools.tool_stem("x.sh"),
+           vtools.tool_stem("x")) == ("x", "x", "x", "x", "x"))
+    check("P2-F14: a non-tool extension is left alone",
+          vtools.tool_stem("report.pdf") == "report.pdf")
+
+    # ---- P2-F9 (2026-08-06): ONE cluster taxonomy, not two ----
+    check("P2-F9: every cluster shown to the model also has title keywords",
+          all(len(_row) == 3 and _row[0] and _row[1] and _row[2]
+              for _row in _lp.TOOL_CLUSTERS))
+    _labels = [r[0] for r in _lp.TOOL_CLUSTERS]
+    check("P2-F9: the two clusters the checker used to be blind to are present",
+          any("research" in l for l in _labels)
+          and any("question" in l for l in _labels))
+    check("P2-F9: labels are unique, so the summary cannot double-count a cluster",
+          len(set(_labels)) == len(_labels))
+    _mem_kw = [k for r in _lp.TOOL_CLUSTERS for k in r[1]]
+    check("P2-F9: no member keyword is claimed by two clusters (first match wins)",
+          len(set(_mem_kw)) == len(_mem_kw))
+
     # ---- P2-F6/F13/F16 (2026-08-06): the anti-drift guards ----
     from volume import paths as _paths_mod
     check("P2-F13: one derivation of the mind root, and VOLUME_MOUNT wins",

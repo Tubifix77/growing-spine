@@ -135,6 +135,53 @@ def materialize_framework(volume_mount: str):
         os.chmod(d, 0o755)
 
 
+NON_TOOL_SUFFIXES = (".md", ".json", ".txt")
+TOOL_EXTENSIONS = ("py", "sh", "bash", "txt")
+
+
+def is_tool_file(name: str) -> bool:
+    """Is this directory entry a TOOL the creature built? (audit P2-F2)
+
+    There were several answers: loop excluded dotfiles and .md/.json/.txt,
+    idea_gate excluded only junk, the architect census excluded only dotfiles --
+    so the same library counted as 345, 349 and 387 tools depending on who asked,
+    and every one of those numbers was shown to an LLM as fact.
+    """
+    from executive.embed_gate import _is_junk
+    return not (name.startswith(".") or name.endswith(NON_TOOL_SUFFIXES)
+                or _is_junk(name))
+
+
+def list_tools(dirpath: str) -> list:
+    """Sorted names of the actual tool FILES in a tools dir (audit P2-F2).
+
+    The isfile check belongs here, not in every caller: on 2026-08-06 the
+    architect census counted 349 where loop counted 346, and the three extras
+    were DIRECTORIES the creature had created with tool-shaped names
+    (`cross_cluster_signal_router`, `knowledge_gap_alert_planner`, `__pycache__`).
+    A predicate that takes only a name cannot know that, so callers kept
+    forgetting it -- which is what made three answers possible in the first place.
+    """
+    try:
+        return sorted(n for n in os.listdir(dirpath)
+                      if is_tool_file(n)
+                      and os.path.isfile(os.path.join(dirpath, n)))
+    except OSError:
+        return []
+
+
+def tool_stem(name: str) -> str:
+    """A tool's name with one trailing tool extension removed (audit P2-F14).
+
+    Two definitions existed: loop stripped `.py|.sh` ("only the extensions we
+    actually see"), the architect stripped `.py|.sh|.bash|.txt`. So `X` and
+    `X.bash` were twins to one and strangers to the other, and the collision scan
+    and the lineage census disagreed about what a sibling was.
+    """
+    import re as _re
+    return _re.sub(r"\.(" + "|".join(TOOL_EXTENSIONS) + r")$", "", name)
+
+
 def tool_description(path: str) -> str:
     """THE description of a tool file. Canonical since 2026-08-06 (audit P2-F6).
 
