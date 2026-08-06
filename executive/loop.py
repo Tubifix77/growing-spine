@@ -1874,12 +1874,22 @@ TOOL_USAGE_PATH = os.path.join(VOLUME_MOUNT, "tool_usage.json")
 
 
 def _own_tool_names() -> list:
-    """Names of tools the creature has built (files in /mind/tools/own)."""
+    """Names of tools the creature has built (files in /mind/tools/own).
+
+    Junk is excluded via the canonical embed_gate predicate: the creature's own
+    `.bak_<ts>` pre-edit backups, `.broken_*` self-labelled corpses, and birth
+    accidents like `--show`. 2026-08-06: these were counted as TOOLS, so a `.bak`
+    of a filled stub still carried the placeholder markers and the hollow census
+    read 3 when the real stub count was 0 -- the backlog number lied, and the
+    janitor would have attic'd the creature's own safety net three days later.
+    A backup of a tool is not a tool, and nothing can "finish" one."""
     try:
         d = os.path.join(VOLUME_MOUNT, "tools", "own")
         out = []
         for f in os.listdir(d):
             if f.startswith(".") or f.endswith((".md", ".json", ".txt")):
+                continue
+            if embed_gate._is_junk(f):
                 continue
             if os.path.isfile(os.path.join(d, f)):
                 out.append(f)
@@ -2877,7 +2887,14 @@ async def run_cycle(keychain: Keychain, dockerfile_dir: str):
     context = _build_context(recent_j, tue_message)
 
     journal.append(VOLUME_MOUNT, "think_start", "Sending to keychain...")
-    response = await keychain.complete(context)
+    # 3072, not the 2048 default: measured 2026-08-06, 269 of 952 thinks (28%)
+    # ended on finish_reason=length, and the think contract deliberately puts the
+    # ```bash block LAST -- so a truncated reply loses the entire action and the
+    # call is wasted outright (142 exec_skips the same day). max_tokens is a cap,
+    # not an allocation, so the extra allowance is only spent on replies that were
+    # being cut off anyway: precisely where the work was being lost. Watch the
+    # "token ceiling" count in the journal; it should fall well below 269/day.
+    response = await keychain.complete(context, max_tokens=3072)
     journal.append(VOLUME_MOUNT, "think_end", response)
 
     # The think call succeeded, so the message has now genuinely been seen.

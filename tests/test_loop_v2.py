@@ -638,6 +638,15 @@ async def main():
     check("janitor: an aged shell the creature keeps calling is SPARED, not attic'd",
           "SPARED-DEMANDED:1" in _jres
           and os.path.exists(os.path.join(_jown, "wanted_stub")))
+    # A .bak of a filled stub is hollow by markers but is NOT a tool: it must not
+    # inflate the backlog, and the janitor must not sweep the creature's safety net.
+    open(os.path.join(_jown, "wanted_stub.bak_1786000000"), "w").write(_shell)
+    os.utime(os.path.join(_jown, "wanted_stub.bak_1786000000"), (_old, _old))
+    _jres2 = _H.stub_janitor()
+    check("janitor: the creature's own .bak safety net is never attic'd",
+          "aged-out 0" in _jres2
+          and os.path.exists(os.path.join(_jown, "wanted_stub.bak_1786000000")))
+
     check("janitor: young shells and real tools are left alone",
           os.path.exists(os.path.join(_jown, "young_stub"))
           and os.path.exists(os.path.join(_jown, "real_tool")))
@@ -651,6 +660,12 @@ async def main():
     _fspec = _lp._finish_stub_spec()
     check("finish_stub: the assignment targets the MOST-DEMANDED shell",
           _fspec.get("title") == "stub_wanted")
+    open(os.path.join(_fsown, "stub_wanted.bak_1786000001"), "w").write(_shell)
+    check("hollow census: a .bak backup is not a tool and never enters the backlog",
+          "stub_wanted.bak_1786000001" not in _lp._library_hollow_tools()
+          and "stub_wanted.bak_1786000001" not in _lp._own_tool_names())
+    try: os.remove(os.path.join(_fsown, "stub_wanted.bak_1786000001"))
+    except OSError: pass
     for _n in ("stub_dull", "stub_wanted"):
         try: os.remove(os.path.join(_fsown, _n))
         except OSError: pass

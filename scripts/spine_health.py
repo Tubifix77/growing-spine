@@ -25,6 +25,7 @@ AGE_OUT_DAYS = 3
 sys.path.insert(0, REPO)
 from volume.tools import (is_hollow_stub, demand_counts,  # noqa: E402
                           is_demanded)
+from executive.embed_gate import _is_junk as is_junk_name  # noqa: E402
 QUOTA_STATE = os.path.join(REPO, "keychain", "quota_state.json")
 CONFIG = os.path.join(REPO, "config.yaml")
 FLATLINE_HOURS = 12  # google_gemma sat dead 55h before anyone noticed, 2026-08-02
@@ -93,6 +94,11 @@ def stub_janitor():
     for n in names:
         p = os.path.join(OWN, n)
         if not os.path.isfile(p):
+            continue
+        # The creature's own .bak_<ts> backups and .broken_* corpses are hollow by
+        # definition but are NOT tools -- they are its safety net, and Tue's
+        # standing decision on them is "delete nothing, tell it nothing".
+        if is_junk_name(n):
             continue
         try:
             if not is_hollow_stub(open(p, encoding="utf-8", errors="replace").read(2000)):
