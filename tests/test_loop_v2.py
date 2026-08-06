@@ -724,6 +724,25 @@ async def main():
     check("census: and its usage reaches top_used",
           dict(_ev["top_used"]).get("lonely_tool") == 12)
 
+    # ---- chat reply extraction (2026-08-07): thinking leaked to Tue ----
+    from executive import chat as _chatx
+    _leak = ("<thought>I also need to respond to Tue as requested by the system "
+             "prompt (the `<reply>` tag). Plan: 1. Reply. 2. Explore."
+             "</thought><reply>Thanks for the fix.</reply>")
+    check("chat: a MENTION of the tag inside thinking is not the opening tag",
+          _chatx.extract_text_reply(_leak) == "Thanks for the fix.")
+    check("chat: the LAST reply pair wins, as with the retro and the architect",
+          _chatx.extract_text_reply(
+              "<reply>draft</reply> reconsidering <reply>final</reply>") == "final")
+    check("chat: <think> blocks are dropped before scanning",
+          _chatx.extract_text_reply(
+              "<think>musing about <reply> tags</think><reply>answer</reply>")
+          == "answer")
+    check("chat: an unclosed reply still yields nothing (caller re-queues)",
+          _chatx.extract_text_reply("<thought>x</thought><reply>cut off") == "")
+    check("chat: a plain tagged reply is unaffected",
+          _chatx.extract_text_reply("<reply>hello</reply>") == "hello")
+
     # ---- tool wiring sensor (2026-08-06): do its tools agree where data lives? ----
     _wown = os.path.join(TMP, "wiring", "tools", "own")
     os.makedirs(_wown, exist_ok=True)

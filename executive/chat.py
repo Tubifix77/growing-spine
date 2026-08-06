@@ -129,9 +129,31 @@ def extract_text_reply(response: str) -> str:
     the message instead of recording task debris as a reply.
     """
     import re
-    m = re.search(r"<reply>(.*?)</reply>", response, re.DOTALL | re.IGNORECASE)
-    if m:
-        return m.group(1).strip()
+    text = response or ""
+    # 2026-08-07: the creature's own deliberation MENTIONED the tag --
+    # "I also need to respond to Tue as requested by the system prompt (the
+    # `<reply>` tag)" -- and a first-match non-greedy search happily treated that
+    # mention as the opening tag, so everything from the middle of its private
+    # thinking up to the real </reply> was recorded to Tue as the reply. Its
+    # deliberation leaked into the human channel because we asked it to think
+    # about a tag whose name we then scanned for.
+    #
+    # Two independent guards, because either alone would have prevented it:
+    #   1. drop deliberation blocks before scanning at all, and
+    #   2. take the LAST <reply> pair, not the first.
+    # (2) is the same cure the retro verdict and the architect ruling both got
+    # this week: a model that muses about an answer before giving it must be read
+    # from the END.
+    if re.search(r"</thought>|</think>", text, re.IGNORECASE):
+        text = re.split(r"</thought>|</think>", text, flags=re.IGNORECASE)[-1]
+    text = re.sub(r"<think(?:ing)?>.*?</think(?:ing)?>", "", text,
+                  flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r"<thought>.*?</thought>", "", text,
+                  flags=re.DOTALL | re.IGNORECASE)
+    ms = list(re.finditer(r"<reply>(.*?)</reply>", text,
+                          re.DOTALL | re.IGNORECASE))
+    if ms:
+        return ms[-1].group(1).strip()
     # No fallback: the old before-first-bash-block heuristic captured task
     # cognition ("Okay, let's produce bash block:") as a chat reply when the
     # model ignored the tag. Tag or nothing; the caller retries the message.
