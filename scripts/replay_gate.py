@@ -19,7 +19,11 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
 from executive import idea_gate as g
 
-MIND = os.path.expanduser("~/growing-spine-mind")
+try:
+    from volume.paths import mind_root as _mind_root   # P2-F13: one derivation
+    MIND = _mind_root()
+except Exception:
+    MIND = os.path.expanduser("~/growing-spine-mind")
 OWN, ATTIC = os.path.join(MIND, "tools", "own"), os.path.join(MIND, "tools", "attic")
 
 def desc(path):

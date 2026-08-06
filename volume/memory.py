@@ -223,10 +223,14 @@ def search_by_tag(volume_mount: str, tag: str) -> list:
 
 
 def delete(volume_mount: str, key: str) -> bool:
-    """Delete a memory by key. Returns True if deleted, False if not found."""
-    with _db(volume_mount) as conn:
-        cursor = conn.execute("DELETE FROM memories WHERE key=?", (key,))
-        return cursor.rowcount > 0
+    """Delete a memory by key. Returns True if deleted, False if not found.
+
+    Audit P2-F16a: this was a byte-identical twin of `forget`. Two copies of a
+    DELETE agree until one gains bookkeeping -- tombstones, journalling, a gage
+    hook -- and then every caller of the other silently keeps the old semantics.
+    Delegation, so there is one implementation and the twin cannot drift.
+    """
+    return forget(volume_mount, key)
 
 
 def count(volume_mount: str) -> int:

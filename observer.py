@@ -24,7 +24,11 @@ from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import (QColor, QFont, QPalette, QIcon, QPixmap, QPainter,
                          QPen, QBrush, QPainterPath)
 
-MIND_DIR = os.path.expanduser("~/growing-spine-mind")
+try:
+    from volume.paths import mind_root as _mind_root   # P2-F13: one derivation
+    MIND_DIR = _mind_root()
+except Exception:                                      # standalone launch
+    MIND_DIR = os.path.expanduser("~/growing-spine-mind")
 JOURNAL  = os.path.join(MIND_DIR, "journal.jsonl")
 CHAT     = os.path.join(MIND_DIR, "chat.jsonl")
 CONFIG   = os.path.expanduser("~/growing-spine/config.yaml")

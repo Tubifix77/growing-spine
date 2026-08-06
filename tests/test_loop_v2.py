@@ -696,6 +696,32 @@ async def main():
           and _pv("")[0] is None)
 
     _J = __import__("json")   # shadow-proof: `_js`/`json` are rebound later in this function
+    # ---- P2-F6/F13/F16 (2026-08-06): the anti-drift guards ----
+    from volume import paths as _paths_mod
+    check("P2-F13: one derivation of the mind root, and VOLUME_MOUNT wins",
+          _paths_mod.mind_root() == os.environ.get("VOLUME_MOUNT")
+          or os.environ.get("VOLUME_MOUNT") is None)
+
+    _p6 = os.path.join(TMP, "tools", "own", "desc_probe")
+    os.makedirs(os.path.dirname(_p6), exist_ok=True)
+    open(_p6, "w").write("#!/usr/bin/env python3\n"
+                         "# does: chain the archive search into a digest\n"
+                         "print(1)\n")
+    check("P2-F6: catalogue and dedup now read the SAME description",
+          vtools.tool_description(_p6) == idea_gate.extract_description(_p6)
+          == "chain the archive search into a digest")
+    _p6b = os.path.join(TMP, "tools", "own", "desc_probe_late")
+    open(_p6b, "w").write("#!/usr/bin/env python3\n" + "x = 1\n" * 40 +
+                          "# does: a purpose line far below the old 25-line window\n")
+    check("P2-F6: dedup no longer misses a does: line the catalogue can see",
+          idea_gate.extract_description(_p6b) ==
+          "a purpose line far below the old 25-line window")
+
+    mem.store(TMP, "twin_probe", "v")
+    check("P2-F16a: memory.delete delegates to forget (one implementation)",
+          mem.delete(TMP, "twin_probe") is True
+          and mem.retrieve(TMP, "twin_probe") is None)
+
     # ---- P1-F19 (2026-08-06): a corrupt meta must disarm image reaping ----
     from volume import savegame as _sg
     _sgroot = os.path.join(TMP, "savegames_f19")
@@ -1023,9 +1049,14 @@ async def main():
                      and getattr(loop, _n).startswith(REAL_MIND))
     check("suite isolation: no loop path still aims at the live mind dir",
           not _leaked, extra=(", ".join(_leaked) if _leaked else ""))
-    check("suite isolation: the done-gate arming file is repointed",
-          "GATE_CHOICE_STATE_PATH" in REPOINTED
-          and loop.GATE_CHOICE_STATE_PATH.startswith(TMP))
+    # Asserts the CONTRACT (the arming file lives inside TMP), not the mechanism.
+    # 2026-08-06: with volume.paths.mind_root() honouring VOLUME_MOUNT -- which
+    # this file sets before importing loop -- the derived paths are ALREADY in TMP
+    # at import, so _repoint_all correctly finds nothing to rewrite and REPOINTED
+    # is legitimately empty. Isolation improved; the old assertion measured the
+    # rewrite instead of the outcome. (Same trap as the `pend_` oracle test.)
+    check("suite isolation: the done-gate arming file lives inside TMP",
+          loop.GATE_CHOICE_STATE_PATH.startswith(TMP))
     check("suite isolation: embed_gate took the temp mind dir at import",
           _eg._MIND == TMP)
 

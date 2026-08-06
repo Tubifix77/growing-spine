@@ -19,7 +19,8 @@ import json, os, re, time
 SIM_DUP = 0.75
 SIM_FLOOR = 0.45
 MODEL_NAME = os.environ.get("EMBED_MODEL", "minishlab/potion-base-8M")
-_MIND = os.environ.get("VOLUME_MOUNT", os.path.expanduser("~/growing-spine-mind"))
+from volume.paths import mind_root as _mind_root   # P2-F13: one derivation
+_MIND = _mind_root()
 _STATE_DIR = os.path.join(_MIND, "state")
 _INDEX_NPZ = os.path.join(_STATE_DIR, "tool_embeddings.npz")
 _INDEX_META = os.path.join(_STATE_DIR, "tool_embeddings.meta.json")

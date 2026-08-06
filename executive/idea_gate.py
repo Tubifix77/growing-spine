@@ -39,20 +39,18 @@ _STOP = set("a an the to of and or for in on with by from into this that your yo
 def extract_description(path):
     """A tool's short intent description from its does: line / first real
     docstring line, or '' if only a placeholder. Capped to DESC_CAP."""
+    # Audit P2-F6: this was the STRICTEST of several extractors -- 25-line window,
+    # and a fallback that demanded len > 15 -- and it is the one feeding the
+    # embedding index. So a tool could carry a good description in the catalogue
+    # while being invisible to semantic dedup and to tool-find, which is exactly
+    # how a near-duplicate walks past the gate. It now asks the canonical
+    # extractor the catalogue uses, then applies its own placeholder rejection
+    # and cap. One answer to "what does this tool do", two policies on top.
     try:
-        head = Path(path).read_text(errors="replace").splitlines()[:25]
+        from volume.tools import tool_description as _canon
+        text = _canon(path) or ""
     except Exception:
-        return ""
-    text = ""
-    for ln in head:
-        m = _DOES_RE.search(ln)
-        if m:
-            text = m.group(1).strip(); break
-    if not text:
-        for ln in head:
-            s = ln.strip().lstrip("#").strip().strip('"').strip("'").strip()
-            if s and not s.startswith(("!", "import", "from", "set -", "if ", "usage", "call:", "tool:")) and len(s) > 15:
-                text = s; break
+        text = ""
     low = text.lower()
     if not text or any(p in low for p in _PLACEHOLDER):
         return ""

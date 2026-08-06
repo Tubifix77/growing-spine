@@ -4,6 +4,7 @@ loop.py Ã¢ÂÂ the executive loop, step 4: wake/sleep runtime wired in.
 import asyncio, os, time, re, json
 from collections import Counter
 from . import sandbox, journal, parser, embed_gate
+from volume import paths as _paths
 from .runtime import (managed_exec, ensure_body, wake_entry,
                       sleep_entry, sleep_duration_seconds)
 from keychain import Keychain
@@ -13,7 +14,7 @@ from volume import tools as toolmod
 from executive import chat as chatmod
 from executive import self_restart as _selfrestart
 
-VOLUME_MOUNT = os.path.expanduser("~/growing-spine-mind")
+VOLUME_MOUNT = _paths.mind_root()      # P2-F13: one derivation, env-aware
 EDITABLE_PROMPT_PATH = os.path.join(VOLUME_MOUNT, "editable-prompt.md")
 PROTECTED_PROMPT_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "protected-prompt.md")
 SAVEGAME_ROOT = os.path.expanduser("~/growing-spine-saves")

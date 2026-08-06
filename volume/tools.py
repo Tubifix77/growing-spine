@@ -135,6 +135,19 @@ def materialize_framework(volume_mount: str):
         os.chmod(d, 0o755)
 
 
+def tool_description(path: str) -> str:
+    """THE description of a tool file. Canonical since 2026-08-06 (audit P2-F6).
+
+    There were several extractors with materially different answers, and the
+    embedding index used the STRICTEST one -- so a tool could be listed in the
+    catalogue with a perfectly good description while being invisible to semantic
+    dedup and to tool-find, which is how near-duplicates slip past the gate.
+    Precedence, most explicit first: the creature's own `does:` line, then the
+    first meaningful docstring/comment line.
+    """
+    return _first_doc_line(path)
+
+
 def _first_doc_line(path: str) -> str:
     """Extract a one-line description from a tool file.
     Prefers a 'does: ...' line (creature's own format), then falls back

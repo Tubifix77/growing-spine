@@ -15,7 +15,12 @@ Appends one line per run to ~/spine-health.log.
 import json, os, re, subprocess, sys, time
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-MIND = os.path.expanduser("~/growing-spine-mind")
+try:
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from volume.paths import mind_root as _mind_root   # P2-F13: one derivation
+    MIND = _mind_root()
+except Exception:
+    MIND = os.path.expanduser("~/growing-spine-mind")
 OWN, ATTIC = os.path.join(MIND, "tools", "own"), os.path.join(MIND, "tools", "attic")
 LOG = os.path.expanduser("~/spine-health.log")
 AGE_OUT_DAYS = 3
