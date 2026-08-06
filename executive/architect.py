@@ -52,11 +52,20 @@ def gather_evidence(own_dir, journal_path, now=None, days=14):
     # "never used", not "unused in 14 days" -- the prompt says so.
     from volume import tools as toolmod
     _mind = os.path.dirname(os.path.dirname(own_dir))   # <mind>/tools/own -> <mind>
-    own_set = set(names)
+    # Normalise BOTH sides. demand_counts keys have the tool extension stripped
+    # (tools are invoked bare off PATH), so matching them against raw filenames
+    # silently drops every `foo.py` that has no extensionless twin -- which
+    # inflated zero_use_count from 8 to 67 the day this census was unified.
+    # Introduced 2026-08-06 by that unification and caught the same evening: a
+    # normalisation mismatch between two halves of one comparison is the same
+    # disease as two copies of a literal.
+    from volume.tools import tool_stem as _stem
+    own_stems = {_stem(n) for n in names}
     used = {k: v for k, v in toolmod.demand_counts(_mind).items()
-            if k in own_set}
+            if k in own_stems}
+    zero_names = [n for n in names if _stem(n) not in used]
     top = sorted(used.items(), key=lambda kv: -kv[1])[:10]
-    zero = len([n for n in names if n not in used])
+    zero = len(zero_names)
     return {"total": len(names), "born_24h": sorted(day_new)[:20],
             "lineage_variants": sorted(lineage)[:20],
             "lineage_count": len(lineage), "top_used": top,

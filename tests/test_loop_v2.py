@@ -696,6 +696,21 @@ async def main():
           and _pv("")[0] is None)
 
     _J = __import__("json")   # shadow-proof: `_js`/`json` are rebound later in this function
+    # ---- census normalisation (2026-08-06, my own regression) ----
+    from executive import architect as _arch
+    _cd = os.path.join(TMP, "census_probe", "tools", "own")
+    os.makedirs(_cd, exist_ok=True)
+    for _n in ("lonely_tool.py", "bare_tool"):
+        open(os.path.join(_cd, _n), "w").write("print(1)\n")
+    _J2 = __import__("json")
+    _J2.dump({"lonely_tool": 12, "bare_tool": 5},
+             open(os.path.join(TMP, "census_probe", "tool_usage.json"), "w"))
+    _ev = _arch.gather_evidence(_cd, os.path.join(TMP, "census_probe", "journal.jsonl"))
+    check("census: a used `foo.py` is not reported as never-used (stem mismatch)",
+          _ev["zero_use_count"] == 0)
+    check("census: and its usage reaches top_used",
+          dict(_ev["top_used"]).get("lonely_tool") == 12)
+
     # ---- STALE-FALLBACKS (2026-08-06): printed since Aug 2, never read ----
     _fb_built = {"title": "already_built_probe", "brief": "do a thing"}
     open(os.path.join(TMP, "tools", "own", "already_built_probe"), "w").write("print(1)\n")
