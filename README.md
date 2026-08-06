@@ -110,6 +110,29 @@ zero.**
   to 3.0% at unchanged throughput. The prediction was written down before the
   measurement.
 
+Later the same day, three more, all of the same family:
+
+- **The contract specified durability but not identity.** It told the creature
+  durable data "must store it under `/mind` or `/workspace`" — where data
+  *survives*, not where a given file *is*. Two tools written on different days
+  could both obey perfectly and never find each other's work, and they did: its
+  keyword archive existed in thirteen copies across the volume, one writer
+  appending 1,670 times to a file the reader never opened, the reader returning
+  empty 934 times without error. The rule now names a place: shared data lives at
+  `/mind/data/<name>`, one path, written identically everywhere. A new health
+  sensor watches the class and flags `ORPHANED-READER` when a tool reads an empty
+  copy while another is fat.
+- **"Corrupt" was mostly a misreading.** 150KB of that archive parsed 18 of 2,911
+  lines — because the writer used `jq -n`, whose default output is pretty-printed,
+  into a `.jsonl` file whose readers assume one record per line. Stream-parsed, it
+  yielded 422 intact objects. 677 unique records were recovered across all shards
+  and 77 fragments lost.
+- **The creature's private thinking leaked into its reply channel** because it
+  *mentioned* the reply tag while deliberating, and the extractor took the first
+  match. It now discards deliberation before scanning and takes the last pair —
+  the third parser this week to learn that a model which muses before answering
+  must be read from the end.
+
 Two findings were left deliberately unfixed with the reasoning recorded, and one
 was declined outright: the judge's token budget stays as it is, because the only
 0-parse ever journalled shows the provider returned nothing at all — tuning a
