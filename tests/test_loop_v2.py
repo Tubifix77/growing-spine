@@ -695,6 +695,33 @@ async def main():
           _pv("The agent seems fine to me, broadly speaking.")[0] is None
           and _pv("")[0] is None)
 
+    _J = __import__("json")   # shadow-proof: `_js`/`json` are rebound later in this function
+    # ---- P1-F19 (2026-08-06): a corrupt meta must disarm image reaping ----
+    from volume import savegame as _sg
+    _sgroot = os.path.join(TMP, "savegames_f19")
+    os.makedirs(_sgroot, exist_ok=True)
+    _J.dump({"ts": 1, "body_image": "img:good", "label": "ok"},
+             open(os.path.join(_sgroot, "meta-good.json"), "w"))
+    open(os.path.join(_sgroot, "meta-broken.json"), "w").write("{not json")
+    _sg.CORRUPT_METAS.clear()
+    _saves = _sg.list_saves(_sgroot)
+    check("P1-F19: an unreadable meta is RECORDED, not silently skipped",
+          len(_saves) == 1 and "meta-broken.json" in _sg.CORRUPT_METAS)
+
+    # ---- P1-F20: a repair must not eat appends that land mid-repair ----
+    _jp = os.path.join(TMP, "journal.jsonl")
+    with open(_jp, "w") as _jf:
+        _jf.write(_J.dumps({"ts": 1, "kind": "a", "content": "one"}) + "\n")
+        _jf.write("{torn fragment without close\n")
+    _H.MIND = TMP
+    _res20 = _H.journal_integrity()
+    _after = [l for l in open(_jp).read().splitlines() if l.strip()]
+    check("P1-F20: repair keeps the good line and writes atomically",
+          "JOURNAL:" in _res20 and len(_after) >= 1
+          and _J.loads(_after[0])["content"] == "one")
+    check("P1-F20: no .repair.tmp left behind",
+          not os.path.exists(_jp + ".repair.tmp"))
+
     # ---- P1-F13 (2026-08-06): a re-stored memory must climb back ----
     mem.store(TMP, "sinker", "first value", tags=["t"])
     for _i in range(8):

@@ -109,7 +109,8 @@ def prune_save_images(savegame_root: str = None, keep: int = SAVE_IMAGE_KEEP) ->
     container attachment are safe to remove; the mind volume and active container
     volumes are never touched by docker volume prune). Best-effort: never raises,
     logs only. Runs docker WITHOUT sudo -- same as commit_body."""
-    summary = {"orphans_removed": [], "errors": []}
+    summary = {"orphans_removed": [], "errors": [], "skipped_reason": ""}
+    CORRUPT_METAS.clear()
     try:
         tracked = set()
         if savegame_root and os.path.exists(savegame_root):
@@ -127,7 +128,7 @@ def prune_save_images(savegame_root: str = None, keep: int = SAVE_IMAGE_KEEP) ->
             if len(p) >= 2 and p[0] and not p[0].endswith(":<none>"):
                 rows.append({"ref": p[0], "id": p[1]})
         candidates = [im for im in rows
-                      if im["ref"] not in tracked
+                      if im["ref"] not in tracked and not CORRUPT_METAS
                       and im["id"] not in in_use and im["ref"] not in in_use]
         for im in candidates[keep:]:  # keep newest `keep`, reap the rest
             rm = subprocess.run(["docker", "rmi", im["ref"]], capture_output=True, text=True)
@@ -156,9 +157,18 @@ def list_saves(savegame_root: str) -> list:
             try:
                 with open(os.path.join(savegame_root, fname)) as f:
                     saves.append(json.load(f))
-            except Exception:
-                pass
-    return sorted(saves, key=lambda s: s["ts"], reverse=True)
+            except Exception as e:
+                # Audit P1-F19: swallowed with a bare `pass`. A meta that cannot
+                # be read means its body_image is absent from `tracked`, and the
+                # orphan reaper deletes every untracked image (SAVE_IMAGE_KEEP=0)
+                # -- so ONE corrupt json file authorised the destruction of the
+                # save image it was describing. Corruption must be loud, and it
+                # must make the reaper stand down.
+                CORRUPT_METAS.append(fname)
+                _complain(f"unreadable save meta {fname} ({type(e).__name__}) -- "
+                          f"its body image cannot be matched, so image reaping "
+                          f"will be SKIPPED this run to avoid deleting it")
+    return sorted(saves, key=lambda s: s.get("ts", 0), reverse=True)
 
 def _prune(savegame_root: str):
     """Keep last MAX_SAVEGAMES non-milestone saves; never prune milestones."""
@@ -234,6 +244,21 @@ def brain_commit() -> str | None:
     rc, out, _ = _git(["rev-parse", "HEAD"])
     return out if rc == 0 and out else None
 
+CORRUPT_METAS = []   # filled by list_saves; a non-empty list disarms reaping
+
+
+def _complain(msg: str):
+    """Loud on stdout, and in the creature's journal. These failures are about
+    its restore points; silence is the one thing they must not be."""
+    print(f"[savegame] {msg}")
+    try:
+        from executive import journal as _j
+        _j.append(os.path.expanduser("~/growing-spine-mind"), "error",
+                  f"savegame: {msg}")
+    except Exception:
+        pass
+
+
 def snapshot_brain(label: str = "") -> dict:
     """Capture the brain state. If the working tree has uncommitted changes
     (e.g. the creature just edited loop.py), commit them first so the SHA is a
@@ -241,12 +266,23 @@ def snapshot_brain(label: str = "") -> dict:
     rc, status, _ = _git(["status", "--porcelain"])
     dirty = bool(status)
     committed = False
+    err = ""
     if dirty:
         _git(["add", "-A"])
         msg = "savegame brain snapshot" + (f" ({label})" if label else "")
         rc, _, err = _git(["commit", "-m", msg, "--no-verify"])
         committed = (rc == 0)
-    return {"commit": brain_commit(), "dirty_committed": committed}
+        if not committed:
+            # Audit P1-F18: `err` was bound and dropped. The consequence is not
+            # cosmetic: the recorded SHA then predates the creature's edit, so the
+            # crash-rollback net restores a state that never crashed and the
+            # "the change that killed you was:" diff comes out EMPTY -- the one
+            # message whose entire job is teaching the creature what broke.
+            _complain(f"brain snapshot commit FAILED ({err.strip()[:200]}) -- "
+                      f"the recorded SHA predates the working tree, so a "
+                      f"crash-rollback diff from it would be empty or wrong")
+    return {"commit": brain_commit(), "dirty_committed": committed,
+            "commit_error": err.strip()[:300] if not committed and dirty else ""}
 
 def restore_brain(commit: str) -> bool:
     """Hard-reset the executive source to a known-good commit. The caller

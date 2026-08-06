@@ -123,6 +123,12 @@ def journal_integrity():
     only the unrecoverable fragment. Backs up before any rewrite."""
     jpath = os.path.join(MIND, "journal.jsonl")
     try:
+        # Audit P1-F20: read -> repair -> rewrite with no lock, while the
+        # executive appends continuously. Every append landing inside that window
+        # was overwritten by the rewrite. The hot append path is deliberately
+        # NOT given a lock (it runs many times a cycle), so instead: remember how
+        # many bytes we read, and re-read the tail just before writing.
+        _size_at_read = os.path.getsize(jpath)
         lines = open(jpath, encoding="utf-8", errors="replace").readlines()
     except OSError:
         return "JOURNAL:no-file"
@@ -162,7 +168,24 @@ def journal_integrity():
                 continue
         if not ok:
             dropped += 1
-    open(jpath, "w", encoding="utf-8").writelines(fixed)
+    # Anything appended while we were repairing: carry it over verbatim.
+    _tail = ""
+    try:
+        if os.path.getsize(jpath) > _size_at_read:
+            with open(jpath, encoding="utf-8", errors="replace") as _tf:
+                _tf.seek(_size_at_read)
+                _tail = _tf.read()
+    except OSError:
+        pass
+    # Atomic: a crash mid-rewrite must not truncate the journal to nothing.
+    _tmp = jpath + ".repair.tmp"
+    with open(_tmp, "w", encoding="utf-8") as _wf:
+        _wf.writelines(fixed)
+        if _tail:
+            if not _tail.startswith("\n") and fixed and not fixed[-1].endswith("\n"):
+                _wf.write("\n")
+            _wf.write(_tail)
+    os.replace(_tmp, jpath)
     return f"JOURNAL:REPAIRED {len(bad)} torn (recovered {recovered}, dropped {dropped})"
 
 
