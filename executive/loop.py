@@ -2569,11 +2569,59 @@ The digest separates COMPLETED tools (real) from PROPOSED titles (often never bu
 WINDOW DIGEST:
 {digest}
 
-Respond in EXACTLY one of these two forms and nothing else:
-PROGRESSING
+Reason it through in prose first if that helps -- deliberation is welcome and will be ignored by the parser.
+
+Then END your reply with a terminal verdict block and nothing after it:
+
+VERDICT: PROGRESSING
+
 or
-STUCK
-<directive of at most 3 sentences, a direct order to the agent: name the pattern to stop and the genuinely different kind of tool-work (or the reuse) to do instead>"""
+
+VERDICT: STUCK
+<directive of at most 3 sentences, a direct order to the agent: name the pattern to stop and the genuinely different kind of tool-work (or the reuse) to do instead>
+
+The VERDICT: line must be the LAST verdict statement in your reply."""
+
+
+_RETRO_VERDICT_RE = re.compile(
+    r"^[>\s#*_`-]*VERDICT\s*[:\-]\s*(PROGRESSING|STUCK)\b[ \t]*(.*)$",
+    re.MULTILINE | re.IGNORECASE)
+
+
+def _parse_retro_verdict(text: str):
+    """(verdict, directive) or (None, "") if the reply cannot be read.
+
+    2026-08-06: this used to be `text.upper().startswith("PROGRESSING"/"STUCK")`
+    -- the verdict-FIRST contract that made the batch judge 0-parse on every
+    reasoning window until it was cured by embracing deliberation and requiring a
+    terminal block (5/5, 8/8, 7/7 clean followed). The retro kept the old contract
+    and kept fail-opening to PROGRESSING on a judge that visibly ruled in prose.
+    Same cure, same shape, one contract between them now.
+
+    Takes the LAST verdict line, so a judge that muses "this could look STUCK..."
+    and then rules PROGRESSING is read as PROGRESSING.
+    """
+    t = (text or "").strip()
+    if not t:
+        return None, ""
+    matches = list(_RETRO_VERDICT_RE.finditer(t))
+    if matches:
+        m = matches[-1]
+        verdict = m.group(1).upper()
+        # the directive is everything after the terminal verdict line
+        directive = (m.group(2) + "\n" + t[m.end():]).strip().lstrip(":-. \n")
+        return verdict, directive
+    # legacy contract: a terse reply that opens with the verdict
+    up = t.upper()
+    for v in ("PROGRESSING", "STUCK"):
+        if up.startswith(v):
+            return v, t[len(v):].strip().lstrip(":-. \n")
+    # last resort: a bare verdict word alone on a line
+    bare = re.findall(r"^[>\s#*_`-]*(PROGRESSING|STUCK)[ \t]*$", t,
+                      re.MULTILINE | re.IGNORECASE)
+    if bare:
+        return bare[-1].upper(), ""
+    return None, ""
 
 
 def _build_retro_directive_block() -> str:
@@ -2655,19 +2703,19 @@ async def _maybe_retrospective(keychain, advance=True):
         journal.append(VOLUME_MOUNT, "retro", f"Judge call failed: {e}")
         return
 
-    verdict = (response or "").strip()
-    if verdict.upper().startswith("PROGRESSING"):
+    verdict, _directive = _parse_retro_verdict(response)
+    if verdict == "PROGRESSING":
         state["stuck_pending"] = False
         journal.append(VOLUME_MOUNT, "retro", "Verdict: PROGRESSING\n" + digest)
         print("[retro] verdict: PROGRESSING")
-    elif verdict.upper().startswith("STUCK"):
+    elif verdict == "STUCK":
         fire, why = _stuck_should_fire(state)
         if not fire:
             journal.append(VOLUME_MOUNT, "retro",
                             "Verdict: STUCK (" + why + ")\n" + digest)
             print(f"[retro] verdict: STUCK ({why})")
         else:
-            directive = verdict[5:].strip().lstrip(":-. \n")
+            directive = _directive
             if not directive:
                 directive = ("Stop repeating the same family of projects. Complete "
                              "one genuinely new capability before anything else.")
@@ -2679,10 +2727,11 @@ async def _maybe_retrospective(keychain, advance=True):
                            + suffix + "\n" + digest)
             print(f"[retro] verdict: STUCK{suffix}")
     else:
+        _raw = (response or "").strip()
         journal.append(VOLUME_MOUNT, "retro",
-                       "Verdict unparseable -- treated as PROGRESSING: "
-                       + verdict[:200])
-        print(f"[retro] unparseable verdict, treated as PROGRESSING: {verdict[:80]!r}")
+                       "Verdict unparseable -- treated as PROGRESSING. HEAD: "
+                       + _raw[:300] + "\n...TAIL: " + _raw[-300:])
+        print(f"[retro] unparseable verdict, treated as PROGRESSING: {_raw[:80]!r}")
 
     state["cycle_count"] = 0
     state["snapshot"] = now_m

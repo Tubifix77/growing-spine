@@ -670,6 +670,31 @@ async def main():
         try: os.remove(os.path.join(_fsown, _n))
         except OSError: pass
 
+    # ---- retro verdict contract (2026-08-06): same cure as the batch judge ----
+    _pv = _lp._parse_retro_verdict
+    check("retro: terminal block parses (the reasoning-window shape)",
+          _pv("Let me weigh this. Reuse is up, depth climbing.\n\n"
+              "VERDICT: PROGRESSING")[0] == "PROGRESSING")
+    check("retro: the LAST verdict wins, not a mused-about one",
+          _pv("At first glance this looks STUCK -- a drawer of dead tools.\n"
+              "But reuse events are 6 and depth climbed.\n\nVERDICT: PROGRESSING")[0]
+          == "PROGRESSING")
+    _v, _d = _pv("Deliberating...\n\nVERDICT: STUCK\nStop building a third "
+                 "planner. Reuse memory_archive_search in your next tool.")
+    check("retro: a STUCK directive is taken from AFTER the terminal line",
+          _v == "STUCK" and _d.startswith("Stop building a third planner")
+          and "Deliberating" not in _d)
+    check("retro: markdown-decorated verdict lines still parse",
+          _pv("thoughts\n\n**VERDICT: STUCK**\nName the pattern.")[0] == "STUCK")
+    check("retro: the LEGACY terse contract still parses (old prompt, old windows)",
+          _pv("PROGRESSING")[0] == "PROGRESSING"
+          and _pv("STUCK\nDo something else.") == ("STUCK", "Do something else."))
+    check("retro: a bare verdict alone on a line is a last-resort read",
+          _pv("I considered the digest.\n\nSTUCK\n")[0] == "STUCK")
+    check("retro: genuinely unreadable prose stays unparseable (fails open, loudly)",
+          _pv("The agent seems fine to me, broadly speaking.")[0] is None
+          and _pv("")[0] is None)
+
     # ---- crash-net (2026-08-06): the rollback had NEVER fired in the project's
     # life, because only a FAST crash-loop could reach it. Bench-tested, fixed,
     # pinned here. Fake savegame/chat: nothing live is touched.
