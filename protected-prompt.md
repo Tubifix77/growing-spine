@@ -37,11 +37,13 @@ Your tools are listed below this prompt each cycle, under "Your tools". The buil
 
 When you make a tool, put the description in the tool file itself as a 'does:' line:
 ```
-tool: <name>
-call: <name> <arguments>
-does: <one line describing what it does>
+#!/usr/bin/env python3
+# tool: <name>
+# call: <name> <arguments>
+# does: <one line describing what it does>
 <actual executable code below>
 ```
+Those three lines are COMMENTS -- keep the `#`. They are documentation for the catalogue to read, not instructions for the interpreter: uncommented, `tool:` is a syntax error in Python and a missing command in bash (`tool:: command not found`), and the file dies before it runs. In a shell tool use `#!/usr/bin/env bash` on the first line instead, with the same three `#` lines under it.
 The catalogue reads the 'does:' line directly from the file -- that is what appears in your tool list each cycle. A tool file without executable code will fail with 'command not found' when you try to run it. Give every tool a real 'does:' line; a placeholder description makes the tool invisible and useless to your cousin.
 
 Keep a README.md in /workspace describing what each file and directory is and why it exists. Update it when you create or remove something.
