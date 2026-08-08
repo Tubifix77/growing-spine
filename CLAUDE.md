@@ -162,7 +162,9 @@ stale at the moment it was committed — it said `tool-tester` was a hollow stub
 when the creature had finished it four hours earlier. Date what you write, name
 the instrument, and prefer a live census to any figure in here.
 
-v0.15. HEAD `d239441`. 224 tests green. ~354 own tools. 900–1300 thinks/day.
+v0.15. 224 tests green. ~354 own tools. 900–1300 thinks/day. (No HEAD hash here:
+a file cannot name the commit that contains it, so the line was stale on arrival.
+Use `git log -1`.)
 **Zero open audit findings** — all 67 verdicted, all 28 that were open are fixed.
 
 **Measured 2026-08-08 03:25 by live census (not from a snapshot):**
@@ -212,7 +214,9 @@ figure; the true never-invoked count is single digits.
   producing no symptom. Leave it.
 - Several of its tools build JSON with `jq -n` (pretty) and append to `.jsonl`.
   It has been told the pattern. Its call.
-- ~28 duplicate-stem twins (`X` and `X.py`) with traffic split across both.
+- **31** duplicate-stem twins (`X` and `X.py`) with traffic split across both
+  (live census 2026-08-08 03:25; the "~28" that stood here was the 2 Aug
+  snapshot figure — it is growing, not static).
   Culling needs consent, and the honest cull list has been small every time it
   was measured.
 
