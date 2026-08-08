@@ -75,6 +75,45 @@ FABRICATED_TITLE_MARKERS = ("mock news item", "mock item", "test article",
                             "dummy item", "lorem ipsum")
 
 
+def jsonl_parse_rate(path: str):
+    """(parseable, total) non-blank lines of a .jsonl file. (None, None) if unreadable.
+
+    The contract for .jsonl is one record per LINE. Nothing checked it, and the
+    same breach has now happened twice under different mechanisms:
+
+      2026-08-07 00:47  keyword-archive-store built records with `jq -n`, whose
+        default output is pretty-printed across several lines. 1,670 writes had
+        produced 422 records of which the reader could parse 18. Fixed to
+        `jq -nc` with the creature's consent.
+      2026-08-08 12:15  the creature rewrote that tool from scratch and undid it
+        -- not with jq this time, but `json_entry=$(cat <<JSON ...)`, multi-line
+        again. Within hours: 104 lines, 4 parseable. The advice it had been given
+        named a MECHANISM ("don't use jq -n"), so it avoided jq and walked into
+        the same wall by another route.
+
+    Both times the write succeeded, the read came back empty, and neither side
+    errored -- keyword-archive-search's contract is to return nothing rather than
+    fail. A reader that cannot parse its own store is the house disease: healthy
+    surface, no content. Measure the rate; never trust the extension.
+    """
+    try:
+        parseable = total = 0
+        with open(path, encoding="utf-8", errors="replace") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                total += 1
+                try:
+                    json.loads(line)
+                    parseable += 1
+                except ValueError:
+                    pass
+        return parseable, total
+    except OSError:
+        return None, None
+
+
 def is_fabricated_feed(items) -> bool:
     """True if a parsed feed is fixture data rather than really-fetched content."""
     if not isinstance(items, list):

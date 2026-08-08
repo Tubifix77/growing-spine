@@ -29,7 +29,7 @@ AGE_OUT_DAYS = 3
 # Canonical list now lives in volume/tools.py; import it, never restate it.
 sys.path.insert(0, REPO)
 from volume.tools import (is_hollow_stub, demand_counts,  # noqa: E402
-                          is_demanded, is_fabricated_feed)
+                          is_demanded, is_fabricated_feed, jsonl_parse_rate)
 from executive.embed_gate import _is_junk as is_junk_name  # noqa: E402
 QUOTA_STATE = os.path.join(REPO, "keychain", "quota_state.json")
 CONFIG = os.path.join(REPO, "config.yaml")
@@ -294,6 +294,37 @@ def check_tool_wiring():
         out.append(f"{k}({len(paths)} paths){flag}: " + "; ".join(sizes))
     return f"WIRING:!!{len(split)}[" + " | ".join(out) + "]"
 
+def check_jsonl():
+    """Can the creature read back what it just wrote? (2026-08-08)
+
+    /mind/data is where the contract says shared data lives, and .jsonl means one
+    record per LINE. Nothing verified that, and the breach has happened twice --
+    `jq -n` on 7 Aug, a multi-line heredoc on 8 Aug after the first fix was
+    rewritten away. Both times: write succeeds, read returns empty, nobody errors.
+
+    Reports the parse rate rather than a pass/fail, because the number is the
+    alarm: "4/104" says what "broken" cannot. Deliberately does NOT touch the exit
+    code -- that means "a provider went silent" and overloading it would make
+    `systemctl --user --failed` ambiguous. This is for the daily line and for Tue.
+    """
+    d = os.path.join(MIND, "data")
+    try:
+        names = sorted(n for n in os.listdir(d) if n.endswith(".jsonl"))
+    except OSError:
+        return "JSONL:no-data-dir"
+    bad, checked = [], 0
+    for n in names:
+        ok, total = jsonl_parse_rate(os.path.join(d, n))
+        if not total:
+            continue  # empty or unreadable: nothing to judge
+        checked += 1
+        if ok < total:
+            bad.append(f"{n}({ok}/{total} parse)")
+    if not checked:
+        return "JSONL:none"
+    return f"JSONL:!!{len(bad)}[" + "; ".join(bad) + "]" if bad else f"JSONL:ok({checked})"
+
+
 def check_flatline():
     """FLATLINE: an ENABLED provider with no success in FLATLINE_HOURS.
     Silence is the failure mode that already bit once -- google_gemma
@@ -331,7 +362,7 @@ if __name__ == "__main__":
     line = (time.strftime("%Y-%m-%d %H:%M") + "  "
             + "  ".join([check_sensor(), check_fallbacks(), stub_janitor(),
                          journal_integrity(), check_tool_wiring(),
-                         check_flatline()]))
+                         check_jsonl(), check_flatline()]))
     _rc = exit_code(SILENT_KEYS, DEAD_KEYS)
     if _rc:
         line += f"  SERIOUS:{','.join(sorted(SILENT_KEYS & DEAD_KEYS))}"

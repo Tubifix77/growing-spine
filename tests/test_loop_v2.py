@@ -1531,6 +1531,26 @@ async def main():
     check("fabricated feed: empty/garbage input does not raise",
           _isff([]) is False and _isff(None) is False and _isff(["x", 7]) is False)
 
+    # ---- jsonl parse rate (the scar that came back 36h after being fixed) ----
+    # Both payloads below are the creature's REAL output, not authored here: the
+    # multi-line one is what its rewritten keyword-archive-store emits via
+    # `cat <<JSON`, the compact one is what the consented `jq -nc` fix produced.
+    from volume.tools import jsonl_parse_rate as _jpr
+    _p = os.path.join(TMP, "archive_probe.jsonl")
+    with open(_p, "w", encoding="utf-8") as _f:
+        _f.write('{\n  "keyword": "test-key",\n  "content": "First test note",\n'
+                 '  "added_at": "2026-08-08T10:15:16Z"\n}\n')
+    check("jsonl: multi-line record is counted as unreadable", _jpr(_p) == (0, 5))
+    with open(_p, "w", encoding="utf-8") as _f:
+        _f.write('{"keyword":"test-key","content":"First test note"}\n'
+                 '{"keyword":"test-key","content":"Second test note"}\n')
+    check("jsonl: compact one-per-line records all parse", _jpr(_p) == (2, 2))
+    with open(_p, "w", encoding="utf-8") as _f:
+        _f.write('{"a":1}\n\n   \n{"b":2}\n')
+    check("jsonl: blank lines are not counted against the rate", _jpr(_p) == (2, 2))
+    check("jsonl: a missing file reports unreadable, does not raise",
+          _jpr(os.path.join(TMP, "no_such_archive.jsonl")) == (None, None))
+
     # ---- embed top_matches exclusion (the replay self-match corruption) ----
     from executive import embed_gate as eg
     if eg.available():
