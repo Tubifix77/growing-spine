@@ -326,6 +326,17 @@ figure; the true never-invoked count is single digits.
   measured cost and no symptom; alternatives trade it for unmeasured risk.
 - *Path-resolver framework tool.* The trigger was a recurrence after the contract
   fix — but the high-traffic case then resolved itself. Weaker case than it looked.
+- *`tool-retire` — an attic-instead-of-delete tool for the creature.* There IS a
+  real asymmetry: `tool-new` and `tool-edit` exist, removal has none, so `rm` is
+  the only door and the creature has used it 47 times. But measured 2026-08-08
+  against the 2 Aug snapshot: of 349 tools then, **2 are gone from both `own` and
+  `attic` — `--show` and `dummy`**, which `JUNK_RE` already calls non-tools. Zero
+  real tools destroyed in six days. Its `rm` is state files and
+  delete-then-recreate. Two counter-arguments as well: `tool-edit` has existed
+  since 5 Aug and it still used `cat >` for the mock, so a safer door does not
+  get taken; and making removal feel heavier risks worsening the twins (32 and
+  climbing) in a library that once needed a 302 → 32 cull. **Named trigger:** a
+  pruning spree that destroys a real tool. Until then this is theoretical harm.
 
 **Monthly ritual.** Ask the creature what made its work harder; it answers once —
 it has **no outbound channel** — then investigate and report back. First run
