@@ -2926,6 +2926,104 @@ def _build_loop_warning() -> str:
     return ""
 
 
+_DATA_SAMPLE_LINES = 2000   # cost bound per cycle, not a behavioural threshold:
+                            # a parse rate from a sample is still a parse rate.
+DATA_WARNING_STATE_PATH = os.path.join(VOLUME_MOUNT, "state", "data_warning.json")
+
+
+def _build_data_warning() -> str:
+    """State a fact when the creature's own stores cannot be read back.
+
+    2026-08-07/08. Two silent breaches, and it could not have discovered either.
+
+      * `keyword-archive-store` appended multi-line JSON to a .jsonl. 1,670 writes
+        became 422 records the reader could parse 18 of. Fixed with its consent on
+        7 Aug; it rewrote the tool from scratch on 8 Aug and the fault returned by
+        a different mechanism within 36 hours. Live after that: 104 lines, 4
+        parseable.
+      * A fixture written over `wake_catchup_fetcher` fed two example.com articles
+        to 55 dependent tools, which archived them as research.
+
+    Both wrote successfully, read back empty, and errored nowhere. A tool it must
+    CHOOSE to run cannot help here: not knowing anything is wrong is the whole
+    fault, so nothing would ever prompt it to look. The fact has to arrive
+    unasked, the way the gate fact does.
+
+    Deliberately: deterministic, no LLM, no network, no side effects, and no tool
+    is named. It reports a property of STORES -- something the creature will keep
+    making -- rather than a rule retrofitted to two tools. Register follows
+    _build_knowledge_block: information that prompts its own question, never a
+    scold and never a debugging hint. Naming the invariant (one record per line)
+    rather than a mechanism is the whole lesson of the 36-hour recurrence.
+    """
+    try:
+        ddir = os.path.join(VOLUME_MOUNT, "data")
+        try:
+            names = sorted(n for n in os.listdir(ddir) if n.endswith(".jsonl"))
+        except OSError:
+            return ""
+        unreadable, fabricated = [], 0
+        for n in names:
+            path = os.path.join(ddir, n)
+            ok = total = 0
+            try:
+                with open(path, encoding="utf-8", errors="replace") as f:
+                    for i, line in enumerate(f):
+                        if i >= _DATA_SAMPLE_LINES:
+                            break
+                        line = line.strip()
+                        if not line:
+                            continue
+                        total += 1
+                        try:
+                            json.loads(line)
+                            ok += 1
+                        except ValueError:
+                            pass
+                        if any(h in line for h in toolmod.RESERVED_FEED_HOSTS):
+                            fabricated += 1
+            except OSError:
+                continue
+            if total and ok < total:
+                unreadable.append((n, ok, total))
+        # Surface on a CHANGE of state, never continuously. A fact repeated every
+        # cycle is either a nag it learns to skip past or a loop it cannot exit:
+        # if it investigates, finds nothing it can fix, and the same paragraph
+        # returns next cycle, we have built a trap. The signature is qualitative
+        # -- which stores are unreadable, and whether fabricated content is
+        # present -- so a store that keeps accruing bad records does not re-fire,
+        # while a NEW store breaking does. No cooldown constant to tune.
+        signature = ["|".join(n for n, _, _ in unreadable), bool(fabricated)]
+        try:
+            with open(DATA_WARNING_STATE_PATH, encoding="utf-8") as f:
+                last = json.load(f)
+        except Exception:
+            last = None
+        if last == signature:
+            return ""
+        try:
+            os.makedirs(os.path.dirname(DATA_WARNING_STATE_PATH), exist_ok=True)
+            tmp = DATA_WARNING_STATE_PATH + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(signature, f)
+            os.replace(tmp, DATA_WARNING_STATE_PATH)
+        except OSError:
+            pass
+        if not unreadable and not fabricated:
+            return ""      # state recorded as clean; nothing to say
+        lines = ["## Your stored data"]
+        for n, ok, total in unreadable:
+            lines.append(f"`/mind/data/{n}` holds {total} lines; a reader taking "
+                         f"one record per line can parse {ok} of them.")
+        if fabricated:
+            lines.append(f"{fabricated} stored records cite example.com, "
+                         "example.org or example.net -- domains RFC 2606 reserves "
+                         "so that they can never host real content.")
+        return "\n".join(lines) + "\n\n"
+    except Exception:
+        return ""
+
+
 def _build_knowledge_block() -> str:
     """ALWAYS shown. The creature's toolkit as three NEUTRAL, ground-truth fields
     per the lifecycle Built -> Adopted -> Depends-on, plus category coverage and
@@ -3070,11 +3168,12 @@ def _build_context(recent_journal: list, tue_message: str = None) -> str:
     active_project = _build_active_project_block()
     knowledge = _build_knowledge_block()
     loop_warning = _build_loop_warning()
+    data_warning = _build_data_warning()
     done_block = _build_done_block()
     retro_directive = _build_retro_directive_block()
     dup_report = _run_dup_scan_if_due()
     return (done_block + retro_directive + dup_report
-            + loop_warning + active_project + knowledge + protected + "\n\n"
+            + loop_warning + data_warning + active_project + knowledge + protected + "\n\n"
             + editable + catalogue_block + workspace_block + memory_text
             + journal_text + chat_block)
 

@@ -1551,6 +1551,45 @@ async def main():
     check("jsonl: a missing file reports unreadable, does not raise",
           _jpr(os.path.join(TMP, "no_such_archive.jsonl")) == (None, None))
 
+    # ---- data warning: the fact the creature can never ask for (2026-08-08) ----
+    # Both fixtures are real. The multi-line record is what keyword-archive-store
+    # emits via `cat <<JSON` since the consented `jq -nc` fix was rewritten away;
+    # the example.com line is what the mock fetcher fed to 55 dependent tools.
+    # A tool it must CHOOSE to run cannot catch either -- not knowing anything is
+    # wrong is the fault -- so the fact has to arrive unasked.
+    _ddir = os.path.join(loop.VOLUME_MOUNT, "data")
+    os.makedirs(_ddir, exist_ok=True)
+    _probe = os.path.join(_ddir, "zz_probe.jsonl")
+    with open(_probe, "w", encoding="utf-8") as _f:
+        _f.write('{\n  "keyword": "test-key",\n  "content": "First test note",\n'
+                 '  "added_at": "2026-08-08T10:15:16Z"\n}\n')
+    _dw = loop._build_data_warning()
+    check("data warning: an unreadable store is stated as a fact",
+          "zz_probe.jsonl" in _dw and "parse 0 of them" in _dw)
+    check("data warning: states the INVARIANT, not a mechanism to avoid",
+          "one record per line" in _dw)
+    check("data warning: names no tool and gives no advice",
+          "keyword-archive-store" not in _dw and "should" not in _dw.lower())
+    # The anti-loop contract: if it investigates, fixes nothing, and the same
+    # paragraph returns every cycle, we have built a trap rather than a signal.
+    check("data warning: an unchanged fault is NOT repeated next cycle",
+          loop._build_data_warning() == "")
+    with open(_probe, "w", encoding="utf-8") as _f:
+        _f.write('{"url":"https://example.com/article1","title":"Test Article 1"}\n')
+    check("data warning: fabricated reserved-domain content is counted",
+          "RFC 2606" in loop._build_data_warning())
+    with open(_probe, "w", encoding="utf-8") as _f:
+        _f.write('{"keyword":"k","content":"a real note"}\n')
+    check("data warning: silent about a store whose records all parse",
+          "zz_probe.jsonl" not in loop._build_data_warning())
+    # ...and a NEW fault after a clean period speaks up again, so going quiet
+    # is not the same as going deaf.
+    with open(_probe, "w", encoding="utf-8") as _f:
+        _f.write('{\n  "keyword": "k",\n  "content": "broken again"\n}\n')
+    check("data warning: a fault returning after a clean state fires again",
+          "zz_probe.jsonl" in loop._build_data_warning())
+    os.remove(_probe)
+
     # ---- embed top_matches exclusion (the replay self-match corruption) ----
     from executive import embed_gate as eg
     if eg.available():
