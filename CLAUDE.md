@@ -6,6 +6,12 @@ Read this before touching anything; it is short on purpose.
 
 Tue is the human. Prefer asking him over guessing on anything irreversible.
 
+**This file is yours.** You are the session with hands on this system; there is
+no other reviewer to defer to. Maintain it: when a measurement contradicts §8,
+correct §8 and commit. When you learn a rule the hard way, add it to §5. Date
+what you write and name the instrument behind every number — the most expensive
+errors in this project's history are numbers nobody could source.
+
 ---
 
 ## 1. Read these first, in this order
@@ -147,58 +153,83 @@ journalctl --user -u growing-spine --since "2 hours ago"
 
 ---
 
-## 8. State at handover (2026-08-07/08)
+## 8. State — 2026-08-08 03:30
 
-v0.15. HEAD `82e28ae`. 224 tests green. ~346 own tools, only **8 never invoked**.
-900–1300 thinks/day, exec_skip ~3–7% (was 14.9%). **Zero open audit findings** —
-all 67 verdicted, all 28 that were open are fixed.
+**This section goes stale fast. It is yours to maintain: when you measure
+something that contradicts it, correct it and commit. You do not need
+permission for that.** The first version of this file was already nine hours
+stale at the moment it was committed — it said `tool-tester` was a hollow stub
+when the creature had finished it four hours earlier. Date what you write, name
+the instrument, and prefer a live census to any figure in here.
 
-Beware stale snapshots: `docs/creature-snapshot-2026-08-02/` predates the 6 August
-repairs. On 2 August the hollow backlog was 23; the organ was re-armed on the 6th
-and the creature drained it itself, implementing eight demanded stubs in demand
-order. **Live backlog is 1.** The janitor's first non-zero line, `aged-out 14`,
-was 6 August. Always take the live census before acting on snapshot numbers.
+v0.15. HEAD `d239441`. 224 tests green. ~354 own tools. 900–1300 thinks/day.
+**Zero open audit findings** — all 67 verdicted, all 28 that were open are fixed.
+
+**Measured 2026-08-08 03:25 by live census (not from a snapshot):**
+- **Hollow backlog: 0.** `tool-tester` is implemented — 3,569 bytes, 103 lines,
+  no hollow markers, written 2026-08-07 19:30. The creature finished it after
+  being told plainly that nothing would prompt it to.
+- **The keyword-archive path split has resolved itself.** Seven live tools now
+  agree on `/mind/data/keyword-archive.jsonl` (193KB, actively written),
+  including the `keyword-archive-store` / `keyword-archive-search` pair behind
+  the 1,670-writes / 934-empty-reads scar. The creature converged its own wiring
+  on the evening of 7 August. **This is evidence for the path-resolver decision:
+  the high-traffic case fixed itself without a framework resolver.**
+- `autoquestionplanner` — the complete bash body sitting below a Python stub — is
+  attic'd and intact. Not urgent, and not ours to fix: it is the creature's tool.
+
+**Ignore `docs/creature-snapshot-2026-08-02/` for anything numeric.** It predates
+the 6 August repairs, when the stub organ was re-armed and the creature drained
+its own backlog (eight demanded stubs implemented in demand order, 52–107 lines
+each). Its MANIFEST's usage counts produced a "half the library never invoked"
+figure; the true never-invoked count is single digits.
 
 **Needs Tue's decision**
-- Rotate the OpenRouter API key (it was exposed in a chat transcript).
+- **Rotate API keys.** OpenRouter, Gemini, Groq ×2 and Cerebras have all been
+  exposed in transcripts by `cat`-ing `config.yaml`. **Grep that file for the one
+  field you need; never dump it.**
 - 2026-08-17: cerebras free tier changes. **Probe before flipping** — it served
-  217 thinks in a day, a real workhorse. `groq_oss120` is the same model but
-  TPM-walled at 8000, so it cannot take fat thinks.
-- `WIRING:!!` flags `memstore.jsonl` at two paths — a NEW instance of the
-  scattered-data class *after* the contract fix. The named trigger for
-  reconsidering a path-resolver framework tool.
-- `autoquestionplanner`: a complete 78-line bash implementation sits BELOW the
-  Python stub template with a `python3` shebang, so it runs the stub, prints
-  "not implemented yet", exits 0, and the real code never executes. It is the
-  creature's own tool — needs its consent, not a unilateral fix. No urgency: the
-  janitor attics, it does not delete.
+  235 thinks since 7 August, a real workhorse. `groq_oss120` is the same model
+  but TPM-walled at 8000, so it cannot take fat thinks.
+- `WIRING:!!` still flags `memstore.jsonl`: `/mind/data/memstore.jsonl` is 0
+  bytes and read by `ToolUsageAuditor`; `/mind/memstore.jsonl` holds 236 bytes
+  and is read by `RecallScheduler`. **A live tool whose job is auditing tool
+  usage is reading zero bytes and returning nothing without error** — the
+  house scar, in its own toolkit. Its tool, so its consent.
 
-**No decision needed**
-- ~86 replies/day still end `finish=length`, mostly gemma, after the think cap
-  went 2048 → 3072. Best measurable target left.
+**Open, measurable**
+- `finish=length` by full calendar day, from `served_by` events: 187 on 6 Aug
+  (19.0%), **116 on 7 Aug (13.0%)** — falling after the think cap went
+  2048 → 3072. By count `google_gemma` dominates (83 of 119 since 7 Aug); by
+  **rate** `openrouter_super` is worst at 19.8% against gemma's 11.8%. Pick your
+  target: fewest wasted calls, or the worst-behaving rung.
+- `gemini_flash` (the `is_floor: true` rung) has served 9 requests since 7 Aug.
+  `spine-flatline.service` sitting in `failed` is the alarm working as designed.
 - Delete `~/archive-merge-backup-*` once the merged archive has proven itself.
 
 **Watching only, deliberately**
-- `tool-tester` is a hollow stub; the janitor will attic it. Its call.
 - The creature believes `container_status = no_shell_exec_possible`. False, and
   producing no symptom. Leave it.
 - Several of its tools build JSON with `jq -n` (pretty) and append to `.jsonl`.
   It has been told the pattern. Its call.
-- ~28 duplicate-stem twins (`X` and `X.py`) with traffic split across both. Not
-  yet investigated; culling needs consent.
+- ~28 duplicate-stem twins (`X` and `X.py`) with traffic split across both.
+  Culling needs consent, and the honest cull list has been small every time it
+  was measured.
 
-**Known issues, deliberately NOT built** — reasoning is in memory; do not
-re-propose without new evidence.
+**Known issues, deliberately NOT built** — do not re-propose without new evidence.
 - *Size-aware routing.* A learned "this rung can't take fat prompts" ceiling
-  ratchets downward and never announces it — the same disease we spent a week
-  removing. If ever built: declared numbers in config, and the detector SHOUTS
-  rather than re-routes.
+  ratchets downward and never announces it — the same disease this project spent
+  a week removing. If ever built: declared numbers in config, and the detector
+  SHOUTS rather than re-routes.
 - *Catalogue v2.* The full listing still enters every wake. Current state has a
   measured cost and no symptom; alternatives trade it for unmeasured risk.
+- *Path-resolver framework tool.* The trigger was a recurrence after the contract
+  fix — but the high-traffic case then resolved itself. Weaker case than it looked.
 
-**Monthly ritual.** We ask the creature what made its work harder; it answers
-once — it has **no way to speak unprompted** — then we investigate and report
-back. First run 2026-08-07 surfaced a real two-month-old framework bug. Next due
-early September. Ask for symptoms, never causes, and **with a time window**:
-every item it named came from June, because recent state lives in a five-slot
-register that overwrites each cycle.
+**Monthly ritual.** Ask the creature what made its work harder; it answers once —
+it has **no outbound channel** — then investigate and report back. First run
+2026-08-07 surfaced a real two-month-old framework bug (the contract showed the
+tool header without `#`, so obedient files died with `tool:: command not found`).
+Next due early September. Ask for symptoms, never causes, and **with a time
+window**: every item it named came from June, because recent state lives in a
+five-slot register that overwrites each cycle.
