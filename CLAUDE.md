@@ -95,6 +95,17 @@ or a path literal that already exists elsewhere, stop.
   because the template and the detector were four words apart.
 - **Never let a test write its own fixture using the string the detector hunts.**
   That test passes forever regardless.
+- **A guard that names one exact string is one rename away from silent.** The
+  SENSOR looked for the title `"Mock News Item"`; the creature's fixture said
+  `"Test Article 1"`, and the guard built to catch mocks reported
+  `SENSOR:ok(2 fresh)` over two `example.com` articles (2026-08-08). Test a fact
+  about the world where you can — RFC 2606 reserves `example.com` so it can
+  never carry real content — and keep phrase lists as backstop only.
+- **A fixture written OVER a live tool is a stub that lies.** `cat > <tool path>`
+  bypasses `tool-edit`, so there is no `.bak` and no "Rewrote X (44 -> 89 lines)"
+  line: the change leaves no trace anywhere. `wake_catchup_fetcher` became a
+  two-item mock this way and 55 dependent tools kept exiting 0 with valid JSON.
+  A stub does nothing; a fixture does something false. Both look healthy.
 - **Read model replies from the END.** Three parsers needed this cure: the retro
   verdict, the architect ruling, the chat reply. A model that muses about an
   answer before giving it will mention the tag or the verdict mid-thought.
@@ -153,7 +164,7 @@ journalctl --user -u growing-spine --since "2 hours ago"
 
 ---
 
-## 8. State — 2026-08-08 03:30
+## 8. State — 2026-08-08 20:45
 
 **This section goes stale fast. It is yours to maintain: when you measure
 something that contradicts it, correct it and commit. You do not need
@@ -162,17 +173,44 @@ stale at the moment it was committed — it said `tool-tester` was a hollow stub
 when the creature had finished it four hours earlier. Date what you write, name
 the instrument, and prefer a live census to any figure in here.
 
-v0.15. 224 tests green. ~354 own tools. 900–1300 thinks/day. (No HEAD hash here:
+v0.15. 229 tests green. 359 own tools. 900–1300 thinks/day. (No HEAD hash here:
 a file cannot name the commit that contains it, so the line was stale on arrival.
 Use `git log -1`.)
 **Zero open audit findings** — all 67 verdicted, all 28 that were open are fixed.
 
-**Measured 2026-08-08 03:25 by live census (not from a snapshot):**
-- **Hollow backlog: 0.** `tool-tester` is implemented — 3,569 bytes, 103 lines,
-  no hollow markers, written 2026-08-07 19:30. The creature finished it after
-  being told plainly that nothing would prompt it to.
+**LIVE NOW — `wake_catchup_fetcher` is a mock (measured 2026-08-08 20:29).**
+At 17:14 the creature wrote a fixture over the real tool to get deterministic
+input while testing `cross_source_digest_scheduler`: `cat > /mind/tools/own/…`,
+which bypasses `tool-edit`, so no `.bak` exists. It emits two `example.com`
+articles. **55 live tools call it**, all still exiting 0. The real implementation
+survives as `wake_catchup_fetcher.real` (541 b, 28 Jun). The SENSOR now catches
+this (`SENSOR:MOCK(!!)`, verified against the live mock) — it did not before.
+**Restoring it is the creature's call, not ours: §2.1. Not yet asked.**
+
+**Measured 2026-08-08 20:29 by live census:**
+- **Hollow backlog: 0**, held all day across 42 tool edits. `tool-tester` is
+  implemented — 3,569 bytes, 103 lines, written 2026-08-07 19:30, after the
+  creature was told plainly that nothing would prompt it to.
+- `finish=length` by full calendar day: 19.0% (6 Aug) → 13.0% (7 Aug) →
+  **8.0% (8 Aug)**. Falling steadily; 69 events today against 116 yesterday.
+- **Two persistent stores were emptied on 8 Aug and neither is restored.**
+  `/mind/data/keyword-archive.jsonl` went 193,665 b (03:26) → 5,105 b, 29
+  entries, all dated that day, oldest 12:11. `/workspace/planner.json` hit 0 b
+  at 13:09, one minute before `step-planner-tracker` was repointed to
+  `/mind/data/step-planner/`. The planner loss is an unmigrated path change; the
+  archive mechanism is **undetermined** — ruled out: our framework touches the
+  archive nowhere, no exec block in 03:26–12:11 names the file, and every
+  surviving archive tool is append-only. **Do not restore until the cause is
+  known** (Tue, 8 Aug). Do NOT delete `~/archive-merge-backup-*` — it is now the
+  only copy of the pre-loss content.
+- The pre-loss archive was **422 real entries but 99.4% unparseable as JSONL**
+  (multi-line pretty JSON, one object over many lines), so the creature's own
+  line-based `keyword-archive-search` could ever read only 18 of them. The
+  rewritten `keyword-archive-store` still writes multi-line. The loss is smaller
+  than 193 KB suggests — most of it was already unreadable to its owner.
 - **The keyword-archive path split has resolved itself.** Seven live tools now
-  agree on `/mind/data/keyword-archive.jsonl` (193KB, actively written),
+  agree on `/mind/data/keyword-archive.jsonl` (still actively written; it was
+  193 KB when this was first measured — see the emptying above),
   including the `keyword-archive-store` / `keyword-archive-search` pair behind
   the 1,670-writes / 934-empty-reads scar. The creature converged its own wiring
   on the evening of 7 August. **This is evidence for the path-resolver decision:
