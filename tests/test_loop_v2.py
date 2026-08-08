@@ -1506,6 +1506,31 @@ async def main():
     check("tier diff: vanished configured rung flagged loudly",
           any("VANISHED" in l and "openrouter_coder" in l for l in _lines))
 
+    # ---- fabricated-feed sensor (2026-08-08: the guard that greenlit a mock) ----
+    # The fixture below is NOT authored here: it is the creature's actual mock
+    # output, copied from /mind/tools/own/wake_catchup_fetcher as it stood at
+    # 17:14 on 2026-08-08. That distinction is the point -- a test that invents
+    # its own fixture out of the string the detector hunts passes forever and
+    # proves nothing (see the stub-janitor scar). The live sensor scored this
+    # exact payload SENSOR:ok(2 fresh) because it looked only for "Mock News Item".
+    from volume.tools import is_fabricated_feed as _isff
+    _creature_mock = [
+        {"url": "https://example.com/article1", "title": "Test Article 1",
+         "content": "A new AI model was released. It can improve productivity."},
+        {"url": "https://example.com/article2", "title": "Test Article 2",
+         "content": "Security patch available for XYZ library. Apply it now."}]
+    check("fabricated feed: the mock that fooled the live sensor is caught",
+          _isff(_creature_mock))
+    check("fabricated feed: a real-shaped feed is not flagged",
+          not _isff([{"url": "https://news.ycombinator.com/item?id=44",
+                      "title": "Show HN: something real", "content": "body"}]))
+    check("fabricated feed: reserved host caught even with an innocent title",
+          _isff([{"url": "http://localhost:8000/x", "title": "Quarterly report"}]))
+    check("fabricated feed: legacy 'Mock News Item' title still caught",
+          _isff([{"url": "https://feeds.acme-news.io/1", "title": "Mock News Item 3"}]))
+    check("fabricated feed: empty/garbage input does not raise",
+          _isff([]) is False and _isff(None) is False and _isff(["x", 7]) is False)
+
     # ---- embed top_matches exclusion (the replay self-match corruption) ----
     from executive import embed_gate as eg
     if eg.available():

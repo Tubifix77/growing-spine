@@ -46,6 +46,51 @@ def is_hollow_stub(body: str) -> bool:
     return any(mk in (body or "") for mk in TOOL_PLACEHOLDER_MARKERS)
 
 
+# CANONICAL "is this feed fabricated?" test. The same disease as is_hollow_stub,
+# one stage later: a stub reads healthy and does NOTHING; a fixture reads healthy
+# and does something FAKE. Both exit 0.
+#
+# 2026-08-08 17:14. Testing cross_source_digest_scheduler, the creature wanted
+# deterministic input and wrote the fixture OVER the real tool:
+#     # Create a simple mock fetcher for testing
+#     cat > /mind/tools/own/wake_catchup_fetcher <<'BASH'
+# `cat >` bypasses tool-edit, so there was no .bak and no "Rewrote X (44 -> 89
+# lines)" line. The upstream source for 55 live tools became two example.com
+# stubs, every dependent kept exiting 0 with valid JSON, and nothing was written
+# down anywhere.
+#
+# spine_health's SENSOR was built to catch precisely this, and missed it: it
+# hunted the literal title "Mock News Item" while the fixture emitted "Test
+# Article 1". Four words apart -- the hollow-stub scar recurring INSIDE the guard
+# written against it. Measured before this fix, against the live mock:
+# `SENSOR:ok(2 fresh)`. A green light on a fabricated feed.
+#
+# So the primary test is a fact about the world, not a guessed phrase: RFC 2606
+# reserves example.com/.org/.net so they can never carry real content. The title
+# list is a backstop; nothing depends on matching one exact string any more.
+RESERVED_FEED_HOSTS = ("example.com", "example.org", "example.net",
+                       "example.edu", "localhost", "127.0.0.1")
+FABRICATED_TITLE_MARKERS = ("mock news item", "mock item", "test article",
+                            "sample article", "sample item", "test note",
+                            "dummy item", "lorem ipsum")
+
+
+def is_fabricated_feed(items) -> bool:
+    """True if a parsed feed is fixture data rather than really-fetched content."""
+    if not isinstance(items, list):
+        return False
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        url = str(it.get("url") or it.get("link") or "").lower()
+        if any(h in url for h in RESERVED_FEED_HOSTS):
+            return True
+        title = str(it.get("title") or "").lower()
+        if any(m in title for m in FABRICATED_TITLE_MARKERS):
+            return True
+    return False
+
+
 # A shell the creature keeps REACHING FOR is demand, not abandonment.
 #
 # 2026-08-06: with the markers finally matching, 22 of 25 hollow stubs were old

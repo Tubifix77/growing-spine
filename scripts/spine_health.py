@@ -29,7 +29,7 @@ AGE_OUT_DAYS = 3
 # Canonical list now lives in volume/tools.py; import it, never restate it.
 sys.path.insert(0, REPO)
 from volume.tools import (is_hollow_stub, demand_counts,  # noqa: E402
-                          is_demanded)
+                          is_demanded, is_fabricated_feed)
 from executive.embed_gate import _is_junk as is_junk_name  # noqa: E402
 QUOTA_STATE = os.path.join(REPO, "keychain", "quota_state.json")
 CONFIG = os.path.join(REPO, "config.yaml")
@@ -61,7 +61,11 @@ def _sensor_once():
         items = json.loads(out)
         if not isinstance(items, list) or not items:
             return "SENSOR:empty"
-        if any("Mock News Item" in (i.get("title") or "") for i in items):
+        # Was: a single literal title, "Mock News Item". On 2026-08-08 the
+        # creature's fixture said "Test Article 1" and this returned
+        # SENSOR:ok(2 fresh) over two example.com articles. Canonical test now
+        # lives in volume/tools.py -- never restate it here.
+        if is_fabricated_feed(items):
             return "SENSOR:MOCK(!!)"
         return f"SENSOR:ok({len(items)} fresh)"
     except Exception as e:
