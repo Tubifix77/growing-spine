@@ -16,7 +16,7 @@ errors in this project's history are numbers nobody could source.
 
 ## The method — read this before you fix anything
 
-Two principles outrank everything below. Every rule in §2 is an instance of them.
+Every rule in §2 is an instance of these two.
 
 **1. When the creature builds a defective tool, you do not fix the tool.**
 Not the obvious one-line fix, not when the fault is costing something every
