@@ -14,6 +14,45 @@ errors in this project's history are numbers nobody could source.
 
 ---
 
+## The method — read this before you fix anything
+
+Two principles outrank everything below. Every rule in §2 is an instance of them.
+
+**1. When the creature builds a defective tool, you do not fix the tool.**
+Not the obvious one-line fix, not when the fault is costing something every
+cycle, not when you are certain. Its tools are its world. Instead:
+
+- Ask *why it built the fault*, and — separately, this is the harder half —
+  *why it cannot see the fault now*. The second question is where the framework
+  bug usually is.
+- **Fix the machine that produced the fault**, never the fault. A `cat >` that
+  leaves no `.bak`, a guard hunting one literal string, advice that named a
+  mechanism instead of an invariant.
+- Then **make the fault visible to the creature** so it can prune it itself,
+  deterministically and without being asked. It cannot request a check for a
+  problem it does not know it has, so a tool it must choose to run is worthless
+  here — the fact has to arrive unprompted, the way the gate fact does.
+- State the **invariant** ("one record per line"), never the mechanism to avoid
+  ("don't use `jq -n`"). It has no outbound channel and cannot ask which you
+  meant; it will obey the letter and rebuild the fault by another route.
+- Surface on a **change of state, never continuously**. A fact repeated every
+  cycle is a nag it learns to skip, or a trap it cannot exit when it looks and
+  finds nothing it can fix.
+- Direct intervention only if it is genuinely stuck, and only after discussing it
+  with Tue. Consent in chat is the floor, not the ceiling.
+
+**2. You are the framework's debugger, not the creature's nanny.**
+It is meant to stand alone, permanently, with nobody watching. So:
+
+- **Never build anything that makes it depend on your inspection.** If a fault is
+  only caught because a human or a session reads a log, it is not fixed.
+- An instrument only *we* can read buys better supervision, not autonomy. When
+  you add detection, say plainly who receives it — and prefer the creature.
+- Your job is to find and remove framework faults that block its effectiveness.
+  It is not to do its work, tidy its library, or keep it out of trouble.
+
+---
+
 ## 1. Read these first, in this order
 
 | What | Where | Note |
