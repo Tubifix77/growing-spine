@@ -101,6 +101,11 @@ or a path literal that already exists elsewhere, stop.
   `SENSOR:ok(2 fresh)` over two `example.com` articles (2026-08-08). Test a fact
   about the world where you can — RFC 2606 reserves `example.com` so it can
   never carry real content — and keep phrase lists as backstop only.
+- **Guidance to the creature is a contract, not a recipe.** Told "don't build
+  JSON with `jq -n` and append it to a `.jsonl`", it stopped using `jq` and
+  rebuilt the identical fault with a heredoc 36 hours later. Name the invariant
+  it must hold (*one record per line*), never the mechanism to avoid — it has no
+  outbound channel and cannot ask which you meant.
 - **A fixture written OVER a live tool is a stub that lies.** `cat > <tool path>`
   bypasses `tool-edit`, so there is no `.bak` and no "Rewrote X (44 -> 89 lines)"
   line: the change leaves no trace anywhere. `wake_catchup_fetcher` became a
@@ -203,11 +208,26 @@ this (`SENSOR:MOCK(!!)`, verified against the live mock) — it did not before.
   surviving archive tool is append-only. **Do not restore until the cause is
   known** (Tue, 8 Aug). Do NOT delete `~/archive-merge-backup-*` — it is now the
   only copy of the pre-loss content.
-- The pre-loss archive was **422 real entries but 99.4% unparseable as JSONL**
-  (multi-line pretty JSON, one object over many lines), so the creature's own
-  line-based `keyword-archive-search` could ever read only 18 of them. The
-  rewritten `keyword-archive-store` still writes multi-line. The loss is smaller
-  than 193 KB suggests — most of it was already unreadable to its owner.
+- The archive emptying is **not** the consented merge of 7 Aug (chat #52–54).
+  That merge *created* the file — 677 records from 14 shards, 77 damaged
+  fragments dropped with the creature's agreement, every shard backed up. It was
+  still 193,665 b at 03:26 on 8 Aug, 27 hours later, and no merge script exists
+  on disk to re-run. Ruled out by timing.
+- **The `jq -nc` fix was reverted and the 934-empty-reads scar is live again.**
+  On 7 Aug 00:47 `keyword-archive-store` was changed from `jq -n` (pretty, many
+  lines) to `jq -nc` (compact) — the fault behind 1,670 writes yielding 422
+  records the reader could parse 18 of. On 8 Aug 12:15 the creature rewrote that
+  tool from scratch: no `jq` at all now, a `cat <<JSON` heredoc instead, and the
+  records are multi-line again. **36 hours from fix to recurrence.**
+  Live: `JSONL:!!3[keyword-archive.jsonl(4/104); memory_archive_cache.jsonl(0/7);
+  resilient_task_log.jsonl(0/2)]` — two of those found by the new sensor on its
+  first run, and both are wholly unreadable to their own writer.
+- **Why the warning did not hold, and it is ours to learn from.** It was told
+  "if any tool builds JSON with `jq -n` and appends to a `.jsonl`, it has the
+  same fault". It obeyed exactly — it stopped using `jq` — and reached the same
+  fault by heredoc. The advice named a MECHANISM; the contract is *one record
+  per line*. §5 already says to assert the contract rather than the mechanism;
+  that applies to what we tell the creature, not just to tests.
 - **The keyword-archive path split has resolved itself.** Seven live tools now
   agree on `/mind/data/keyword-archive.jsonl` (still actively written; it was
   193 KB when this was first measured — see the emptying above),
