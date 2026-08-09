@@ -114,6 +114,39 @@ def jsonl_parse_rate(path: str):
         return None, None
 
 
+def parse_feed_items(text):
+    """A fetcher's stdout as a list of items -- JSON array OR one object per line.
+
+    Returns [] for empty output and None when neither shape yields anything.
+
+    2026-08-09. The SENSOR assumed a JSON array. The creature rewrote its fixture
+    to emit one object per line; `json.loads(whole_output)` raised, the sensor
+    reported `SENSOR:fail(JSONDecodeError)` -- indistinguishable from the network
+    being down -- and is_fabricated_feed() was never reached. A guard that assumes
+    one output SHAPE is the same fault as one that assumes one exact string, and
+    it was written into this file the day before by the same hand. Accept both
+    shapes; decide fabrication separately.
+    """
+    text = (text or "").strip()
+    if not text:
+        return []
+    try:
+        v = json.loads(text)
+        return v if isinstance(v, list) else [v]
+    except ValueError:
+        pass
+    items = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            items.append(json.loads(line))
+        except ValueError:
+            continue
+    return items or None
+
+
 def is_fabricated_feed(items) -> bool:
     """True if a parsed feed is fixture data rather than really-fetched content."""
     if not isinstance(items, list):

@@ -1531,6 +1531,46 @@ async def main():
     check("fabricated feed: empty/garbage input does not raise",
           _isff([]) is False and _isff(None) is False and _isff(["x", 7]) is False)
 
+    # ---- feed shape: the guard that assumed a JSON array (2026-08-09) ----
+    # Real fixture: the creature's SECOND mock, written over the real fetcher at
+    # 13:37 on 9 Aug to get a duplicate item for testing dedup logic. It emits one
+    # object per line, so json.loads(whole) raised and the live sensor degraded to
+    # SENSOR:fail(JSONDecodeError) -- is_fabricated_feed() was never reached.
+    from volume.tools import parse_feed_items as _pfi
+    _mock2 = ('{"title":"Item A","url":"https://example.com/a","summary":"First"}\n'
+              '{"title":"Item B","url":"https://example.com/b","summary":"Second"}\n'
+              '{"title":"Item A Duplicate","url":"https://example.com/a","summary":"Duplicate"}\n')
+    check("feed shape: one-object-per-line output is parsed, not rejected",
+          len(_pfi(_mock2) or []) == 3)
+    check("feed shape: and the fixture is then caught as fabricated",
+          _isff(_pfi(_mock2)))
+    check("feed shape: a JSON array still parses",
+          len(_pfi('[{"title":"a"},{"title":"b"}]') or []) == 2)
+    check("feed shape: empty output is empty, not unparseable",
+          _pfi("   ") == [])
+    check("feed shape: genuine garbage is unparseable, not silently empty",
+          _pfi("<html>502 Bad Gateway</html>") is None)
+
+    # ---- data warning re-speaks when damage doubles (measured 2026-08-09) ----
+    _prev = {"files": {"keyword-archive.jsonl": 100}, "fabricated": 3}
+    check("data warning: silence while the fault is unchanged",
+          not loop._data_state_worsened(
+              {"files": {"keyword-archive.jsonl": 100}, "fabricated": 3}, _prev))
+    check("data warning: speaks again once the damage has doubled",
+          loop._data_state_worsened(
+              {"files": {"keyword-archive.jsonl": 216}, "fabricated": 3}, _prev))
+    check("data warning: a newly broken store speaks immediately",
+          loop._data_state_worsened(
+              {"files": {"keyword-archive.jsonl": 100, "other.jsonl": 2},
+               "fabricated": 3}, _prev))
+    check("data warning: the older list-format state does not wedge it",
+          loop._data_state_worsened({"files": {}, "fabricated": 0}, ["x", True]))
+
+    # ---- load-bearing tools: the blast radius of a name ----
+    _dep = loop._dependency_summary()
+    check("dependency summary: reports in-degree, not just edge totals",
+          "load_bearing" in _dep and isinstance(_dep["load_bearing"], list))
+
     # ---- jsonl parse rate (the scar that came back 36h after being fixed) ----
     # Both payloads below are the creature's REAL output, not authored here: the
     # multi-line one is what its rewritten keyword-archive-store emits via

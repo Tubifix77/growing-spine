@@ -2128,8 +2128,24 @@ def _dependency_summary() -> dict:
         return d
     depths = [depth(n) for n in g]
     avg = round(sum(depths) / len(depths), 2) if depths else 0.0
+    # IN-degree, from the same graph -- never build a second one (§4).
+    #
+    # The block already showed out-edges in aggregate ("N dependency links") and
+    # per-tool USAGE ("most-adopted"), which is how often a tool is RUN. Neither
+    # answers "what leans on this name?", and that is the fact the creature was
+    # missing twice in two days: on 2026-08-08 it repointed step-planner-tracker
+    # to a new path and orphaned its data, and across 8-9 Aug it repurposed the
+    # name `wake_catchup_fetcher` as a test fixture while 42 live tools still
+    # called it. Neither was an illusion it could not see -- it referred to "the
+    # mock wake_catchup_fetcher" in its own reasoning. What it could not see was
+    # the blast radius of a name.
+    incoming = Counter()
+    for node, deps in g.items():
+        for d in set(deps):
+            if d != node:
+                incoming[d] += 1
     return {"tools": len(g), "with_deps": with_deps, "edges": edges,
-            "avg_depth": avg}
+            "avg_depth": avg, "load_bearing": incoming.most_common(6)}
 
 
 # Markers left by tool-new in a freshly-scaffolded, not-yet-written tool.
@@ -2931,6 +2947,30 @@ _DATA_SAMPLE_LINES = 2000   # cost bound per cycle, not a behavioural threshold:
 DATA_WARNING_STATE_PATH = os.path.join(VOLUME_MOUNT, "state", "data_warning.json")
 
 
+def _data_state_worsened(cur: dict, prev) -> bool:
+    """Should the stored-data fact be spoken again?
+
+    Speaking every cycle is a nag or a trap; speaking once is too quiet, and that
+    is now measured rather than feared. The fact was surfaced 2026-08-08 21:24 and
+    stayed silent for the next 26 hours while `keyword-archive.jsonl` went from
+    100 unreadable lines to 216 -- the damage more than doubled with nothing said.
+
+    So: speak when the SET of broken stores changes (one newly broke, or one was
+    repaired), when fabricated content appears or clears, or when the damage in a
+    store has at least DOUBLED since we last spoke. Doubling is scale-free -- no
+    absolute line to tune -- and it is the coarsest rule that would have caught
+    the 2.16x growth actually observed.
+    """
+    if not isinstance(prev, dict):
+        return True                      # first run, or the older list format
+    pf, cf = prev.get("files") or {}, cur["files"]
+    if set(pf) != set(cf):
+        return True
+    if bool(prev.get("fabricated")) != bool(cur["fabricated"]):
+        return True
+    return any(cf[n] >= 2 * max(pf.get(n, 0), 1) for n in cf)
+
+
 def _build_data_warning() -> str:
     """State a fact when the creature's own stores cannot be read back.
 
@@ -2993,19 +3033,20 @@ def _build_data_warning() -> str:
         # -- which stores are unreadable, and whether fabricated content is
         # present -- so a store that keeps accruing bad records does not re-fire,
         # while a NEW store breaking does. No cooldown constant to tune.
-        signature = ["|".join(n for n, _, _ in unreadable), bool(fabricated)]
+        current = {"files": {n: total - ok for n, ok, total in unreadable},
+                   "fabricated": fabricated}
         try:
             with open(DATA_WARNING_STATE_PATH, encoding="utf-8") as f:
                 last = json.load(f)
         except Exception:
             last = None
-        if last == signature:
+        if not _data_state_worsened(current, last):
             return ""
         try:
             os.makedirs(os.path.dirname(DATA_WARNING_STATE_PATH), exist_ok=True)
             tmp = DATA_WARNING_STATE_PATH + ".tmp"
             with open(tmp, "w", encoding="utf-8") as f:
-                json.dump(signature, f)
+                json.dump(current, f)
             os.replace(tmp, DATA_WARNING_STATE_PATH)
         except OSError:
             pass
@@ -3080,6 +3121,13 @@ def _build_knowledge_block() -> str:
                 f"({dep['edges']} dependency links, avg depth {dep['avg_depth']}). "
                 "Tools built out of your earlier tools are how your body actually "
                 "grows -- prefer composing over rebuilding from scratch.")
+        lb = dep.get("load_bearing") or []
+        if lb:
+            parts.append(
+                "Most depended-on: "
+                + ", ".join(f"{n} ({c} of your tools call it)" for n, c in lb)
+                + ". Changing what one of these returns changes what every "
+                  "caller receives.")
     except Exception:
         pass
     try:

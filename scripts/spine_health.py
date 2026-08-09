@@ -29,7 +29,8 @@ AGE_OUT_DAYS = 3
 # Canonical list now lives in volume/tools.py; import it, never restate it.
 sys.path.insert(0, REPO)
 from volume.tools import (is_hollow_stub, demand_counts,  # noqa: E402
-                          is_demanded, is_fabricated_feed, jsonl_parse_rate)
+                          is_demanded, is_fabricated_feed, jsonl_parse_rate,
+                          parse_feed_items)
 from executive.embed_gate import _is_junk as is_junk_name  # noqa: E402
 QUOTA_STATE = os.path.join(REPO, "keychain", "quota_state.json")
 CONFIG = os.path.join(REPO, "config.yaml")
@@ -58,7 +59,12 @@ def _sensor_once():
             ["docker", "exec", "-e", "WAKE_CATCHUP_STATE=/tmp/health_probe_state.json",
              "growing-spine-body", "wake_catchup_fetcher"],
             capture_output=True, text=True, timeout=40).stdout.strip()
-        items = json.loads(out)
+        # Both shapes: a JSON array, or one object per line. Canonical in
+        # volume/tools.py -- never restate it here (2026-08-09: assuming the
+        # array shape turned a live MOCK verdict into fail(JSONDecodeError)).
+        items = parse_feed_items(out)
+        if items is None:
+            return "SENSOR:fail(unparseable)"
         if not isinstance(items, list) or not items:
             return "SENSOR:empty"
         # Was: a single literal title, "Mock News Item". On 2026-08-08 the
