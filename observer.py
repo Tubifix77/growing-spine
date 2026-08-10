@@ -484,15 +484,33 @@ class Dashboard(QMainWindow):
             ls = ps.get("last_success_at") or 0
             ex = ps.get("exhausted_at") or 0
             rec = ps.get("last_recovery_secs")
+            # A week without a SUCCESS outranks whatever happened most recently.
+            # 2026-08-10: every one of the eight rungs rendered amber "walled",
+            # because the loop records an exhaustion after each successful window
+            # closes, so ex > ls is the STEADY state of a healthy rung. Groq
+            # serving four minutes ago and OR North-code dead since 3 Aug wore the
+            # same colour and the same word. A row where healthy and dead are
+            # indistinguishable carries no signal at all.
+            #
+            # Red here uses STALE_RUNG_HOURS, the same rule as the summary chip,
+            # which buys a checkable invariant: the number in "LLM stale for a
+            # week: N" always equals the number of red chips.
+            if not ls:
+                return (f'<span style="color:#FF7043">{_esc(name)}<br>'
+                        f'never served</span>')
+            if (now - ls) >= STALE_RUNG_HOURS * 3600:
+                return (f'<span style="color:#FF7043">{_esc(name)}<br>'
+                        f'DEAD {_fmt_age(now - ls)}</span>')
             if ex > ls:
                 # walled: exhaustion is the latest event
                 hint = f", rec ~{_fmt_age(rec)}" if rec else ""
                 return (f'<span style="color:#FFB74D">{_esc(name)}<br>'
                         f'walled {_fmt_age(now - ex)}{hint}</span>')
-            if ls:
-                return (f'<span style="color:#4CAF50">{_esc(name)}<br>'
-                        f'ok {_fmt_age(now - ls)} ago</span>')
-            return f'<span style="color:#9E9E9E">{_esc(name)}<br>unused</span>'
+            # `ls` is guaranteed non-zero here -- the not-ls case returned above,
+            # which is why the old gray "unused" branch is gone rather than
+            # sitting unreachable.
+            return (f'<span style="color:#4CAF50">{_esc(name)}<br>'
+                    f'ok {_fmt_age(now - ls)} ago</span>')
 
         if self.chips:
             for key, name in self._providers:
