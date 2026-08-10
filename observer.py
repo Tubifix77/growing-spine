@@ -33,6 +33,11 @@ JOURNAL  = os.path.join(MIND_DIR, "journal.jsonl")
 CHAT     = os.path.join(MIND_DIR, "chat.jsonl")
 CONFIG   = os.path.expanduser("~/growing-spine/config.yaml")
 QUOTA    = os.path.expanduser("~/growing-spine/keychain/quota_state.json")
+# One calendar week. Not a tuned number: FLATLINE_HOURS=12 already covers sudden
+# silence, and this is the "quietly dead for a week" companion to it. It catches
+# openrouter_north, which sat in every hourly FLATLINE line for 182 hours with
+# nobody acting -- 182 identical warnings is not a signal.
+STALE_RUNG_HOURS = 168
 
 # Live memory module (same code the creature uses -> panel cannot drift)
 import importlib.util as _ilu
@@ -404,45 +409,54 @@ class Dashboard(QMainWindow):
         self._tick_memory()
 
     def _tick_tier(self):
-        """Surface the weekly openrouter tier-check log on the vitals row.
-        Gray ok / orange when a configured rung vanished, the timer went
-        stale (>8d), or the last fetch failed. The log is the sensor's
-        only output -- without this chip it reports to nobody (2026-07-17)."""
-        import os, re
-        path = os.path.expanduser("~/openrouter-tier.log")
+        """How many ENABLED rungs have not served for a week. 0 is green.
+
+        Was: the newest line of the weekly openrouter tier-check log, rendered as
+        "tier: RUNG VANISHED <date>". That reported a past EVENT and could never
+        return to green. `inclusionai/ling-3.0-flash:free` left the free shelf on
+        2026-08-07; the rung was disabled the same day and the replacement
+        declined on the quality-floor decision -- handled, completely -- and the
+        chip still showed red three days later, because the timer is weekly and
+        the chip only re-rendered the last line. An indicator that stays red
+        after the thing was fixed teaches you to ignore red.
+
+        Now it is a live count derived from quota_state.json over the enabled
+        rungs only, so disabling a dead rung IS the resolution and the chip
+        clears itself. A never-served rung counts as stale, matching
+        check_flatline's existing rule (`age_h is None or age_h >= ...`) rather
+        than inventing a second answer.
+
+        Cost of the change, stated plainly: the tier log is no longer surfaced
+        anywhere, so NEW-model recon becomes read-on-demand. The actionable half
+        is kept -- a vanished rung becomes a stale rung inside a week, and this
+        counts it.
+        """
         try:
-            with open(path) as f:
-                lines = f.read().splitlines()
+            with open(QUOTA) as f:
+                state = json.load(f)
         except OSError:
-            self.lbl_tier.setText('<span style="color:#9E9E9E">tier: never ran</span>')
+            self.lbl_tier.setText(
+                '<span style="color:#9E9E9E">LLM stale: no state file</span>')
             return
-        idx = max((i for i, l in enumerate(lines)
-                   if l[:2] == "20" and " UTC" in l), default=None)
-        if idx is None:
-            self.lbl_tier.setText('<span style="color:#9E9E9E">tier: no runs</span>')
-            return
-        stamp, block = lines[idx][:16], "\n".join(lines[idx:])
-        try:
-            age_d = (time.time() - time.mktime(
-                time.strptime(stamp, "%Y-%m-%d %H:%M"))) / 86400
         except Exception:
-            age_d = 0
-        day = stamp[5:10]
-        if "!!" in block:
+            # Audit P1-F21's lesson: unreadable is not the same as absent, and
+            # must never render as healthy.
             self.lbl_tier.setText(
-                f'<span style="color:#FF7043">tier: RUNG VANISHED {day}</span>')
-        elif "SKIPPED" in lines[idx]:
-            self.lbl_tier.setText(
-                f'<span style="color:#FFB74D">tier: fetch failed {day}</span>')
-        elif age_d > 8:
-            self.lbl_tier.setText(
-                f'<span style="color:#FFB74D">tier: stale {int(age_d)}d</span>')
+                '<span style="color:#E0A030">LLM stale: state unreadable</span>')
+            return
+        now, stale = time.time(), []
+        for key, name in self._providers:
+            ls = (state.get(key) or {}).get("last_success_at") or 0
+            if not ls or (now - ls) >= STALE_RUNG_HOURS * 3600:
+                stale.append(f"{name} ({_fmt_age(now - ls) + ' ago' if ls else 'never'})")
+        if stale:
+            self.lbl_tier.setText('<span style="color:#FF7043">'
+                                  f'LLM stale for a week: {len(stale)}</span>')
+            self.lbl_tier.setToolTip("\n".join(stale))
         else:
-            m = re.search(r"NEW\((\d+)\)", block)
-            n = int(m.group(1)) if m else 0
-            extra = f", +{n} new" if n else ""
             self.lbl_tier.setText(
-                f'<span style="color:#9E9E9E">tier: ok {day}{extra}</span>')
+                '<span style="color:#4CAF50">LLM stale for a week: 0</span>')
+            self.lbl_tier.setToolTip("")
 
     def _tick_quota(self):
         # No mtime gating: green/orange depend on the CLOCK, not just file
