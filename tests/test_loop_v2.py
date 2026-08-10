@@ -445,11 +445,83 @@ async def main():
           classify_error("rate_limit hit: 30 requests per minute") == "retryable")
     check("classify: unknown -> hard",
           classify_error("something exploded weirdly") == "hard")
-    check("classify: dead model 404 -> quota (walls, never hard-raises)",
-          classify_error('HTTP 404: {"error":{"message":"No endpoints found for '
-                         'qwen/qwen3-coder:free"}}') == "quota")
-    check("classify: model_not_found -> quota",
-          classify_error("model_not_found: that model id does not exist") == "quota")
+    # These two asserted `== "quota"` until 2026-08-10 and went red the moment the
+    # mechanism improved, which is the scar in section 5: assert the CONTRACT. The
+    # contract a dead model id must satisfy is "never hard-raise, and do not spend
+    # the account" -- it is now its own class so a rung with other models falls to
+    # the next one instead of walling a live account over one stale id.
+    _dead404 = classify_error('HTTP 404: {"error":{"message":"No endpoints found '
+                              'for qwen/qwen3-coder:free"}}')
+    _deadname = classify_error("model_not_found: that model id does not exist")
+    check("classify: a dead model id never hard-raises",
+          _dead404 != "hard" and _deadname != "hard")
+    check("classify: a dead model id is not charged to the account budget",
+          _dead404 == "gone" and _deadname == "gone")
+    check("classify: a real daily 429 still spends the account",
+          classify_error('HTTP 429: {"error":{"message":"Rate limit exceeded: '
+                         'free-models-per-day"}}') == "quota")
+
+    # ---- multi-model rung: one account, models tried in order (2026-08-10) ----
+    from keychain import keychain as _kcmod, provider as _provmod
+
+    def _rung(models):
+        k = _kcmod.Keychain.__new__(_kcmod.Keychain)   # skip config/disk load
+        k.providers = [{"key": "pool", "endpoint": "e", "api_key": "k",
+                        "model_id": models}]
+        k.state, k.last_used, k.last_model = {}, None, None
+        k.last_finish_reason, k.last_truncated = "", False
+        return k
+
+    _seen = []
+    _real_call = _provmod.call
+
+    async def _fake(cfg, messages, max_tokens=2048, model=None):
+        _seen.append(model)
+        if model.startswith("gone/"):
+            return {"error": 'HTTP 404: {"error":{"message":"No endpoints found"}}',
+                    "text": "", "finish_reason": "", "truncated": False}
+        if model.startswith("dry/"):
+            return {"error": 'HTTP 429: {"error":{"message":"Rate limit exceeded: '
+                             'free-models-per-day"}}',
+                    "text": "", "finish_reason": "", "truncated": False}
+        return {"error": None, "text": "served", "finish_reason": "stop",
+                "truncated": False, "tokens_used": 3}
+    _provmod.call = _fake
+    try:
+        _seen.clear()
+        k1 = _rung(["gone/first:free", "good/second:free"])
+        _out = await k1.complete("hi")
+        check("multi-model rung: a purged first model falls to the next",
+              _out == "served" and _seen == ["gone/first:free", "good/second:free"])
+        check("multi-model rung: records WHICH model served, not just the account",
+              k1.last_model == "good/second:free")
+        check("multi-model rung: a fallen-through rung is not walled",
+              "exhausted_at" not in k1.state.get("pool", {}))
+
+        _seen.clear()
+        k2 = _rung(["dry/first:free", "good/second:free"])
+        try:
+            await k2.complete("hi")
+            _raised = False
+        except RuntimeError:
+            _raised = True
+        check("multi-model rung: a daily 429 ends the rung, it does not try "
+              "sibling models on the same spent account",
+              _seen == ["dry/first:free"] and _raised)
+        check("multi-model rung: a 429 walls the account",
+              "exhausted_at" in k2.state.get("pool", {}))
+
+        _seen.clear()
+        k3 = _rung(["gone/a:free", "gone/b:free"])
+        try:
+            await k3.complete("hi")
+        except RuntimeError:
+            pass
+        check("multi-model rung: every model gone walls the rung (2026-07-19 "
+              "purge behaviour preserved)",
+              "exhausted_at" in k3.state.get("pool", {}))
+    finally:
+        _provmod.call = _real_call
 
     # ---- upward re-probe ordering (the nemotron-monopoly fix) ----
     from keychain.keychain import order_providers
