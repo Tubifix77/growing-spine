@@ -11,6 +11,12 @@ away" banners exist only on the page, not in the API, so GONE here means
 """
 import json, sys, time, urllib.request, pathlib
 
+# Run as a bare path by systemd, so sys.path[0] is scripts/ and `keychain` is
+# not importable without this. configured_rungs() swallows exceptions, so a
+# missing import would have made the VANISHED report silently empty rather than
+# loud -- the failure mode this whole file exists to prevent.
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+
 API = "https://openrouter.ai/api/v1/models"
 SEEN = pathlib.Path.home() / ".openrouter_free_seen.json"
 LOG = pathlib.Path.home() / "openrouter-tier.log"
@@ -30,11 +36,21 @@ def fetch_free_ids():
 
 
 def configured_rungs():
+    """{model_id: config_key} for enabled openrouter entries.
+
+    A rung may declare several model ids (one account, one quota, an ordered
+    preference list -- see keychain/provider.model_ids), so this flattens rather
+    than assuming one id per rung. Before 2026-08-10 a list here silently became
+    an unhashable dict key and the whole report fell into the bare `except`,
+    reporting no configured rungs at all.
+    """
     try:
         import yaml
+        from keychain.provider import model_ids
         cfg = yaml.safe_load(CONFIG.read_text())
-        return {p["model_id"]: p["key"] for p in cfg.get("providers", [])
-                if p.get("enabled", True) and "openrouter" in p.get("key", "")}
+        return {mid: p["key"] for p in cfg.get("providers", [])
+                if p.get("enabled", True) and "openrouter" in p.get("key", "")
+                for mid in model_ids(p)}
     except Exception:
         return {}
 

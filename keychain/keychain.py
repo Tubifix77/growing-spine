@@ -54,9 +54,13 @@ def classify_error(err: str) -> str:
         return "retryable"
     if ("404" in err or "not found" in err_l or "no endpoints" in err_l
             or "model_not_found" in err_l):
-        # dead/unknown model id (e.g. the 2026-07-19 openrouter purge):
-        # mark exhausted so it stays walled -- must never hard-raise
-        return "quota"
+        # The model left the shelf (the 2026-07-19 openrouter purge, ling on
+        # 2026-08-07). This is NOT the account being out of budget: a rung with
+        # other models declared should fall to the next one. Returned as its own
+        # class since 2026-08-10 -- it used to be folded into "quota", which
+        # walled the whole account because one model id had gone stale. Callers
+        # must still never hard-raise on it.
+        return "gone"
     if ("quota" in err_l or "rate_limit_exceeded" in err_l or "exceeded" in err_l
             or "billing" in err_l or "429" in err):
         return "quota"
@@ -81,6 +85,10 @@ class Keychain:
         # diagnosis. Reconstructing "who served the architect at 00:52" during
         # the gemma outage was impossible for exactly this reason.
         self.last_used = None
+        # WHICH model of a multi-model rung answered. A rung is an account, not a
+        # model (see provider.model_ids), so "openrouter served this" stopped
+        # being a complete answer on 2026-08-10.
+        self.last_model = None
         self.last_finish_reason = ""
         self.last_truncated = False
 
@@ -107,48 +115,81 @@ class Keychain:
                 messages.append({"role": "system", "content": system})
             messages.append({"role": "user", "content": prompt})
 
-            for attempt in range(3):
-                result = await prov.call(cfg, messages, max_tokens=max_tokens)
+            # A rung is one ACCOUNT with an ordered model list. A 429 spends the
+            # SHARED budget and ends the rung; a 404 retires one model id only and
+            # falls to the next. Folding those together (before 2026-08-10) walled
+            # a live account because a single id had gone stale.
+            variants = prov.model_ids(cfg)
+            stop_rung, gone_count = False, 0
+            for mid in variants:
+                for attempt in range(3):
+                    result = await prov.call(cfg, messages,
+                                             max_tokens=max_tokens, model=mid)
 
-                if result["error"] is None:
-                    if cfg["key"] in exhausted_keys:
-                        print(f"[keychain] {cfg['key']} window REOPENED "
-                              f"(probe of a believed-exhausted provider succeeded)")
-                    self.last_used = cfg["key"]
-                    # Truncation metadata for the caller. complete() still
-                    # returns a plain str -- ten call sites depend on that -- so
-                    # the flags ride on the instance beside last_used. A caller
-                    # that cares (the think loop, the batch judge) reads them;
-                    # the rest are unaffected.
-                    self.last_finish_reason = result.get("finish_reason") or ""
-                    self.last_truncated = bool(result.get("truncated"))
-                    if self.last_truncated:
-                        print(f"[keychain] {cfg['key']} reply hit the "
-                              f"{max_tokens}-token ceiling (finish_reason=length)")
-                    qs.record_success(self.state, cfg["key"])
-                    return result["text"]
+                    if result["error"] is None:
+                        if cfg["key"] in exhausted_keys:
+                            print(f"[keychain] {cfg['key']} window REOPENED "
+                                  f"(probe of a believed-exhausted provider "
+                                  f"succeeded)")
+                        self.last_used = cfg["key"]
+                        self.last_model = mid
+                        # Truncation metadata for the caller. complete() still
+                        # returns a plain str -- ten call sites depend on that --
+                        # so the flags ride on the instance beside last_used. A
+                        # caller that cares (the think loop, the batch judge)
+                        # reads them; the rest are unaffected.
+                        self.last_finish_reason = result.get("finish_reason") or ""
+                        self.last_truncated = bool(result.get("truncated"))
+                        if self.last_truncated:
+                            print(f"[keychain] {cfg['key']} reply hit the "
+                                  f"{max_tokens}-token ceiling "
+                                  f"(finish_reason=length)")
+                        qs.record_success(self.state, cfg["key"])
+                        return result["text"]
 
-                err = str(result["error"])
-                kind = classify_error(err)
+                    err = str(result["error"])
+                    kind = classify_error(err)
 
-                if kind in ("too_large", "quota"):
-                    qs.record_exhaustion(self.state, cfg["key"])
-                    break  # try next provider -- retrying won't help
+                    if kind == "gone":
+                        # This model id left the shelf; the account is fine.
+                        gone_count += 1
+                        if len(variants) > 1:
+                            print(f"[keychain] {cfg['key']}: {mid} is gone from "
+                                  f"the shelf -- falling to the next model")
+                        break  # next MODEL, same rung
 
-                if kind == "flaky":
-                    had_transient = True
-                    print(f"[keychain] {cfg['key']} flaky ({err[:70]}) -- next provider")
-                    break  # degenerate response; another window may serve it
+                    if kind in ("too_large", "quota"):
+                        qs.record_exhaustion(self.state, cfg["key"])
+                        stop_rung = True
+                        break  # the ACCOUNT is spent -- next provider
 
-                if kind == "retryable":
-                    had_transient = True
-                    if attempt < 2:
-                        await asyncio.sleep(3 * (2 ** attempt))  # 3s, 6s
-                        continue
-                    break  # move to next provider
+                    if kind == "flaky":
+                        had_transient = True
+                        print(f"[keychain] {cfg['key']} flaky ({err[:70]}) "
+                              f"-- next provider")
+                        stop_rung = True
+                        break  # degenerate response; another window may serve it
 
-                # Hard error
-                raise RuntimeError(f"Provider {cfg['key']} error: {err}")
+                    if kind == "retryable":
+                        had_transient = True
+                        if attempt < 2:
+                            await asyncio.sleep(3 * (2 ** attempt))  # 3s, 6s
+                            continue
+                        stop_rung = True
+                        break  # move to next provider
+
+                    # Hard error
+                    raise RuntimeError(f"Provider {cfg['key']} error: {err}")
+
+                if stop_rung:
+                    break
+            if not stop_rung and gone_count == len(variants):
+                # EVERY declared model has left the shelf: wall the rung so we
+                # stop paying a round trip per dead id every cycle. Preserves the
+                # 2026-07-19 purge behaviour, which must never hard-raise. Counted
+                # rather than inferred from the last model's verdict -- a gone id
+                # followed by a flaky one would otherwise wall a healthy account.
+                qs.record_exhaustion(self.state, cfg["key"])
 
         if had_transient:
             raise RuntimeError("All providers temporarily unavailable.")

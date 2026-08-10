@@ -38,14 +38,36 @@ def _extract_text_tokens(data: dict):
     return text, tokens, finish_reason, reasoning_only
 
 
-async def call(cfg: dict, messages: list, max_tokens: int = 2048) -> dict:
+def model_ids(cfg: dict) -> list:
+    """The model ids this rung may use, in preference order. CANONICAL.
+
+    A rung is one upstream ACCOUNT, not one model. OpenRouter bills its free tier
+    at 50 requests/day against the account, shared by every `:free` model, so
+    three config entries each declaring `limit: 50` described a budget that does
+    not exist. Measured 2026-08-10 from `served_by`: `openrouter_super` took all
+    50 every day (51/51/50/50) while `north` and `nemotron` starved -- and both
+    were then reported dead for 185h by FLATLINE and the dashboard, which is a
+    false alarm about a healthy reserve rather than a fault.
+
+    `model_id` therefore accepts a list. A plain string still works and is still
+    the right shape for a single-model account like Groq or Cerebras.
+    """
+    m = cfg.get("model_id")
+    return list(m) if isinstance(m, (list, tuple)) else [m]
+
+
+async def call(cfg: dict, messages: list, max_tokens: int = 2048,
+               model: str = None) -> dict:
     """
     POST to an OpenAI-compatible endpoint.
     Returns dict with keys: text, tokens_used, finish_reason, truncated,
     error (or None).
+
+    `model` overrides the rung's default; the keychain passes it when walking a
+    multi-model rung. Omitted, the first declared model is used.
     """
     payload = json.dumps({
-        "model": cfg["model_id"],
+        "model": model or model_ids(cfg)[0],
         "messages": messages,
         "max_tokens": max_tokens,
     }).encode()
