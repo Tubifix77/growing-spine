@@ -337,6 +337,22 @@ figure; the true never-invoked count is single digits.
   get taken; and making removal feel heavier risks worsening the twins (32 and
   climbing) in a library that once needed a 302 → 32 cull. **Named trigger:** a
   pruning spree that destroys a real tool. Until then this is theoretical harm.
+- *The builder — a second LLM actor filling the creature's demanded tools*
+  (full design: `the-builder-idea.md`, repo root). Parked 2026-08-10; Tue
+  delegated the call and the verdict was no. Reasons: every serious bug in this
+  project's history was found by running it and reading behavior, never by
+  review, and a second behaving agent coupled to the creature (orders, dock,
+  adoption) is the largest new interaction surface since the oracle — added at
+  the moment the system's owner says he can no longer read it. The justifying
+  symptom is also absent: the stub organ already serves demand (hollow backlog
+  0, held through 42 edits on 8 Aug), and delivered tools would be a new
+  injection channel into the creature's library — the exact class (a healthy-
+  looking file doing something false) behind the mock scar. **Named triggers:**
+  (1) demanded stubs (`demand_counts` ≥ 5) sustained above zero for 7
+  consecutive days — its own hands stopped keeping up; or (2) the data-warning
+  surfacing NEW unreadable/fabricated stores in consecutive weeks — visibility
+  proved insufficient and quality needs fixing at construction time. Until one
+  fires, the graft answers a theory.
 
 **Monthly ritual.** Ask the creature what made its work harder; it answers once —
 it has **no outbound channel** — then investigate and report back. First run
