@@ -169,6 +169,19 @@ or a path literal that already exists elsewhere, stop.
 - Re-verify any "it started" claim a beat later. Fixtures come from the real
   corpus, never authored. Never call `_build_tool_catalogue()` just to inspect it
   — it ends in `_mark_surfaced()` and writes rotation state.
+- **A test that builds its own state dict can still write to the real file.**
+  `quota_state.record_success/record_exhaustion` end in `save_state()`, which
+  dumps whatever dict it is handed to `keychain/quota_state.json` — a module
+  constant with no injection point. A keychain test passing a fresh `{}` flattened
+  every provider's `last_success_at` on the live laptop (2026-08-10). Repoint the
+  module constant into `TMP` before exercising anything that records, and assert
+  in the test that you did. Derived state, so it rebuilt within minutes — but
+  FLATLINE and the dashboard read "never" for every rung until it did.
+- **Deploy code BEFORE config when a schema changes.** A `model_id` list landed on
+  the laptop while the running brain still held the old single-string code; its
+  last cycle sent the list verbatim and died on `HTTP 400: No models provided`.
+  Config is read at `Keychain()` construction, so the window is "until the next
+  restart" — push and pull the code first, then edit config, then restart.
 
 ---
 

@@ -462,7 +462,15 @@ async def main():
                          'free-models-per-day"}}') == "quota")
 
     # ---- multi-model rung: one account, models tried in order (2026-08-10) ----
-    from keychain import keychain as _kcmod, provider as _provmod
+    # record_success/record_exhaustion call save_state(), which writes the WHOLE
+    # dict it is handed to keychain/quota_state.json -- a module-level constant with
+    # no injection point. The first version of this test passed a fresh {} and
+    # flattened every provider's real last_success_at on the live laptop. Same
+    # shape as the section 5 scar about _build_tool_catalogue() writing rotation
+    # state, which I had read days earlier. Repoint the constant, always.
+    from keychain import keychain as _kcmod, provider as _provmod, quota_state as _qsmod
+    _real_state_file = _qsmod.STATE_FILE
+    _qsmod.STATE_FILE = os.path.join(TMP, "quota_state_probe.json")
 
     def _rung(models):
         k = _kcmod.Keychain.__new__(_kcmod.Keychain)   # skip config/disk load
@@ -520,8 +528,14 @@ async def main():
         check("multi-model rung: every model gone walls the rung (2026-07-19 "
               "purge behaviour preserved)",
               "exhausted_at" in k3.state.get("pool", {}))
+        check("multi-model rung: the probe wrote to TMP, never to the live "
+              "quota_state.json",
+              os.path.isfile(_qsmod.STATE_FILE)
+              and TMP in _qsmod.STATE_FILE
+              and "quota_state_probe" in _qsmod.STATE_FILE)
     finally:
         _provmod.call = _real_call
+        _qsmod.STATE_FILE = _real_state_file
 
     # ---- upward re-probe ordering (the nemotron-monopoly fix) ----
     from keychain.keychain import order_providers
