@@ -205,6 +205,22 @@ journalctl --user -u growing-spine --since "2 hours ago"
 - Both machines push AND pull; GitHub is the hub. No file shuttling.
 - Driving the laptop over an MCP bridge: **keep payloads small.** Large heredocs
   and long-running commands wedge it. Native bash on the laptop has no such issue.
+- **Never change the dashboard without looking at it afterwards.** `observer.py`
+  is PyQt6 on X11, `DISPLAY=:0`. The bridge cannot move binaries, so:
+
+  ```bash
+  export DISPLAY=:0
+  xwininfo -root -tree | grep Dashboard          # window id, e.g. 0x7800007
+  import -window <id> /tmp/dash.png              # scrot/import/convert are installed
+  convert /tmp/dash.png -crop 330x22+1340+12 +repage -strip -colors 8 PNG8:/tmp/t.png
+  base64 -w0 /tmp/t.png                          # then certutil -decode on the PC
+  ```
+
+  Crop TIGHT: base64 travels through the session, and a full 1920x1015 grab is
+  ~500 KB. A 330x22 label crop is ~750 chars; a full-width 1920x50 strip is ~6 K
+  and already too costly. Note the window is maximised to 1920 even though the
+  code says `resize(1180, 720)` — crop to 1180 and you miss the right-hand chips.
+  `PNG8` with a large palette has failed to decode; keep `-colors 8`.
 
 ---
 
