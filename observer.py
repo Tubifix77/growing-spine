@@ -39,6 +39,19 @@ QUOTA    = os.path.expanduser("~/growing-spine/keychain/quota_state.json")
 # nobody acting -- 182 identical warnings is not a signal.
 STALE_RUNG_HOURS = 168
 
+
+def _rung_is_stale(last_success: float, now: float) -> bool:
+    """ONE rule for "this rung has been dead a week", for both indicators.
+
+    The summary chip counts them and the provider chips colour them red, and the
+    count must equal the number of red chips or the dashboard contradicts itself.
+    Written inline in both places first, which is exactly how the stub markers and
+    the mind-root derivation drifted -- two copies of one literal always do.
+    Never-served counts as stale: an enabled rung contributing nothing is not
+    neutral news.
+    """
+    return (not last_success) or (now - last_success) >= STALE_RUNG_HOURS * 3600
+
 # Live memory module (same code the creature uses -> panel cannot drift)
 import importlib.util as _ilu
 _ms = _ilu.spec_from_file_location(
@@ -447,7 +460,7 @@ class Dashboard(QMainWindow):
         now, stale = time.time(), []
         for key, name in self._providers:
             ls = (state.get(key) or {}).get("last_success_at") or 0
-            if not ls or (now - ls) >= STALE_RUNG_HOURS * 3600:
+            if _rung_is_stale(ls, now):
                 stale.append(f"{name} ({_fmt_age(now - ls) + ' ago' if ls else 'never'})")
         if stale:
             self.lbl_tier.setText('<span style="color:#FF7043">'
@@ -495,12 +508,10 @@ class Dashboard(QMainWindow):
             # Red here uses STALE_RUNG_HOURS, the same rule as the summary chip,
             # which buys a checkable invariant: the number in "LLM stale for a
             # week: N" always equals the number of red chips.
-            if not ls:
+            if _rung_is_stale(ls, now):
+                body = f'DEAD {_fmt_age(now - ls)}' if ls else 'never served'
                 return (f'<span style="color:#FF7043">{_esc(name)}<br>'
-                        f'never served</span>')
-            if (now - ls) >= STALE_RUNG_HOURS * 3600:
-                return (f'<span style="color:#FF7043">{_esc(name)}<br>'
-                        f'DEAD {_fmt_age(now - ls)}</span>')
+                        f'{body}</span>')
             if ex > ls:
                 # walled: exhaustion is the latest event
                 hint = f", rec ~{_fmt_age(rec)}" if rec else ""
