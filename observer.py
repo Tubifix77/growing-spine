@@ -47,10 +47,14 @@ def _rung_is_stale(last_success: float, now: float) -> bool:
     count must equal the number of red chips or the dashboard contradicts itself.
     Written inline in both places first, which is exactly how the stub markers and
     the mind-root derivation drifted -- two copies of one literal always do.
-    Never-served counts as stale: an enabled rung contributing nothing is not
-    neutral news.
+
+    A rung with NO recorded success is not stale. It reads identically whether the
+    rung is brand new, genuinely broken, or simply missing its history -- and the
+    third case is not hypothetical: on 2026-08-10 a test flattened
+    quota_state.json and five perfectly healthy rungs went red as "never served".
+    Absence of evidence is not evidence of death. Only measured hours count.
     """
-    return (not last_success) or (now - last_success) >= STALE_RUNG_HOURS * 3600
+    return bool(last_success) and (now - last_success) >= STALE_RUNG_HOURS * 3600
 
 # Live memory module (same code the creature uses -> panel cannot drift)
 import importlib.util as _ilu
@@ -461,7 +465,7 @@ class Dashboard(QMainWindow):
         for key, name in self._providers:
             ls = (state.get(key) or {}).get("last_success_at") or 0
             if _rung_is_stale(ls, now):
-                stale.append(f"{name} ({_fmt_age(now - ls) + ' ago' if ls else 'never'})")
+                stale.append(f"{name} ({_fmt_age(now - ls)} ago)")
         if stale:
             self.lbl_tier.setText('<span style="color:#FF7043">'
                                   f'LLM stale for a week: {len(stale)}</span>')
@@ -509,9 +513,13 @@ class Dashboard(QMainWindow):
             # which buys a checkable invariant: the number in "LLM stale for a
             # week: N" always equals the number of red chips.
             if _rung_is_stale(ls, now):
-                body = f'DEAD {_fmt_age(now - ls)}' if ls else 'never served'
                 return (f'<span style="color:#FF7043">{_esc(name)}<br>'
-                        f'{body}</span>')
+                        f'DEAD {_fmt_age(now - ls)}</span>')
+            if not ls:
+                # No history: new rung, or state was lost. Neither is a fault, and
+                # red here would cry wolf over five healthy rungs (2026-08-10).
+                return (f'<span style="color:#9E9E9E">{_esc(name)}<br>'
+                        f'no successes yet</span>')
             if ex > ls:
                 # walled: exhaustion is the latest event
                 hint = f", rec ~{_fmt_age(rec)}" if rec else ""
