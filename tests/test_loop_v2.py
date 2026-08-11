@@ -7,7 +7,7 @@ Usage (from repo root):
     python tests/test_loop_v2.py
 Must print ALL TESTS PASS.
 """
-import asyncio, json, os, shutil, sys, tempfile, inspect, time
+import asyncio, ast, json, os, shutil, sys, tempfile, inspect, time
 
 TMP = tempfile.mkdtemp(prefix="spine_v2_")
 REAL_MIND = os.path.expanduser("~/growing-spine-mind")
@@ -1389,8 +1389,50 @@ async def main():
     _chat.enqueue(TMP, "second message")
     check("chat: mark_read flips only its target and keeps the later append",
           _chat.mark_read(TMP, _ts0) is True
-          and _chat.peek_unread(TMP)[1] == "second message"
-          and os.path.exists(os.path.join(TMP, "chat.jsonl.lock")))
+          and _chat.peek_unread(TMP)[1] == "second message")
+    # The lock FILE is POSIX-only BY DESIGN: chat.py degrades _locked to a no-op
+    # when fcntl is missing, so that a Windows checkout can run this suite at all.
+    # Asserting the sidecar unconditionally therefore made the entire gate red on
+    # the PC peer -- a MECHANISM assertion failing exactly where the mechanism is
+    # deliberately absent, which is the §5 scar, in the test written to close a
+    # race. The contract above holds on both platforms; the lock is checked where
+    # it can exist, i.e. on the live host.
+    check("chat: the rewrite path takes the cross-process lock where fcntl exists",
+          os.path.exists(os.path.join(TMP, _chat.CHAT_FILENAME + ".lock"))
+          if _chat.fcntl is not None else True)
+
+    # ---- P1-F12, the half no test ever covered: the OBSERVER's writer --------
+    # Both writes above go through enqueue -- the executive's own locked door. So
+    # this passed continuously while observer.py appended to the same file with a
+    # bare open(CHAT, "a") and never imported fcntl at all (measured 2026-08-11:
+    # `grep -c fcntl observer.py` -> 0). A test that can only reach the file
+    # through the locked door cannot see an unlocked one, and the audit read its
+    # green as proof the race was closed.
+    # observer.py cannot be imported here (PyQt6 + DISPLAY), so read its source --
+    # the same instrument as the gate-integrity and fcntl checks further down.
+    # PARSED, not grepped: a guard naming one exact string ('open(CHAT, "a"') is
+    # one reformat from silent, and `mode=` is a keyword as often as a positional.
+    _obs_src = open(os.path.join(os.path.dirname(os.path.dirname(_suite_path)),
+                                 "observer.py"), encoding="utf-8").read()
+    _obs_ast = ast.parse(_obs_src)
+    _obs_chat_writes = []
+    for _n in ast.walk(_obs_ast):
+        if not (isinstance(_n, ast.Call) and getattr(_n.func, "id", "") == "open"):
+            continue
+        _pos = dict(enumerate(_n.args))
+        _kw = {k.arg: k.value for k in _n.keywords}
+        _target = _kw.get("file", _pos.get(0))
+        _mode_node = _kw.get("mode", _pos.get(1))
+        _mode = _mode_node.value if isinstance(_mode_node, ast.Constant) else ""
+        if getattr(_target, "id", "") == "CHAT" and set(str(_mode)) & set("aw+x"):
+            _obs_chat_writes.append(_mode)
+    check("P1-F12: the observer opens the chat file for READING only -- one "
+          "writer for chat.jsonl, and it is the locked one in executive.chat",
+          _obs_chat_writes == [])
+    check("P1-F12: the observer's send path is executive.chat.enqueue",
+          any(isinstance(_n, ast.ImportFrom) and _n.module == "executive.chat"
+              and any(a.name == "enqueue" for a in _n.names)
+              for _n in ast.walk(_obs_ast)))
 
     # ---- journal_lines: unreadable must not become an all-history window ----
     _snap_none = {"journal_lines": None, "completions": 0, "memories": 0}

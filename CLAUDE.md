@@ -165,7 +165,27 @@ or a path literal that already exists elsewhere, stop.
   `tool:: command not found` for two months.
 - **YAML's Norway problem:** a bare `off`/`on`/`yes`/`no` key parses as a boolean.
 - **Tests that assert a MECHANISM go red when you improve the mechanism.** Assert
-  the contract instead.
+  the contract instead. They also go red where the mechanism is deliberately
+  *absent*: the chat test asserted `chat.jsonl.lock` exists, and off POSIX
+  `_locked` is a no-op by design, so the whole gate was red on the PC peer while
+  a sibling test two hundred lines away existed purely to keep the suite runnable
+  there (found 2026-08-11). Assert the contract always, the mechanism where it
+  can exist.
+- **A guard verified through the guarded door is not verified.** The P1-F12 chat
+  test wrote both its messages with `enqueue` — the locked writer — so it passed
+  continuously while `observer.py` appended to the same file with a bare
+  `open(CHAT, "a")` and never imported `fcntl` at all (2026-08-11, five days
+  after the finding was closed). When you test that a shared resource is safe,
+  enumerate every WRITER and reach it the way each one really does; a test that
+  can only get in through the lock can never see someone climbing the window.
+- **A docstring is a claim, not an instrument.** That finding was closed on one
+  sentence whose two clauses had different provenance: the first was read from
+  the code, the second lifted from `_locked`'s own docstring, which said "the
+  observer APPENDS (enqueue, its own process)" — the *design*, never built. The
+  conclusion ("Tue's messages cannot be lost") was drawn from the pair. **A
+  verdict is only as strong as its weakest clause.** Prefer a count you can state
+  — `grep -c fcntl observer.py` → 0 — over any prose in the file you are auditing,
+  the code's own comments included.
 - Re-verify any "it started" claim a beat later. Fixtures come from the real
   corpus, never authored. Never call `_build_tool_catalogue()` just to inspect it
   — it ends in `_mark_surfaced()` and writes rotation state.
@@ -246,10 +266,19 @@ stale at the moment it was committed — it said `tool-tester` was a hollow stub
 when the creature had finished it four hours earlier. Date what you write, name
 the instrument, and prefer a live census to any figure in here.
 
-v0.15. 229 tests green. 359 own tools. 900–1300 thinks/day. (No HEAD hash here:
-a file cannot name the commit that contains it, so the line was stale on arrival.
-Use `git log -1`.)
-**Zero open audit findings** — all 67 verdicted, all 28 that were open are fixed.
+v0.15. **259 tests green** (measured 2026-08-11, `python tests/test_loop_v2.py` on
+the PC checkout: `grep -c '^PASS'` → 259, last line `ALL TESTS PASS`; the "229"
+that stood here was 2026-08-08. Treat 259 as a FLOOR on the laptop, not a match —
+this run printed `SKIP embed exclude tests (embed unavailable)`, and the laptop has
+the embedder, so it runs more checks than the PC does.) 359 own tools.
+900–1300 thinks/day. (No HEAD hash here: a file cannot name the commit that
+contains it, so the line was stale on arrival. Use `git log -1`.)
+**Zero open audit findings** — all 67 verdicted. One of those verdicts was wrong:
+**P1-F12 (chat lost-update race) was closed on 2026-08-06 with only its executive
+half fixed**, and the observer went on appending to `chat.jsonl` outside the lock
+until 2026-08-11. Fixed and re-verdicted; the two new scars it produced are in §5.
+Deployed to the laptop? **See "Needs doing on the laptop" below — the dashboard
+change has NOT been looked at yet, which §7 requires.**
 
 **LIVE NOW — `wake_catchup_fetcher` is a mock (measured 2026-08-08 20:29).**
 At 17:14 the creature wrote a fixture over the real tool to get deterministic
@@ -311,6 +340,25 @@ the 6 August repairs, when the stub organ was re-armed and the creature drained
 its own backlog (eight demanded stubs implemented in demand order, 52–107 lines
 each). Its MANIFEST's usage counts produced a "half the library never invoked"
 figure; the true never-invoked count is single digits.
+
+**Needs doing on the laptop (2026-08-11, observer chat-lock fix)**
+The fix is committed and gated on the PC. It is a **dashboard** change, so §7's
+"never change the dashboard without looking at it afterwards" is unmet — the PC
+cannot see `DISPLAY=:0`. On the laptop:
+```bash
+cd ~/growing-spine && git pull
+python3 tests/test_loop_v2.py > /tmp/s.out 2>&1; echo "GATE=$?"; tail -1 /tmp/s.out
+systemctl --user restart spine-observer.service   # observer.py changed
+```
+Then **look at it, and send one message**: the chat panel must still render and
+the message must appear as Tue. The failure mode this fix chose deliberately is a
+visible one — if `executive.chat` is not importable the status bar shows
+`send error: executive.chat not importable …` and the text stays in the input box,
+rather than an unlocked append. So the test is: *does a sent message arrive, and
+does the status bar stay quiet?* The brain does **not** need restarting;
+`observer.py` is not brain code.
+Also: `audit/RE-INSPECTION-2026-08-06.md` is **gitignored, so the corrected
+P1-F12 verdict did not travel.** The laptop copy still carries the false one.
 
 **Needs Tue's decision**
 - **Rotate API keys.** OpenRouter, Gemini, Groq ×2 and Cerebras have all been

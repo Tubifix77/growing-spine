@@ -29,8 +29,26 @@ try:
     MIND_DIR = _mind_root()
 except Exception:                                      # standalone launch
     MIND_DIR = os.path.expanduser("~/growing-spine-mind")
+
+# ONE writer for chat.jsonl, and it is not this file. _send used to hand-roll the
+# from_tue entry and append it with a plain open(..., "a") -- outside the fcntl
+# lock executive/chat.py takes when it REWRITES the whole file (mark_read,
+# bump_attempts: read_all -> modify -> os.replace). An append landing between that
+# read and the replace was dropped, so Tue's message vanished AFTER appearing
+# sent. That is audit P1-F12, and it was recorded closed on 2026-08-06 because the
+# executive half was done; chat.py's own _locked docstring already claimed "the
+# observer APPENDS (enqueue, its own process)". Measured false 2026-08-11:
+# `grep -c fcntl observer.py` returned 0 and no import of executive.chat existed.
+# The filename comes from chat.py too -- a second "chat.jsonl" literal here would
+# be a reader that can drift away from the writer, which is the one mistake this
+# codebase keeps paying for.
+try:
+    from executive.chat import enqueue as _chat_enqueue, CHAT_FILENAME
+except Exception:                                      # standalone launch
+    _chat_enqueue = None
+    CHAT_FILENAME = "chat.jsonl"
 JOURNAL  = os.path.join(MIND_DIR, "journal.jsonl")
-CHAT     = os.path.join(MIND_DIR, "chat.jsonl")
+CHAT     = os.path.join(MIND_DIR, CHAT_FILENAME)
 CONFIG   = os.path.expanduser("~/growing-spine/config.yaml")
 QUOTA    = os.path.expanduser("~/growing-spine/keychain/quota_state.json")
 # One calendar week. Not a tuned number: FLATLINE_HOURS=12 already covers sudden
@@ -630,10 +648,15 @@ class Dashboard(QMainWindow):
         if not msg:
             return
         try:
-            entry = {"ts": time.time(), "kind": "from_tue",
-                     "content": msg, "read": False}
-            with open(CHAT, "a", encoding="utf-8") as f:
-                f.write(json.dumps(entry) + "\n")
+            if _chat_enqueue is None:
+                # Refuse rather than append unlocked. A send that visibly fails
+                # leaves the text in the box and Tue can retry; an append made
+                # without the lock is the message that disappears after it looked
+                # delivered, which is the whole failure being closed here. A guard
+                # that quietly falls back to the unguarded path is not a guard.
+                raise RuntimeError("executive.chat not importable -- start "
+                                   "observer.py from the repo root")
+            _chat_enqueue(MIND_DIR, msg)     # writes MIND_DIR/CHAT_FILENAME = CHAT
             self.input.clear()
             self._chat_sig = None            # force re-read next tick
             self._tick_chat(first=False)
