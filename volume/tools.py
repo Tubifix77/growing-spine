@@ -95,6 +95,13 @@ def jsonl_parse_rate(path: str):
     errored -- keyword-archive-search's contract is to return nothing rather than
     fail. A reader that cannot parse its own store is the house disease: healthy
     surface, no content. Measure the rate; never trust the extension.
+
+    Scans the WHOLE file, no sampling. A complete JSON value on its own line must
+    open and close with a matching bracket, and that test is free -- it rejects
+    every continuation line of a multi-line record without calling json.loads. In
+    the pathological case that is 3 of every 4 lines, so the full scan is cheaper
+    than the capped sample it replaces (2026-08-11: a 16,862-line archive scanned
+    in milliseconds).
     """
     try:
         parseable = total = 0
@@ -104,6 +111,9 @@ def jsonl_parse_rate(path: str):
                 if not line:
                     continue
                 total += 1
+                if not ((line[0] == "{" and line[-1] == "}")
+                        or (line[0] == "[" and line[-1] == "]")):
+                    continue          # cannot be a complete record; no parse
                 try:
                     json.loads(line)
                     parseable += 1

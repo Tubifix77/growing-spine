@@ -2942,8 +2942,6 @@ def _build_loop_warning() -> str:
     return ""
 
 
-_DATA_SAMPLE_LINES = 2000   # cost bound per cycle, not a behavioural threshold:
-                            # a parse rate from a sample is still a parse rate.
 DATA_WARNING_STATE_PATH = os.path.join(VOLUME_MOUNT, "state", "data_warning.json")
 
 
@@ -3005,26 +3003,23 @@ def _build_data_warning() -> str:
         unreadable, fabricated = [], 0
         for n in names:
             path = os.path.join(ddir, n)
-            ok = total = 0
+            # Canonical, whole-file. This used to be an inline loop capped at 2000
+            # lines, which broke twice over on 2026-08-11 when a runaway wrote
+            # 4,309 four-line records: it reported "2000 lines" for a 16,862-line
+            # file, and because the doubling rule reads `total - ok`, the count
+            # saturated at the cap and could never reach 2x the stored 1990 again.
+            # The escalation added the day before was silent by arithmetic.
+            ok, total = toolmod.jsonl_parse_rate(path)
+            if not total:
+                continue
             try:
                 with open(path, encoding="utf-8", errors="replace") as f:
-                    for i, line in enumerate(f):
-                        if i >= _DATA_SAMPLE_LINES:
-                            break
-                        line = line.strip()
-                        if not line:
-                            continue
-                        total += 1
-                        try:
-                            json.loads(line)
-                            ok += 1
-                        except ValueError:
-                            pass
+                    for line in f:
                         if any(h in line for h in toolmod.RESERVED_FEED_HOSTS):
                             fabricated += 1
             except OSError:
-                continue
-            if total and ok < total:
+                pass
+            if ok < total:
                 unreadable.append((n, ok, total))
         # Surface on a CHANGE of state, never continuously. A fact repeated every
         # cycle is either a nag it learns to skip past or a loop it cannot exit:

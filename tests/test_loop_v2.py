@@ -1676,6 +1676,15 @@ async def main():
     check("jsonl: blank lines are not counted against the rate", _jpr(_p) == (2, 2))
     check("jsonl: a missing file reports unreadable, does not raise",
           _jpr(os.path.join(TMP, "no_such_archive.jsonl")) == (None, None))
+    # No sampling cap. On 2026-08-11 a runaway wrote 4,309 four-line records; the
+    # capped version reported "2000 lines" for a 16,862-line file AND pinned the
+    # doubling rule below its own trigger, so the escalation was silent by
+    # arithmetic. Magnitude has to be true or it cannot convey urgency.
+    with open(_p, "w", encoding="utf-8") as _f:
+        _f.write('{\n  "keyword": "Q: command or missing arguments.",\n'
+                 '  "content": "deep_answer_synth,qa"}\n' * 3000)
+    check("jsonl: counts the whole file, no 2000-line cap",
+          _jpr(_p) == (0, 9000))
 
     # ---- data warning: the fact the creature can never ask for (2026-08-08) ----
     # Both fixtures are real. The multi-line record is what keyword-archive-store
