@@ -37,8 +37,11 @@ except Exception:                                      # standalone launch
 # read and the replace was dropped, so Tue's message vanished AFTER appearing
 # sent. That is audit P1-F12, and it was recorded closed on 2026-08-06 because the
 # executive half was done; chat.py's own _locked docstring already claimed "the
-# observer APPENDS (enqueue, its own process)". Measured false 2026-08-11:
-# `grep -c fcntl observer.py` returned 0 and no import of executive.chat existed.
+# observer APPENDS (enqueue, its own process)". Measured false 2026-08-11: this
+# file imported neither fcntl nor executive.chat and called enqueue nowhere. Do
+# NOT re-run `grep -c fcntl observer.py` expecting the 0 that was measured -- it
+# counts THIS comment now. The durable instrument is the pair of P1-F12 checks in
+# tests/test_loop_v2.py, which read this file's AST.
 # The filename comes from chat.py too -- a second "chat.jsonl" literal here would
 # be a reader that can drift away from the writer, which is the one mistake this
 # codebase keeps paying for.

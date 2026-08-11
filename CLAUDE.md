@@ -253,7 +253,17 @@ journalctl --user -u growing-spine --since "2 hours ago"
   ~500 KB. A 330x22 label crop is ~750 chars; a full-width 1920x50 strip is ~6 K
   and already too costly. Note the window is maximised to 1920 even though the
   code says `resize(1180, 720)` — crop to 1180 and you miss the right-hand chips.
-  `PNG8` with a large palette has failed to decode; keep `-colors 8`.
+
+  **ALWAYS `md5sum` on the laptop and verify after decoding.** Base64 carried
+  through the session is NOT byte-safe: a 6,576-char blob came back with the right
+  LENGTH, the right PNG header and the right `IEND` footer, and a different md5 —
+  characters had been substituted in the middle (2026-08-11). Every cheap check
+  passed; only the hash caught it. A 2,548-char blob transferred clean, so keep the
+  payload small AND prove it. Symptom of the corrupt file: PIL reads the header
+  then dies with `unrecognized data stream contents`, and the image API rejects it.
+  `-colors 8` PNG8 was also rejected outright; **grayscale plain PNG** worked
+  (`-colorspace Gray -strip`, 660x46 → 1,910 b). `certutil -decode` is not the
+  culprit — it and `base64.b64decode` agreed byte for byte on the corrupt copy.
 
 ---
 
@@ -266,11 +276,14 @@ stale at the moment it was committed — it said `tool-tester` was a hollow stub
 when the creature had finished it four hours earlier. Date what you write, name
 the instrument, and prefer a live census to any figure in here.
 
-v0.15. **259 tests green** (measured 2026-08-11, `python tests/test_loop_v2.py` on
-the PC checkout: `grep -c '^PASS'` → 259, last line `ALL TESTS PASS`; the "229"
-that stood here was 2026-08-08. Treat 259 as a FLOOR on the laptop, not a match —
-this run printed `SKIP embed exclude tests (embed unavailable)`, and the laptop has
-the embedder, so it runs more checks than the PC does.) 359 own tools.
+v0.15. **270 tests green** (measured 2026-08-11 on the LAPTOP, the authoritative
+gate: `grep -c '^PASS' /tmp/s.out` → 270, `^FAIL` → 0, last line `ALL TESTS PASS`.
+The "229" that stood here was 2026-08-08.) The same commit gives **249 PASS then a
+hard crash on the PC checkout** — `AttributeError: module 'os' has no attribute
+'sysconf'` at `executive/loop.py:3080` (`hz = os.sysconf("SC_CLK_TCK")`, POSIX-only)
+reached from the `_stuck_tool_procs` test added by 90bbba7. Windows-only, and it
+aborts the suite, so **the PC peer cannot currently gate at all** — the same shape
+as the lock-file assertion fixed in this commit, twice in one day. 359 own tools.
 900–1300 thinks/day. (No HEAD hash here: a file cannot name the commit that
 contains it, so the line was stale on arrival. Use `git log -1`.)
 **Zero open audit findings** — all 67 verdicted. One of those verdicts was wrong:
@@ -341,24 +354,21 @@ its own backlog (eight demanded stubs implemented in demand order, 52–107 line
 each). Its MANIFEST's usage counts produced a "half the library never invoked"
 figure; the true never-invoked count is single digits.
 
-**Needs doing on the laptop (2026-08-11, observer chat-lock fix)**
-The fix is committed and gated on the PC. It is a **dashboard** change, so §7's
-"never change the dashboard without looking at it afterwards" is unmet — the PC
-cannot see `DISPLAY=:0`. On the laptop:
-```bash
-cd ~/growing-spine && git pull
-python3 tests/test_loop_v2.py > /tmp/s.out 2>&1; echo "GATE=$?"; tail -1 /tmp/s.out
-systemctl --user restart spine-observer.service   # observer.py changed
-```
-Then **look at it, and send one message**: the chat panel must still render and
-the message must appear as Tue. The failure mode this fix chose deliberately is a
-visible one — if `executive.chat` is not importable the status bar shows
-`send error: executive.chat not importable …` and the text stays in the input box,
-rather than an unlocked append. So the test is: *does a sent message arrive, and
-does the status bar stay quiet?* The brain does **not** need restarting;
-`observer.py` is not brain code.
-Also: `audit/RE-INSPECTION-2026-08-06.md` is **gitignored, so the corrected
-P1-F12 verdict did not travel.** The laptop copy still carries the false one.
+**Deployed 2026-08-11 (observer chat-lock fix) — §7 satisfied.**
+Laptop pulled to 51e1e81, gate 270/0, `spine-observer.service` restarted (the brain
+was NOT restarted — `observer.py` is not brain code), and the dashboard was looked
+at: input row renders, status bar `tick 33 | 18:38:19` with no error text. The
+import `_send` now depends on resolves in the service's own WorkingDirectory
+(`python3 -c "from executive.chat import enqueue"` → OK from `~/growing-spine`).
+`chat.jsonl` intact at 58,975 b across the restart.
+**One thing deliberately NOT tested: an actual sent message.** A test send writes
+into the creature's world in Tue's voice, which §2.5/§2.7 forbid. So the last mile
+— does a real message arrive — is proven only by the gate and the import check.
+When Tue next sends one, that is the confirmation; if `executive.chat` were ever
+unimportable the status bar says `send error: …` and the text stays in the box.
+**`audit/RE-INSPECTION-2026-08-06.md` is gitignored, so the corrected P1-F12
+verdict does not travel by git.** Both copies were updated by hand on 2026-08-11;
+any future correction needs doing twice.
 
 **Needs Tue's decision**
 - **Rotate API keys.** OpenRouter, Gemini, Groq ×2 and Cerebras have all been
