@@ -3060,6 +3060,122 @@ def _build_data_warning() -> str:
         return ""
 
 
+STUCK_TOOL_SECS = 600
+STUCK_WARNING_STATE_PATH = os.path.join(VOLUME_MOUNT, "state", "stuck_warning.json")
+
+
+def _stuck_tool_procs(min_age: int = STUCK_TOOL_SECS) -> list:
+    """[(tool_name, age_secs)] for the creature's own tools still running.
+
+    Reads /proc directly -- the container shares the host kernel, so a tool
+    started via docker exec appears here with its /mind/... cmdline. No
+    subprocess, no docker call, a few ms for ~300 processes.
+
+    600s is not tuned: the observed distribution has no middle. A healthy tool
+    finishes in seconds; the runaway of 2026-08-11 left 49 processes aged 11 to
+    16 HOURS. Ten minutes sits in an empty gap.
+    """
+    out = []
+    try:
+        hz = os.sysconf("SC_CLK_TCK") or 100
+        with open("/proc/uptime") as f:
+            uptime = float(f.read().split()[0])
+    except (OSError, ValueError):
+        return out
+    try:
+        pids = [d for d in os.listdir("/proc") if d.isdigit()]
+    except OSError:
+        return out
+    for pid in pids:
+        try:
+            with open(f"/proc/{pid}/cmdline", "rb") as f:
+                cmd = f.read().decode("utf-8", "replace").replace("\0", " ")
+            if "/mind/tools/" not in cmd:
+                continue
+            with open(f"/proc/{pid}/stat") as f:
+                # comm may contain spaces/parens; everything after the final ')'
+                fields = f.read().rsplit(")", 1)[1].split()
+            age = uptime - (int(fields[19]) / hz)   # field 22 overall, 20 after comm
+        except (OSError, ValueError, IndexError):
+            continue
+        if age < min_age:
+            continue
+        name = next((tok.rsplit("/", 1)[-1] for tok in cmd.split()
+                     if "/mind/tools/" in tok), "?")
+        out.append((name, int(age)))
+    return out
+
+
+def _format_stuck_warning(procs: list) -> str:
+    """The fact, grouped by tool. Pure, so the wording is testable."""
+    if not procs:
+        return ""
+    by = {}
+    for name, age in procs:
+        n, oldest = by.get(name, (0, 0))
+        by[name] = (n + 1, max(oldest, age))
+    lines = [f"## Your running tools",
+             f"{len(procs)} processes you started have not returned after more "
+             f"than {STUCK_TOOL_SECS // 60} minutes:"]
+    for name, (n, oldest) in sorted(by.items(), key=lambda kv: -kv[1][1]):
+        hrs = oldest / 3600.0
+        age = f"{hrs:.1f}h" if hrs >= 1 else f"{oldest // 60}min"
+        lines.append(f"  {name} -- {n} process{'es' if n > 1 else ''}, "
+                     f"oldest {age}")
+    lines.append("A process that has not returned still holds its CPU and memory.")
+    return "\n".join(lines) + "\n\n"
+
+
+def _stuck_state_worsened(cur: dict, prev) -> bool:
+    """Speak when a NEW tool appears stuck, or when the count doubles.
+
+    Same discipline as the stored-data fact: continuous repetition is a nag or a
+    trap, and once-only is too quiet. Going quiet when the creature kills them is
+    the point -- the set changes, so the next occurrence speaks again.
+    """
+    if not isinstance(prev, dict):
+        return True
+    if set(prev.get("tools") or {}) != set(cur["tools"]):
+        return True
+    return any(cur["tools"][k] >= 2 * max((prev.get("tools") or {}).get(k, 0), 1)
+               for k in cur["tools"])
+
+
+def _build_stuck_tool_warning() -> str:
+    """Tell the creature which of its own tools are hung. It has a shell; it can
+    kill them. Nothing here kills anything -- a framework that reaps silently
+    would hide the fault it is meant to expose.
+
+    2026-08-11: subagent_ask_helper returned an error as if it were an answer, and
+    the chains built on it left 49 processes running up to 16 hours, 1.5 CPU cores
+    and a thermally throttled laptop. The creature could not see any of it: the
+    processes are orphans it never hears about again, and nothing reports them.
+    """
+    try:
+        procs = _stuck_tool_procs()
+        cur = {"tools": {}}
+        for name, _ in procs:
+            cur["tools"][name] = cur["tools"].get(name, 0) + 1
+        try:
+            with open(STUCK_WARNING_STATE_PATH, encoding="utf-8") as f:
+                prev = json.load(f)
+        except Exception:
+            prev = None
+        if not _stuck_state_worsened(cur, prev):
+            return ""
+        try:
+            os.makedirs(os.path.dirname(STUCK_WARNING_STATE_PATH), exist_ok=True)
+            tmp = STUCK_WARNING_STATE_PATH + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(cur, f)
+            os.replace(tmp, STUCK_WARNING_STATE_PATH)
+        except OSError:
+            pass
+        return _format_stuck_warning(procs)
+    except Exception:
+        return ""
+
+
 def _build_knowledge_block() -> str:
     """ALWAYS shown. The creature's toolkit as three NEUTRAL, ground-truth fields
     per the lifecycle Built -> Adopted -> Depends-on, plus category coverage and
@@ -3212,11 +3328,13 @@ def _build_context(recent_journal: list, tue_message: str = None) -> str:
     knowledge = _build_knowledge_block()
     loop_warning = _build_loop_warning()
     data_warning = _build_data_warning()
+    stuck_warning = _build_stuck_tool_warning()
     done_block = _build_done_block()
     retro_directive = _build_retro_directive_block()
     dup_report = _run_dup_scan_if_due()
     return (done_block + retro_directive + dup_report
-            + loop_warning + data_warning + active_project + knowledge + protected + "\n\n"
+            + loop_warning + data_warning + stuck_warning
+            + active_project + knowledge + protected + "\n\n"
             + editable + catalogue_block + workspace_block + memory_text
             + journal_text + chat_block)
 

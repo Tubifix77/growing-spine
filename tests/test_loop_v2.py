@@ -1652,6 +1652,35 @@ async def main():
     check("data warning: the older list-format state does not wedge it",
           loop._data_state_worsened({"files": {}, "fabricated": 0}, ["x", True]))
 
+    # ---- stuck-tool warning (2026-08-11: 49 orphans, 16h, 1.5 cores) ----
+    # Ages below are the real ones measured that day. The warning must NAME the
+    # tools -- the creature has a shell and can kill them, but not if it is only
+    # told a number. Nothing here kills anything: a framework that reaped silently
+    # would hide the fault it exists to expose.
+    _sp = [("deep_answer_synth", 57616), ("deep_answer_synth", 57215),
+           ("gap_filled_plan_generator", 57616), ("gap_filled_plan_generator", 640)]
+    _sw = loop._format_stuck_warning(_sp)
+    check("stuck warning: counts the processes and names the tools",
+          "4 processes" in _sw and "deep_answer_synth" in _sw
+          and "gap_filled_plan_generator" in _sw)
+    check("stuck warning: reports the OLDEST age per tool, in hours",
+          "16.0h" in _sw)
+    check("stuck warning: silent when nothing is stuck",
+          loop._format_stuck_warning([]) == "")
+    check("stuck warning: a healthy tool under the threshold is not reported",
+          loop._stuck_tool_procs(min_age=10**9) == [])
+    _prev = {"tools": {"deep_answer_synth": 2}}
+    check("stuck warning: an unchanged situation does not repeat",
+          not loop._stuck_state_worsened({"tools": {"deep_answer_synth": 2}}, _prev))
+    check("stuck warning: a NEW stuck tool speaks",
+          loop._stuck_state_worsened(
+              {"tools": {"deep_answer_synth": 2, "other": 1}}, _prev))
+    check("stuck warning: speaks again once the count doubles",
+          loop._stuck_state_worsened({"tools": {"deep_answer_synth": 4}}, _prev))
+    check("stuck warning: goes quiet after the creature kills them",
+          loop._stuck_state_worsened({"tools": {}}, _prev)
+          and loop._format_stuck_warning([]) == "")
+
     # ---- load-bearing tools: the blast radius of a name ----
     _dep = loop._dependency_summary()
     check("dependency summary: reports in-degree, not just edge totals",
