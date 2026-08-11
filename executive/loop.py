@@ -3076,6 +3076,16 @@ def _stuck_tool_procs(min_age: int = STUCK_TOOL_SECS) -> list:
     16 HOURS. Ten minutes sits in an empty gap.
     """
     out = []
+    # /proc and SC_CLK_TCK are POSIX-only. Off POSIX there is nothing to scan and
+    # no clock tick to convert jiffies with, so the honest answer is "no
+    # information" -- never a faked hz, which would invent ages for processes that
+    # do not exist. Raising here aborted the ENTIRE PC gate at 249 PASS on
+    # 2026-08-11 with an AttributeError rather than a failed check, so every
+    # assertion after it went unrun. Same shape as the os.path.exists(
+    # chat.jsonl.lock) assertion fixed in 51e1e81, and the same cure: assert the
+    # contract always, reach for the mechanism only where it can exist.
+    if not hasattr(os, "sysconf") or not os.path.isdir("/proc"):
+        return out
     try:
         hz = os.sysconf("SC_CLK_TCK") or 100
         with open("/proc/uptime") as f:

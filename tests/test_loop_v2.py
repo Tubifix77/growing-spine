@@ -1709,8 +1709,18 @@ async def main():
           "16.0h" in _sw)
     check("stuck warning: silent when nothing is stuck",
           loop._format_stuck_warning([]) == "")
-    check("stuck warning: a healthy tool under the threshold is not reported",
-          loop._stuck_tool_procs(min_age=10**9) == [])
+    # The CONTRACT holds on every platform: a list, never an exception. The /proc
+    # scan and SC_CLK_TCK behind it are POSIX-only, and asserting the mechanism
+    # unconditionally aborted the whole PC suite at 249 PASS with an AttributeError
+    # on 2026-08-11 -- not a failed check, an abort, so everything after it went
+    # unrun. Third POSIX-only assertion to break the PC peer; see 51e1e81.
+    check("stuck warning: the scan returns a list on every platform, never raises",
+          isinstance(loop._stuck_tool_procs(min_age=10**9), list))
+    if hasattr(os, "sysconf") and os.path.isdir("/proc"):
+        check("stuck warning: a healthy tool under the threshold is not reported",
+              loop._stuck_tool_procs(min_age=10**9) == [])
+    else:
+        print("SKIP stuck-tool /proc scan (POSIX only)")
     _prev = {"tools": {"deep_answer_synth": 2}}
     check("stuck warning: an unchanged situation does not repeat",
           not loop._stuck_state_worsened({"tools": {"deep_answer_synth": 2}}, _prev))
