@@ -1733,6 +1733,95 @@ async def main():
           loop._stuck_state_worsened({"tools": {}}, _prev)
           and loop._format_stuck_warning([]) == "")
 
+    # ---- ask: the framework inference primitive (2026-08-14) ----
+    # The creature held seven live provider keys while rebuilding echo simulators,
+    # because the one worked example (llm_ask_helper) died in /tmp on 23 June.
+    # `ask` lives in framework-tools so it is re-materialised every wake and can
+    # never be lost the same way. Its contract is the anti-echo contract: stdout
+    # carries an answer or nothing; every failure is stderr + nonzero exit.
+    #
+    # Loaded from a TMP COPY: never import (or py_compile) framework-tools in
+    # place -- a planted __pycache__ there once emptied the toolset for four days.
+    import contextlib as _ctx
+    import importlib.machinery as _ilm
+    import importlib.util as _ilu2
+    import io as _io
+    _ask_src = os.path.join("framework-tools", "ask")
+    _ask_tmp = os.path.join(TMP, "ask_copy.py")
+    shutil.copyfile(_ask_src, _ask_tmp)
+    _spec = _ilu2.spec_from_loader("askmod", _ilm.SourceFileLoader("askmod", _ask_tmp))
+    askmod = _ilu2.module_from_spec(_spec)
+    _spec.loader.exec_module(askmod)
+    askmod.STATE = os.path.join(TMP, "ask_quota_probe.json")
+    check("ask: test budget file is repointed into TMP, never /mind",
+          TMP in askmod.STATE)  # the quota_state lesson: assert the repoint
+
+    # The answer path. Fixture shape is the OpenAI-compatible reply the
+    # production parser in keychain/provider.py already consumes live.
+    _ok = json.dumps({"choices": [{"message": {"content": " ALIVE \n"},
+                                   "finish_reason": "stop"}]})
+    check("ask: extracts exactly the answer text", askmod.extract_answer(_ok) == "ALIVE")
+    _trunc = json.dumps({"choices": [{"message": {"content": "half an ans"},
+                                      "finish_reason": "length"}]})
+    try:
+        askmod.extract_answer(_trunc); _raised = False
+    except ValueError as e:
+        _raised = "ceiling" in str(e)
+    check("ask: a truncated reply is a FAILURE, never a silent partial", _raised)
+    _empty = json.dumps({"choices": [{"message": {"content": "",
+                                                  "reasoning": "mused a lot"},
+                                      "finish_reason": "stop"}]})
+    try:
+        askmod.extract_answer(_empty); _raised = False
+    except ValueError:
+        _raised = True
+    check("ask: a reasoning-only/empty reply is a failure, not an empty answer", _raised)
+
+    # The budget. Attempts counted, UTC rollover, corrupt file = fresh day.
+    check("ask: first spend of the day is 1 of cap",
+          askmod.spend_budget(now=1000000000) == (1, askmod.DAILY_CAP))
+    check("ask: attempts accumulate", askmod.spend_budget(now=1000000000)[0] == 2)
+    check("ask: the day rolls over at 00:00 UTC and the counter resets",
+          askmod.spend_budget(now=1000000000 + 86400)[0] == 1)
+    with open(askmod.STATE, "w", encoding="utf-8") as _f:
+        _f.write("{corrupt json")
+    check("ask: a corrupt budget file starts a fresh day rather than crashing",
+          askmod.spend_budget(now=1000000000)[0] == 1)
+
+    # The anti-echo contract, end to end: every failure path leaves stdout EMPTY.
+    def _run_main(argv, stdin_text="", env_key=None):
+        out, err = _io.StringIO(), _io.StringIO()
+        old_stdin, old_key = sys.stdin, os.environ.pop("GROQ_API_KEY", None)
+        if env_key is not None:
+            os.environ["GROQ_API_KEY"] = env_key
+        sys.stdin = _io.StringIO(stdin_text)
+        code = None
+        try:
+            with _ctx.redirect_stdout(out), _ctx.redirect_stderr(err):
+                try:
+                    askmod.main(argv)
+                except SystemExit as e:
+                    code = e.code
+        finally:
+            sys.stdin = old_stdin
+            os.environ.pop("GROQ_API_KEY", None)
+            if old_key is not None:
+                os.environ["GROQ_API_KEY"] = old_key
+        return code, out.getvalue(), err.getvalue()
+
+    _c, _o, _e = _run_main(["ask"])
+    check("ask: no prompt -> exit 2, stdout empty, usage on stderr",
+          _c == 2 and _o == "" and "usage" in _e)
+    _c, _o, _e = _run_main(["ask", "hello"])
+    check("ask: no provider key -> exit 3, stdout empty, names the missing env var",
+          _c == 3 and _o == "" and "GROQ_API_KEY" in _e)
+    with open(askmod.STATE, "w", encoding="utf-8") as _f:
+        json.dump({"day": time.strftime("%Y-%m-%d", time.gmtime()),
+                   "used": askmod.DAILY_CAP}, _f)
+    _c, _o, _e = _run_main(["ask", "hello"], env_key="fake-key-never-sent")
+    check("ask: budget spent -> exit 4 BEFORE any network call, stdout empty",
+          _c == 4 and _o == "" and "budget" in _e)
+
     # ---- load-bearing tools: the blast radius of a name ----
     _dep = loop._dependency_summary()
     check("dependency summary: reports in-degree, not just edge totals",

@@ -1,0 +1,133 @@
+#!/usr/bin/env python3
+"""Ask a real language model and print only its answer. Usage: ask "<prompt>"  (or pipe: echo "<prompt>" | ask)"""
+# tool: ask
+# call: ask "<prompt>"   (or:  echo "<prompt>" | ask)
+# does: Ask a real LLM (openai/gpt-oss-120b via Groq) and print only its answer; every failure goes to stderr with a nonzero exit.
+#
+# CONTRACT, the reason this tool exists in the framework:
+#   - stdout carries the model's answer and NOTHING else, ever.
+#   - every failure -> reason on stderr, nonzero exit, stdout stays EMPTY.
+#   An error printed answer-shaped to stdout is how 4,309 junk records reached
+#   the keyword archive over 2026-08-09..11: a helper with no engine behind it
+#   kept exiting 0 with answer-shaped output, and downstream tools stored the
+#   failure text as knowledge. Output that merely restates its input is not an
+#   answer; a tool that cannot reach a capability must say so and exit nonzero.
+#
+# The model. openai/gpt-oss-120b, served by Groq on the key the framework
+# already injects into this container (GROQ_API_KEY). Free-tier bucket:
+# 30 RPM / 1,000 RPD / 8,000 TPM / 200,000 TPD
+# (console.groq.com/docs/rate-limits, retrieved 2026-08-14). Chosen over
+# llama-3.3-70b-versatile, which Groq retires for free tier on 2026-08-16
+# (console.groq.com/docs/deprecations, retrieved 2026-08-14) -- and it is
+# already a rung in the executive's own ladder, so it clears the quality floor
+# by definition.
+import json, os, sys, time, urllib.request, urllib.error
+
+API_URL = "https://api.groq.com/openai/v1/chat/completions"
+MODEL = "openai/gpt-oss-120b"
+ENV_KEY = "GROQ_API_KEY"
+STATE = "/mind/state/ask_quota.json"   # your remaining budget is readable here
+DAILY_CAP = 500     # half the published 1,000/day: the other half stays reserved
+                    # for the executive's ladder, which shares this bucket
+                    # (its measured use of it: 0 calls over 2026-08-10..14).
+MAX_TOKENS = 2048   # gpt-oss spends tokens reasoning before answering; a lower
+                    # ceiling turns long answers into truncation failures.
+TIMEOUT_S = 60
+
+
+def fail(msg, code):
+    print("ask: " + msg, file=sys.stderr)
+    sys.exit(code)
+
+
+def read_prompt(argv):
+    if len(argv) > 1:
+        return " ".join(argv[1:]).strip()
+    if not sys.stdin.isatty():
+        return sys.stdin.read().strip()
+    return ""
+
+
+def spend_budget(now=None):
+    """Count this attempt against today's budget. Returns (used, cap).
+
+    Counts ATTEMPTS, not successes -- a failing call in a retry loop must still
+    exhaust the budget, or a broken caller can hammer the provider unmetered.
+    Atomic write (tmp + os.replace): a truncating write here once cost another
+    state file its whole history. Approximate under concurrency; the provider's
+    own 429 is the hard wall. A corrupt or missing file starts a fresh day --
+    it is derived state.
+    """
+    day = time.strftime("%Y-%m-%d", time.gmtime(now or time.time()))
+    st = {}
+    try:
+        with open(STATE, encoding="utf-8") as f:
+            st = json.load(f)
+    except Exception:
+        st = {}
+    if not isinstance(st, dict) or st.get("day") != day:
+        st = {"day": day, "used": 0}
+    st["used"] = int(st.get("used", 0)) + 1
+    try:
+        os.makedirs(os.path.dirname(STATE), exist_ok=True)
+        tmp = STATE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(st, f)
+        os.replace(tmp, STATE)
+    except OSError as e:
+        # Refusing beats running unmetered: an uncountable call is the seed of
+        # every runaway this system has had.
+        fail("cannot record budget (%s) -- refusing to call unmetered" % e, 4)
+    return st["used"], DAILY_CAP
+
+
+def extract_answer(body):
+    """The model's answer text, or a ValueError naming what is wrong with it."""
+    d = json.loads(body)
+    choice = (d.get("choices") or [{}])[0]
+    text = ((choice.get("message") or {}).get("content") or "").strip()
+    if not text:
+        raise ValueError("empty completion (the reply carried no answer text)")
+    if choice.get("finish_reason") == "length":
+        raise ValueError("reply hit the %d-token ceiling before finishing -- "
+                         "ask a narrower question" % MAX_TOKENS)
+    return text
+
+
+def main(argv):
+    prompt = read_prompt(argv)
+    if not prompt:
+        fail('usage: ask "<prompt>"   (or pipe the prompt on stdin)', 2)
+    key = os.environ.get(ENV_KEY, "")
+    if not key:
+        fail("%s is not in the environment -- no provider key, no call" % ENV_KEY, 3)
+    used, cap = spend_budget()
+    if used > cap:
+        fail("daily budget spent (%d/%d used; resets 00:00 UTC)" % (cap, cap), 4)
+    payload = json.dumps({"model": MODEL,
+                          "messages": [{"role": "user", "content": prompt}],
+                          "max_tokens": MAX_TOKENS}).encode()
+    req = urllib.request.Request(API_URL, data=payload, headers={
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + key,
+        "User-Agent": "growing-spine-ask/1.0"})
+    try:
+        with urllib.request.urlopen(req, timeout=TIMEOUT_S) as r:
+            body = r.read()
+    except urllib.error.HTTPError as e:
+        detail = ""
+        try:
+            detail = " " + e.read(300).decode("utf-8", "replace")
+        except Exception:
+            pass
+        fail("HTTP %d from provider:%s" % (e.code, detail), 5)
+    except Exception as e:
+        fail("network failure: %s: %s" % (type(e).__name__, e), 6)
+    try:
+        print(extract_answer(body))
+    except Exception as e:
+        fail("unusable reply from provider: %s" % e, 7)
+
+
+if __name__ == "__main__":
+    main(sys.argv)
