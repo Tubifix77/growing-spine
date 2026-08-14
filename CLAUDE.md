@@ -267,7 +267,7 @@ journalctl --user -u growing-spine --since "2 hours ago"
 
 ---
 
-## 8. State — 2026-08-08 20:45
+## 8. State — 2026-08-14 17:45
 
 **This section goes stale fast. It is yours to maintain: when you measure
 something that contradicts it, correct it and commit. You do not need
@@ -276,15 +276,13 @@ stale at the moment it was committed — it said `tool-tester` was a hollow stub
 when the creature had finished it four hours earlier. Date what you write, name
 the instrument, and prefer a live census to any figure in here.
 
-v0.15. **270 tests green** (measured 2026-08-11 on the LAPTOP, the authoritative
-gate: `grep -c '^PASS' /tmp/s.out` → 270, `^FAIL` → 0, last line `ALL TESTS PASS`.
-The "229" that stood here was 2026-08-08.) The same commit gives **249 PASS then a
-hard crash on the PC checkout** — `AttributeError: module 'os' has no attribute
-'sysconf'` at `executive/loop.py:3080` (`hz = os.sysconf("SC_CLK_TCK")`, POSIX-only)
-reached from the `_stuck_tool_procs` test added by 90bbba7. Windows-only, and it
-aborts the suite, so **the PC peer cannot currently gate at all** — the same shape
-as the lock-file assertion fixed in this commit, twice in one day. 359 own tools.
-900–1300 thinks/day. (No HEAD hash here: a file cannot name the commit that
+v0.15. **Both gates green (measured 2026-08-14): laptop 282 PASS, PC 278 PASS,
+each ending `ALL TESTS PASS`.** The PC abort that stood here (`os.sysconf`,
+POSIX-only) was fixed in 16999cc the same day it was recorded. **415 own tools**
+(canonical `list_tools`; raw `ls` says 513 — never compare the two; a session
+report once claimed "+151 in three days" by mixing them). ~900–1000 thinks/day
+(journal `served_by`: 994 / 914 / 980 on 08-10/11/12; the box was OFF
+08-12 23:15 → 08-14 00:50, so 08-13 has zero cycles — a shutdown, not a fault). (No HEAD hash here: a file cannot name the commit that
 contains it, so the line was stale on arrival. Use `git log -1`.)
 **Zero open audit findings** — all 67 verdicted. One of those verdicts was wrong:
 **P1-F12 (chat lost-update race) was closed on 2026-08-06 with only its executive
@@ -293,14 +291,51 @@ until 2026-08-11. Fixed and re-verdicted; the two new scars it produced are in �
 Deployed to the laptop? **See "Needs doing on the laptop" below — the dashboard
 change has NOT been looked at yet, which §7 requires.**
 
-**LIVE NOW — `wake_catchup_fetcher` is a mock (measured 2026-08-08 20:29).**
-At 17:14 the creature wrote a fixture over the real tool to get deterministic
-input while testing `cross_source_digest_scheduler`: `cat > /mind/tools/own/…`,
-which bypasses `tool-edit`, so no `.bak` exists. It emits two `example.com`
-articles. **55 live tools call it**, all still exiting 0. The real implementation
-survives as `wake_catchup_fetcher.real` (541 b, 28 Jun). The SENSOR now catches
-this (`SENSOR:MOCK(!!)`, verified against the live mock) — it did not before.
-**Restoring it is the creature's call, not ours: §2.1. Not yet asked.**
+**STILL LIVE — `wake_catchup_fetcher` is a mock (first written over the real
+tool 2026-08-08 17:14 with `cat >`, no `.bak`; re-made 08-09 and again 08-12;
+measured 2026-08-14: 313 b, three `example.com` items, JSON-per-line).** It is
+not deceived — its own reasoning calls it "the mock" — and the real
+implementation survives as `wake_catchup_fetcher.real` (541 b, 28 Jun).
+`SENSOR:MOCK(!!)` catches it; the data warning counts its output as fabricated.
+**Restoring it is the creature's call, not ours: §2.1. Six days outstanding.**
+
+**Measured 2026-08-14 17:45 by live census:**
+- **Third fabricated-capability instance: the echo simulator (08-14 13:28).**
+  The creature rewrote `subagent_ask_helper` from scratch as a "cost-aware
+  routing" wrapper whose own comment says *"In a real environment, this would
+  call the actual API client… we simulate the routing"*, delegating to
+  `subagent_ask_fallback.py` — *"echoes the prompt back as a JSON answer"*.
+  Exit 0, answer-shaped, no model anywhere; my 08-11 honest-failure patch
+  survives at `subagent_ask_helper.bak`. Root condition: it has held seven live
+  provider keys in its container env since `sandbox.py` began injecting them,
+  and the one worked example of using them (`llm_ask_helper`) died in `/tmp` on
+  23 Jun. It reaches past capability it cannot see a way to use.
+- **`ask` deployed — the missing primitive (234b9d4).** Framework tool, so it is
+  re-materialised every wake and cannot die in `/tmp`. `openai/gpt-oss-120b` via
+  the injected `GROQ_API_KEY`; **500/day cap** (half the published 1,000 RPD —
+  console.groq.com/docs/rate-limits, retrieved 08-14; account headers confirm
+  1,000/8,000), counter readable at `/mind/state/ask_quota.json`. Contract:
+  stdout is the answer or empty; every failure — key, budget, provider,
+  truncated or empty reply — is stderr + nonzero. Verified live from its
+  container 17:36: `ask "Reply with the single word: ok"` → `ok`, exit 0.
+  Announced in chat 17:38 (Tue-voice, numbers verbatim). NOT llama-3.3-70b:
+  Groq retires it for free tier on **2026-08-16**
+  (console.groq.com/docs/deprecations, retrieved 08-14).
+  **The experiment: does it adopt `ask`, rebuild its helper on it, and stop
+  simulating? Instruments: `ask_quota.json` `used`; `subagent_ask_helper`
+  mtime/content; echo-shaped records in stores.**
+- **It cleaned its own archive.** `keyword-archive.jsonl` went 43,522 lines →
+  199 (1.37 MB → 108 KB) after the 08-11 runaway message — the 4,309 error
+  records removed by it, not us. The writer is still multi-line though:
+  **196 of 199 lines unreadable** (`jsonl_parse_rate`), `keyword-archive-store`
+  untouched since 08-08 12:15.
+- `planner.json` is **resolved**: still 0 b, but `/mind/data/step-planner/`
+  holds 33 plan files — the 08-08 repointing completed; abandoned file, not
+  lost data.
+- finish=length by full day: 11.1% (08-10) → 7.3% (08-11) → 6.2% (08-12) →
+  8.5% (08-14 partial). Twins **39** (was 34). Hollow backlog **0, sixth day**.
+- OR pool consolidation verified on live traffic: `openrouter_super` served
+  exactly 50 / 50 / 50 / 51 on 08-10..14 — one account, one budget, as designed.
 
 **Measured 2026-08-08 20:29 by live census:**
 - **Hollow backlog: 0**, held all day across 42 tool edits. `tool-tester` is
@@ -374,6 +409,14 @@ any future correction needs doing twice.
 - **Rotate API keys.** OpenRouter, Gemini, Groq ×2 and Cerebras have all been
   exposed in transcripts by `cat`-ing `config.yaml`. **Grep that file for the one
   field you need; never dump it.**
+- **Groq retires `llama-3.3-70b-versatile` for free tier on 2026-08-16 — that is
+  the brain's `groq` rung, and it is TWO DAYS out**
+  (console.groq.com/docs/deprecations, retrieved 08-14). From the 16th it 404s;
+  the keychain's `gone` class walls a single-model rung honestly, but the rung
+  should be disabled or repointed. Recommended replacements per the same page:
+  `openai/gpt-oss-120b` (already the `groq_oss120` rung, and now `ask`'s model)
+  or `qwen/qwen3.6-27b`. Note the config's `limit: 14400` for that rung also
+  contradicts the published 1,000 RPD.
 - 2026-08-17: cerebras free tier changes. **Probe before flipping** — it served
   235 thinks since 7 August, a real workhorse. `groq_oss120` is the same model
   but TPM-walled at 8000, so it cannot take fat thinks.
