@@ -352,7 +352,22 @@ implementation survives as `wake_catchup_fetcher.real` (541 b, 28 Jun).
   8.5% (08-14 partial). Twins **39** (was 34). Hollow backlog **0, sixth day**.
 - OR pool consolidation verified on live traffic: `openrouter_super` served
   exactly 50 / 50 / 50 / 51 on 08-10..14 — one account, one budget, as designed.
-- **The ladder is five rungs (2026-08-17).** `groq` retired the day Groq withdrew
+- **`mistral` rung added 2026-08-17 — the fat-think slot.** `mistral-large-latest`,
+  a NEW account (so real added capacity, not another name for a bucket we hold).
+  **250,000 tokens/minute** against `groq_oss120`'s 8,000, which is why it is
+  here: `finish=length` has been the top measurable fault for a week and every
+  other rung is TPM-walled far below. Costs 4 req/min, fine because the ladder
+  reaches it only when the workhorses above wall, and the box averages under 1
+  think/min. Placed after `google_gemma`, before the OR pool. Verified through
+  `provider.call` (not an ad-hoc probe): `ALIVE`, finish=stop, 12 tokens.
+  **All limits came from the account's own `x-ratelimit-*` headers, never docs** —
+  Mistral publishes no free-tier numbers (its tier page defers to a signed-in
+  panel), and the curated lists filling that gap are the same ones that gave this
+  file its wrong `groq: 14400`. **UNKNOWN: no daily or monthly header is returned,
+  so the size of the free allowance is invisible.** If it runs out the rung
+  402/429s and the keychain walls it honestly — watch for `mistral` appearing in
+  FLATLINE. Key lives at `/home/boas/mistral.key` (chmod 600, outside the repo).
+- **The ladder is six rungs (2026-08-17).** `groq` retired the day Groq withdrew
   `llama-3.3-70b-versatile`: it served at 10:28 and 404'd by 17:20 (direct probe).
   Not repointed — `openai/gpt-oss-120b` is already `groq_oss120` on the same
   account and the same shared bucket, so a second copy buys nothing;
