@@ -1883,6 +1883,28 @@ async def main():
         _f.write('{"url":"https://example.com/article1","title":"Test Article 1"}\n')
     check("data warning: fabricated reserved-domain content is counted",
           "RFC 2606" in loop._build_data_warning())
+    # The 2026-08-17 variant, fixture verbatim from the live archive tail: with
+    # the helper finally failing honestly, a CALLER converted the failure back
+    # into an answer-shaped string and archived it tagged gap_filled. The
+    # disease one level up the stack. Pre-registered trigger (report No. 3).
+    with open(_probe, "w", encoding="utf-8") as _f:
+        _f.write('{\n  "keyword": "given_the_following_content_and_goal",\n'
+                 '  "content": "Answer not available (fallback).",\n'
+                 '  "added_at": "2026-08-17T15:01:51Z","tags":["gap_filled"]}\n')
+    _dw = loop._build_data_warning()
+    check("data warning: a failure notice stored as an answer is counted",
+          "failure notices" in _dw)
+    check("data warning: the placeholder fact states the consequence, not a tool",
+          "recalled" in _dw and "gap_filler" not in _dw)
+    check("data warning: placeholder flip fires, stable count stays quiet",
+          loop._data_state_worsened({"files": {}, "fabricated": 0, "placeholders": 1},
+                                    {"files": {}, "fabricated": 0})
+          and not loop._data_state_worsened(
+              {"files": {}, "fabricated": 0, "placeholders": 5},
+              {"files": {}, "fabricated": 0, "placeholders": 5})
+          and loop._data_state_worsened(
+              {"files": {}, "fabricated": 0, "placeholders": 10},
+              {"files": {}, "fabricated": 0, "placeholders": 5}))
     with open(_probe, "w", encoding="utf-8") as _f:
         _f.write('{"keyword":"k","content":"a real note"}\n')
     check("data warning: silent about a store whose records all parse",

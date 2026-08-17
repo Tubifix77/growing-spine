@@ -2966,6 +2966,15 @@ def _data_state_worsened(cur: dict, prev) -> bool:
         return True
     if bool(prev.get("fabricated")) != bool(cur["fabricated"]):
         return True
+    # Placeholder-answer records follow the same speak-on-change rules as the
+    # other qualities: appearance/clearance is a flip, growth speaks at 2x.
+    # prev dicts from before 2026-08-17 lack the key; .get(...,0) makes their
+    # first placeholder sighting a flip, which is the intended first fire.
+    if bool(prev.get("placeholders", 0)) != bool(cur.get("placeholders", 0)):
+        return True
+    if cur.get("placeholders", 0) >= 2 * max(prev.get("placeholders", 0), 1) \
+            and cur.get("placeholders", 0):
+        return True
     return any(cf[n] >= 2 * max(pf.get(n, 0), 1) for n in cf)
 
 
@@ -3000,7 +3009,7 @@ def _build_data_warning() -> str:
             names = sorted(n for n in os.listdir(ddir) if n.endswith(".jsonl"))
         except OSError:
             return ""
-        unreadable, fabricated = [], 0
+        unreadable, fabricated, placeholders = [], 0, 0
         for n in names:
             path = os.path.join(ddir, n)
             # Canonical, whole-file. This used to be an inline loop capped at 2000
@@ -3017,6 +3026,9 @@ def _build_data_warning() -> str:
                     for line in f:
                         if any(h in line for h in toolmod.RESERVED_FEED_HOSTS):
                             fabricated += 1
+                        low = line.lower()
+                        if any(m in low for m in toolmod.PLACEHOLDER_ANSWER_MARKERS):
+                            placeholders += 1
             except OSError:
                 pass
             if ok < total:
@@ -3029,7 +3041,7 @@ def _build_data_warning() -> str:
         # present -- so a store that keeps accruing bad records does not re-fire,
         # while a NEW store breaking does. No cooldown constant to tune.
         current = {"files": {n: total - ok for n, ok, total in unreadable},
-                   "fabricated": fabricated}
+                   "fabricated": fabricated, "placeholders": placeholders}
         try:
             with open(DATA_WARNING_STATE_PATH, encoding="utf-8") as f:
                 last = json.load(f)
@@ -3045,7 +3057,7 @@ def _build_data_warning() -> str:
             os.replace(tmp, DATA_WARNING_STATE_PATH)
         except OSError:
             pass
-        if not unreadable and not fabricated:
+        if not unreadable and not fabricated and not placeholders:
             return ""      # state recorded as clean; nothing to say
         lines = ["## Your stored data"]
         for n, ok, total in unreadable:
@@ -3055,6 +3067,11 @@ def _build_data_warning() -> str:
             lines.append(f"{fabricated} stored records cite example.com, "
                          "example.org or example.net -- domains RFC 2606 reserves "
                          "so that they can never host real content.")
+        if placeholders:
+            lines.append(f"{placeholders} stored records are failure notices "
+                         "stored as answers (e.g. \"Answer not available\"). A "
+                         "failure notice stored as knowledge will be recalled "
+                         "later as if it were true.")
         return "\n".join(lines) + "\n\n"
     except Exception:
         return ""

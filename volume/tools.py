@@ -70,6 +70,16 @@ def is_hollow_stub(body: str) -> bool:
 # list is a backstop; nothing depends on matching one exact string any more.
 RESERVED_FEED_HOSTS = ("example.com", "example.org", "example.net",
                        "example.edu", "localhost", "127.0.0.1")
+# A failure notice stored as knowledge will be recalled as if it were true.
+# 2026-08-17, pre-registered trigger fired: with subagent_ask_helper finally
+# failing honestly (nonzero, stderr), a CALLER caught the failure, converted it
+# back into the string "Answer not available (fallback)." and archived it tagged
+# gap_filled -- the answer-shaped-failure disease resurfacing one level up the
+# stack. Phrase list, so backstop only (§5: one rename from silent); the primary
+# defences stay the honest-failure contract and the parse-rate fact. Lowercase;
+# matched case-insensitively against stored record content.
+PLACEHOLDER_ANSWER_MARKERS = ("answer not available", "fallback response for",
+                              "not implemented yet", "no fallback available")
 FABRICATED_TITLE_MARKERS = ("mock news item", "mock item", "test article",
                             "sample article", "sample item", "test note",
                             "dummy item", "lorem ipsum")
