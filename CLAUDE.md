@@ -220,6 +220,13 @@ or a path literal that already exists elsewhere, stop.
   cap, weak calls starve smart rungs and a weak author's buggy tools are lasting
   pollution. `openrouter/free` auto-routing stays rejected.
 - **Reversible actions are just done**, not asked about.
+- **A defunct model is removed the moment it is detected** — Tue's standing
+  practice, stated 2026-08-17; do not queue it for his decision. Set
+  `enabled: false` with a dated comment naming what happened. Check first whether
+  the rung's key is carried into the container as a LEGACY ALIAS
+  (`sandbox.py: LEGACY_KEY_ALIASES`): disabled rungs' keys are withheld from the
+  body, so retiring a rung can delete an env var the creature's tools rely on.
+  Deploy the code that stops depending on it BEFORE flipping the config.
 - **If a test is quick and nothing live is at risk, why is it waiting?** A net
   that has never fired is not evidence of calm water — bench the extinguisher.
 - **Don't tune a constant with no evidence** — that is how voodoo constants are born.
@@ -345,6 +352,16 @@ implementation survives as `wake_catchup_fetcher.real` (541 b, 28 Jun).
   8.5% (08-14 partial). Twins **39** (was 34). Hollow backlog **0, sixth day**.
 - OR pool consolidation verified on live traffic: `openrouter_super` served
   exactly 50 / 50 / 50 / 51 on 08-10..14 — one account, one budget, as designed.
+- **The ladder is five rungs (2026-08-17).** `groq` retired the day Groq withdrew
+  `llama-3.3-70b-versatile`: it served at 10:28 and 404'd by 17:20 (direct probe).
+  Not repointed — `openai/gpt-oss-120b` is already `groq_oss120` on the same
+  account and the same shared bucket, so a second copy buys nothing;
+  `qwen/qwen3.6-27b` is the option if a distinct model is ever wanted. Its
+  `limit: 14400` was always wrong (published 1,000 RPD) and died with it.
+  `framework-tools/ask` reads `GROQ_OSS120_API_KEY` **or** `GROQ_API_KEY`,
+  because retiring `groq` deletes the latter from the container — `sandbox.py`
+  withholds disabled rungs' keys, and `GROQ_API_KEY` was only ever that rung's
+  legacy alias. Code shipped before the config flip.
 
 **Measured 2026-08-08 20:29 by live census:**
 - **Hollow backlog: 0**, held all day across 42 tool edits. `tool-tester` is
@@ -418,18 +435,8 @@ any future correction needs doing twice.
 - **Rotate API keys.** OpenRouter, Gemini, Groq ×2 and Cerebras have all been
   exposed in transcripts by `cat`-ing `config.yaml`. **Grep that file for the one
   field you need; never dump it.**
-- **FIRED 2026-08-17: the `groq` rung is dead.** `llama-3.3-70b-versatile` served
-  it at 10:28 and returned `404 model_not_found` by 17:20 — measured by direct
-  probe from the container, a day later than the published date. The ladder walls
-  it correctly and cognition never faltered, so **this costs nothing but a wasted
-  round trip roughly every 10 minutes** (`UPWARD_REPROBE_SECS`), the same waste
-  the config already records for `openrouter_coder`: *"purged 2026-07-19; probes
-  wasted timeouts for 11 days."* **Recommended: set `enabled: false` on `groq`
-  with a dated comment.** Do NOT repoint it at `openai/gpt-oss-120b` — that is
-  already the `groq_oss120` rung on the same account and the same shared bucket,
-  so a second copy buys nothing. `qwen/qwen3.6-27b` is the alternative if a
-  distinct model is wanted. Its `limit: 14400` was always wrong (published 1,000
-  RPD) and dies with it.
+- *(Closed 2026-08-17: the `groq` rung was retired the day its model went. See
+  the ladder note in the census block above.)*
 - 2026-08-17: cerebras free tier changes. **Probe before flipping** — it served
   235 thinks since 7 August, a real workhorse. `groq_oss120` is the same model
   but TPM-walled at 8000, so it cannot take fat thinks.

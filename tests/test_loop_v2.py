@@ -1808,11 +1808,12 @@ async def main():
           askmod.spend_budget(now=1000000000)[0] == 1)
 
     # The anti-echo contract, end to end: every failure path leaves stdout EMPTY.
-    def _run_main(argv, stdin_text="", env_key=None):
+    def _run_main(argv, stdin_text="", env_key=None, env_name="GROQ_API_KEY"):
         out, err = _io.StringIO(), _io.StringIO()
-        old_stdin, old_key = sys.stdin, os.environ.pop("GROQ_API_KEY", None)
+        old_stdin = sys.stdin
+        saved = {n: os.environ.pop(n, None) for n in askmod.ENV_KEYS}
         if env_key is not None:
-            os.environ["GROQ_API_KEY"] = env_key
+            os.environ[env_name] = env_key
         sys.stdin = _io.StringIO(stdin_text)
         code = None
         try:
@@ -1823,17 +1824,30 @@ async def main():
                     code = e.code
         finally:
             sys.stdin = old_stdin
-            os.environ.pop("GROQ_API_KEY", None)
-            if old_key is not None:
-                os.environ["GROQ_API_KEY"] = old_key
+            for n in askmod.ENV_KEYS:
+                os.environ.pop(n, None)
+            for n, v in saved.items():
+                if v is not None:
+                    os.environ[n] = v
         return code, out.getvalue(), err.getvalue()
 
     _c, _o, _e = _run_main(["ask"])
     check("ask: no prompt -> exit 2, stdout empty, usage on stderr",
           _c == 2 and _o == "" and "usage" in _e)
     _c, _o, _e = _run_main(["ask", "hello"])
-    check("ask: no provider key -> exit 3, stdout empty, names the missing env var",
-          _c == 3 and _o == "" and "GROQ_API_KEY" in _e)
+    check("ask: no provider key -> exit 3, stdout empty, names the missing env vars",
+          _c == 3 and _o == "" and "GROQ_API_KEY" in _e
+          and "GROQ_OSS120_API_KEY" in _e)
+    # Retiring the `groq` rung deletes the GROQ_API_KEY alias from the container
+    # (sandbox.py withholds disabled rungs' keys). The tool's own rung name must
+    # be enough on its own, or a provider retirement disarms inference silently.
+    with open(askmod.STATE, "w", encoding="utf-8") as _f:
+        json.dump({"day": time.strftime("%Y-%m-%d", time.gmtime()),
+                   "used": askmod.DAILY_CAP}, _f)
+    for _n in askmod.ENV_KEYS:
+        _c, _o, _e = _run_main(["ask", "hello"], env_key="fake", env_name=_n)
+        check("ask: %s alone satisfies the key requirement" % _n,
+              _c == 4 and "budget" in _e)   # reached the budget gate => key accepted
     with open(askmod.STATE, "w", encoding="utf-8") as _f:
         json.dump({"day": time.strftime("%Y-%m-%d", time.gmtime()),
                    "used": askmod.DAILY_CAP}, _f)
