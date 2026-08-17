@@ -121,7 +121,7 @@ class Keychain:
             # a live account because a single id had gone stale.
             variants = prov.model_ids(cfg)
             stop_rung, gone_count = False, 0
-            for mid in variants:
+            for _mi, mid in enumerate(variants):
                 for attempt in range(3):
                     result = await prov.call(cfg, messages,
                                              max_tokens=max_tokens, model=mid)
@@ -152,10 +152,23 @@ class Keychain:
 
                     if kind == "gone":
                         # This model id left the shelf; the account is fine.
+                        #
+                        # ALWAYS logged. Until 2026-08-17 this printed only when
+                        # the rung had a sibling model to fall to, so a
+                        # SINGLE-model rung was retired in total silence: on that
+                        # day Groq withdrew llama-3.3-70b-versatile, the `groq`
+                        # rung began 404ing, the ladder walled it correctly,
+                        # cognition never faltered -- and nothing anywhere said
+                        # why. FLATLINE would have reported `groq(12h)` half a day
+                        # later with no cause attached. A graceful degradation
+                        # that logs nothing is a silent outage; the whole point of
+                        # separating `gone` from `quota` was to know WHICH it was.
                         gone_count += 1
-                        if len(variants) > 1:
-                            print(f"[keychain] {cfg['key']}: {mid} is gone from "
-                                  f"the shelf -- falling to the next model")
+                        tail = ("falling to the next model"
+                                if _mi + 1 < len(variants)
+                                else "no models left on this rung -- walling it")
+                        print(f"[keychain] {cfg['key']}: model {mid} is GONE "
+                              f"(404 from the provider) -- {tail}")
                         break  # next MODEL, same rung
 
                     if kind in ("too_large", "quota"):

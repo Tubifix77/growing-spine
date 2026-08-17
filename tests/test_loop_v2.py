@@ -519,6 +519,25 @@ async def main():
         check("multi-model rung: a 429 walls the account",
               "exhausted_at" in k2.state.get("pool", {}))
 
+        # A retirement must be AUDIBLE even on a single-model rung. Until
+        # 2026-08-17 the gone line printed only when a sibling model existed, so
+        # Groq withdrawing llama-3.3-70b-versatile walled the `groq` rung in total
+        # silence -- correct behaviour, no cause recorded anywhere.
+        import contextlib as _ctxg, io as _iog
+        _seen.clear()
+        _cap = _iog.StringIO()
+        k1b = _rung(["gone/only:free"])
+        with _ctxg.redirect_stdout(_cap):
+            try:
+                await k1b.complete("hi")
+            except RuntimeError:
+                pass
+        _log = _cap.getvalue()
+        check("multi-model rung: a single-model retirement is logged, not silent",
+              "GONE" in _log and "gone/only:free" in _log)
+        check("multi-model rung: the log says the rung was walled, not that it fell through",
+              "walling it" in _log)
+
         _seen.clear()
         k3 = _rung(["gone/a:free", "gone/b:free"])
         try:

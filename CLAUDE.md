@@ -134,6 +134,15 @@ or a path literal that already exists elsewhere, stop.
   because the template and the detector were four words apart.
 - **Never let a test write its own fixture using the string the detector hunts.**
   That test passes forever regardless.
+- **A graceful degradation that logs nothing is a silent outage.** Groq withdrew
+  `llama-3.3-70b-versatile` on 2026-08-17; the `groq` rung began returning 404,
+  the ladder classified it `gone`, walled the rung and carried on — correctly,
+  with cognition uninterrupted and **not one line anywhere saying why**. The
+  `gone` print fired only when a sibling model existed, so single-model rungs
+  retired mutely, and FLATLINE would have reported `groq(12h)` half a day later
+  with no cause attached. When you separate two failure classes to know *which*
+  one happened, the log line is the whole deliverable — handling it quietly
+  throws away the reason you split them.
 - **A guard that names one exact string is one rename away from silent.** The
   SENSOR looked for the title `"Mock News Item"`; the creature's fixture said
   `"Test Article 1"`, and the guard built to catch mocks reported
@@ -409,14 +418,18 @@ any future correction needs doing twice.
 - **Rotate API keys.** OpenRouter, Gemini, Groq ×2 and Cerebras have all been
   exposed in transcripts by `cat`-ing `config.yaml`. **Grep that file for the one
   field you need; never dump it.**
-- **Groq retires `llama-3.3-70b-versatile` for free tier on 2026-08-16 — that is
-  the brain's `groq` rung, and it is TWO DAYS out**
-  (console.groq.com/docs/deprecations, retrieved 08-14). From the 16th it 404s;
-  the keychain's `gone` class walls a single-model rung honestly, but the rung
-  should be disabled or repointed. Recommended replacements per the same page:
-  `openai/gpt-oss-120b` (already the `groq_oss120` rung, and now `ask`'s model)
-  or `qwen/qwen3.6-27b`. Note the config's `limit: 14400` for that rung also
-  contradicts the published 1,000 RPD.
+- **FIRED 2026-08-17: the `groq` rung is dead.** `llama-3.3-70b-versatile` served
+  it at 10:28 and returned `404 model_not_found` by 17:20 — measured by direct
+  probe from the container, a day later than the published date. The ladder walls
+  it correctly and cognition never faltered, so **this costs nothing but a wasted
+  round trip roughly every 10 minutes** (`UPWARD_REPROBE_SECS`), the same waste
+  the config already records for `openrouter_coder`: *"purged 2026-07-19; probes
+  wasted timeouts for 11 days."* **Recommended: set `enabled: false` on `groq`
+  with a dated comment.** Do NOT repoint it at `openai/gpt-oss-120b` — that is
+  already the `groq_oss120` rung on the same account and the same shared bucket,
+  so a second copy buys nothing. `qwen/qwen3.6-27b` is the alternative if a
+  distinct model is wanted. Its `limit: 14400` was always wrong (published 1,000
+  RPD) and dies with it.
 - 2026-08-17: cerebras free tier changes. **Probe before flipping** — it served
   235 thinks since 7 August, a real workhorse. `groq_oss120` is the same model
   but TPM-walled at 8000, so it cannot take fat thinks.
