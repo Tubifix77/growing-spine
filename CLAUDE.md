@@ -134,6 +134,17 @@ or a path literal that already exists elsewhere, stop.
   because the template and the detector were four words apart.
 - **Never let a test write its own fixture using the string the detector hunts.**
   That test passes forever regardless.
+- **A provider's own response headers are the only trustworthy source for its
+  limits.** This file's `groq: limit 14400` matched a curated free-LLM list
+  exactly — and was wrong: Groq publishes 1,000 RPD and the account's
+  `x-ratelimit-limit-requests` returned `1000`. Vendors increasingly publish
+  nothing at all (Google's rate-limit page defers to the signed-in AI Studio
+  dashboard; Mistral's tier page to a signed-in Limits panel), which is exactly
+  why the stale community lists get quoted. So when adding or re-verifying a
+  rung: make ONE live call and read `x-ratelimit-*`. Lists are for discovery,
+  docs are a sanity check, headers are the fact. And check whether the numbers
+  you actually need are even returned — Mistral gives per-minute only, so the
+  size of its free allowance is invisible until it runs out.
 - **A graceful degradation that logs nothing is a silent outage.** Groq withdrew
   `llama-3.3-70b-versatile` on 2026-08-17; the `groq` rung began returning 404,
   the ladder classified it `gone`, walled the rung and carried on — correctly,
@@ -227,6 +238,10 @@ or a path literal that already exists elsewhere, stop.
   (`sandbox.py: LEGACY_KEY_ALIASES`): disabled rungs' keys are withheld from the
   body, so retiring a rung can delete an env var the creature's tools rely on.
   Deploy the code that stops depending on it BEFORE flipping the config.
+  Then **find a replacement rather than shrinking the ladder** — Tue, 2026-08-17:
+  "we must find a new one next time we run out." Prefer a NEW account over a
+  second model on one we already hold: `groq` and `groq_oss120` shared a bucket,
+  so the second was never added capacity. Source its limits from headers (§5).
 - **If a test is quick and nothing live is at risk, why is it waiting?** A net
   that has never fired is not evidence of calm water — bench the extinguisher.
 - **Don't tune a constant with no evidence** — that is how voodoo constants are born.
