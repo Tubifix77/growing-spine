@@ -1644,6 +1644,7 @@ async def main():
 
     # ---- openrouter tier-check diff (weekly rotating-shelf sensor) ----
     import importlib.util as _ilu
+    NL = chr(10)
     _spec = _ilu.spec_from_file_location("otc", "scripts/openrouter_tier_check.py")
     _otc = _ilu.module_from_spec(_spec); _spec.loader.exec_module(_otc)
     _lines = _otc.diff_report(["a:free", "b:free"], ["b:free", "c:free"],
@@ -1964,6 +1965,80 @@ async def main():
             print("SKIP embed exclude test (empty index)")
     else:
         print("SKIP embed exclude tests (embed unavailable)")
+
+    # ---- the builder's trigger, now that it can be computed ----------------
+    # Redefined 2026-08-18. The parked wording ("demanded stubs >= 5 sustained
+    # above zero for 7 consecutive days") could not be evaluated: demand_counts
+    # is a cumulative all-time counter, and the stub organ zeroes the population
+    # the sentence names. The trigger is now the DAILY DELTA of unmet demand.
+    import importlib.util as _ilu
+    _shp = os.path.join(os.path.dirname(os.path.dirname(
+        os.path.abspath(loop.__file__))), "scripts", "spine_health.py")
+    _spec = _ilu.spec_from_file_location("_spine_health_probe", _shp)
+    _sh = _ilu.module_from_spec(_spec)
+    try:
+        _spec.loader.exec_module(_sh)
+        _sh_ok = True
+    except Exception as _she:
+        print(f"SKIP unmet-demand tests (spine_health did not import: {_she})")
+        _sh_ok = False
+
+    if _sh_ok:
+        # NEVER let this touch the real snapshot. record/save helpers in this
+        # codebase have flattened live state from a test before (quota_state,
+        # 2026-08-10), so repoint the module constant and ASSERT the repoint.
+        _sh.UNMET_STATE = os.path.join(TMP, "unmet.json")
+        check("unmet-demand state is repointed away from the real file",
+              _sh.UNMET_STATE.startswith(TMP))
+
+        def _days(vals, start=1):
+            return [{"day": "2026-07-%02d" % (start + i), "names": 1, "demand": v}
+                    for i, v in enumerate(vals)]
+
+        # Seven consecutive growing days is the condition; six is not.
+        check("streak fires at 7 consecutive growing days",
+              _sh.unmet_streak(_days([1, 2, 3, 4, 5, 6, 7, 8])) >= 7)
+        check("streak does NOT fire at 6",
+              _sh.unmet_streak(_days([1, 2, 3, 4, 5, 6, 7])) == 6)
+        # A flat day is the organ keeping up -- it must break the streak.
+        check("a flat day breaks the streak",
+              _sh.unmet_streak(_days([1, 2, 3, 4, 4, 5, 6, 7])) == 3)
+        # A missing calendar day is absence of evidence, not a zero.
+        _gap = _days([1, 2, 3]) + [{"day": "2026-07-06", "names": 1, "demand": 4},
+                                   {"day": "2026-07-07", "names": 1, "demand": 5}]
+        check("a missing day breaks the streak rather than counting as growth",
+              _sh.unmet_streak(_gap) == 1)
+        # A counter rewrite shows as a big negative delta; never smoothed.
+        check("a counter reset breaks the streak instead of being repaired",
+              _sh.unmet_streak(_days([9, 10, 11, 2, 3])) == 1)
+
+        # The normaliser both halves of the comparison use must strip tool
+        # extensions, or every .py tool reads as absent.
+        check("unmet key strips tool extensions on both sides",
+              _sh._unmet_key("foo.py") == _sh._unmet_key("foo")
+              == _sh._unmet_key("/mind/tools/own/foo.py"))
+
+        # A demanded name with a real file behind it is NOT unmet.
+        _tdir = os.path.join(TMP, "unmet_lib")
+        os.makedirs(os.path.join(_tdir, "tools", "own"), exist_ok=True)
+        os.makedirs(os.path.join(_tdir, "tools", "framework"), exist_ok=True)
+        with open(os.path.join(_tdir, "tools", "own", "real_tool.py"), "w",
+                  encoding="utf-8") as _f:
+            _f.write(NL.join(("#!/usr/bin/env python3", "# tool: real_tool",
+                              "print(1)", "")))
+        _old_mind, _old_own = _sh.MIND, _sh.OWN
+        try:
+            _sh.MIND = _tdir
+            _sh.OWN = os.path.join(_tdir, "tools", "own")
+            _u = _sh.unmet_demand_now({"real_tool": 9, "never_built": 12})
+            check("a demanded name WITH a file is not unmet",
+                  "real_tool" not in _u)
+            check("a demanded name with NO file is unmet",
+                  _u.get("never_built") == 12)
+            check("demand below the floor is not unmet",
+                  "quiet" not in _sh.unmet_demand_now({"quiet": 1}))
+        finally:
+            _sh.MIND, _sh.OWN = _old_mind, _old_own
 
     # ---- the dependency scan, compared against its own predecessor ---------
     # The quadratic version (433 names re-searched in every file, 28.3s on the

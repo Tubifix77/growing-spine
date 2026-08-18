@@ -30,7 +30,7 @@ AGE_OUT_DAYS = 3
 sys.path.insert(0, REPO)
 from volume.tools import (is_hollow_stub, demand_counts,  # noqa: E402
                           is_demanded, is_fabricated_feed, jsonl_parse_rate,
-                          parse_feed_items)
+                          parse_feed_items, tool_stem)
 from executive.embed_gate import _is_junk as is_junk_name  # noqa: E402
 QUOTA_STATE = os.path.join(REPO, "keychain", "quota_state.json")
 CONFIG = os.path.join(REPO, "config.yaml")
@@ -131,6 +131,163 @@ def stub_janitor():
     if spared:
         out += f"  SPARED-DEMANDED:{len(spared)}[{'; '.join(spared)}]"
     return out
+
+# ---------------------------------------------------------------------------
+# UNMET DEMAND -- the builder's trigger, in a form that can actually be read.
+#
+# The builder graft (the-builder-idea.md) was parked 2026-08-10 behind this:
+# "demanded stubs (demand_counts >= 5) sustained above zero for 7 consecutive
+# days -- its own hands stopped keeping up." That sentence cannot be evaluated,
+# and both of its defects were found on 2026-08-18:
+#
+#   1. demand_counts is a CUMULATIVE all-time invocation counter with no
+#      timestamps (volume/tools.py merges two counters by MAX). Nothing in it
+#      can express "sustained", or any present tense at all: health-summary-fixed
+#      reads 378 today from invocations that stopped happening months ago, and
+#      llm_ask_helper reads 104 for a tool that died in /tmp on 23 June.
+#   2. "demanded stubs" names the one population the stub organ zeroes BY
+#      CONSTRUCTION -- _finish_stub_spec opens with stubs = _library_hollow_tools()
+#      -- so the easy reading of the trigger is guaranteed to read 0 forever
+#      while the creature reaches for 336 names that have no file at all. A
+#      guard whose count is always exactly zero is broken, not idle.
+#
+# So the trigger is redefined on the DAILY DELTA of unmet demand, which is the
+# quantity the original sentence was reaching for: not "how much unbuilt work has
+# ever been asked for" (a number that only ever grows) but "did it reach for
+# something it has not built, again, today".
+#
+# WHO RECEIVES THIS: us, and Tue. It answers a framework question -- whether to
+# graft a second actor -- which is not the creature's decision and not a fact
+# about its world, so it does NOT go into the wake context. Nothing here changes
+# what the creature sees. If the number ever shows a live symptom, THAT is the
+# point at which surfacing it to the creature becomes worth designing; today the
+# 336 are historical residue and there is no symptom to show it.
+UNMET_STATE = os.path.expanduser("~/spine-health-unmet.json")
+UNMET_STREAK_DAYS = 7    # from the parked decision's own wording, unchanged
+UNMET_HISTORY_DAYS = 30  # enough to see the streak and a month of context
+
+
+def _unmet_key(name):
+    """The ONE normaliser both halves of this comparison use.
+
+    Not spine_health's norm(): that strips punctuation but NOT extensions, so
+    norm("foo.py") is "foopy" while the counter's key is "foo" -- every .py tool
+    in the library would have read as absent and the unmet count would have come
+    out large, plausible and wrong. There are 29 duplicate-stem twins in there.
+    A normalisation mismatch between two halves of one comparison is a scar this
+    project already owns (67 "unused tools" that were really 8), so both sides go
+    through canonical tool_stem here and nothing else.
+    """
+    return tool_stem(os.path.basename(str(name)))
+
+
+def unmet_demand_now(counts=None):
+    """Names demanded at or above the floor that the creature cannot actually run.
+
+    Unmet means invoked >= DEMAND_FLOOR times and either absent from own/ and
+    framework/, or present as a placeholder shell. A hollow stub counts: it is a
+    broken promise, not a tool. Junk names (.bak, .broken_*, --show) are excluded
+    via the canonical _is_junk -- they are its safety net, never demand.
+    """
+    counts = demand_counts(MIND) if counts is None else counts
+    present, hollow = set(), set()
+    for d in (OWN, os.path.join(MIND, "tools", "framework")):
+        try:
+            names = os.listdir(d)
+        except OSError:
+            continue
+        for n in names:
+            pth = os.path.join(d, n)
+            if not os.path.isfile(pth) or is_junk_name(n):
+                continue
+            present.add(_unmet_key(n))
+            try:
+                with open(pth, encoding="utf-8", errors="replace") as f:
+                    if is_hollow_stub(f.read(2000)):
+                        hollow.add(_unmet_key(n))
+            except OSError:
+                pass
+    unmet = {}
+    for name, c in counts.items():
+        # is_demanded owns the floor. Restating DEMAND_FLOOR as a literal here is
+        # how a producer and a checker drift apart (CLAUDE.md section 4).
+        if is_junk_name(name) or not is_demanded(name, counts):
+            continue
+        k = _unmet_key(name)
+        if k not in present or k in hollow:
+            unmet[name] = c
+    return unmet
+
+
+def _unmet_load():
+    try:
+        with open(UNMET_STATE, encoding="utf-8") as f:
+            st = json.load(f)
+        if isinstance(st, dict) and isinstance(st.get("days"), list):
+            return st, False
+    except Exception:
+        pass
+    return {"days": []}, True
+
+
+def unmet_streak(days):
+    """Consecutive most-recent CALENDAR days whose unmet demand grew.
+
+    A gap in dates breaks the streak: the box was off, so there is no evidence
+    for that day and "7 consecutive days" must mean seven real ones. A delta of
+    zero or less also breaks it -- that is the creature's own hands, or the stub
+    organ, keeping up, which is exactly what the trigger is watching for.
+
+    A counter rewrite shows up as a large negative delta and simply breaks the
+    streak; it is never smoothed away, because a silently repaired number is how
+    this project's worst measurements were made.
+    """
+    streak = 0
+    for i in range(len(days) - 1, 0, -1):
+        cur, prev = days[i], days[i - 1]
+        try:
+            d0 = time.strptime(prev["day"], "%Y-%m-%d")
+            d1 = time.strptime(cur["day"], "%Y-%m-%d")
+        except Exception:
+            break
+        if round((time.mktime(d1) - time.mktime(d0)) / 86400) != 1:
+            break                       # missing day -- no evidence, not a zero
+        if cur.get("demand", 0) - prev.get("demand", 0) <= 0:
+            break
+        streak += 1
+    return streak
+
+
+def check_unmet_demand(today=None):
+    """One record per DAY; hourly runs on the same date just re-read it."""
+    today = today or time.strftime("%Y-%m-%d")
+    st, fresh = _unmet_load()
+    unmet = unmet_demand_now()
+    names, demand = len(unmet), sum(unmet.values())
+    days = [d for d in st["days"] if d.get("day") != today]
+    days.append({"day": today, "names": names, "demand": demand})
+    days = days[-UNMET_HISTORY_DAYS:]
+    st["days"] = days
+    try:
+        tmp = UNMET_STATE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(st, f)
+        os.replace(tmp, UNMET_STATE)
+    except OSError:
+        pass
+    if fresh and len(days) == 1:
+        return f"UNMET:first({names}n/{demand}d)"
+    streak = unmet_streak(days)
+    delta = demand - days[-2]["demand"] if len(days) > 1 else 0
+    tag = f"UNMET:{names}n/{demand}d{delta:+d} streak {streak}/{UNMET_STREAK_DAYS}"
+    if streak >= UNMET_STREAK_DAYS:
+        # The parked builder decision's condition (1) is met. Says so; does
+        # nothing else. The graft is a decision, not an automation.
+        top = sorted(unmet.items(), key=lambda kv: -kv[1])[:3]
+        tag += ("  BUILDER-TRIGGER:!!["
+                + "; ".join(f"{n}x{c}" for n, c in top) + "]")
+    return tag
+
 
 def journal_integrity():
     """Detect + auto-repair torn/interleaved journal lines (abrupt-shutdown
@@ -368,7 +525,8 @@ if __name__ == "__main__":
     line = (time.strftime("%Y-%m-%d %H:%M") + "  "
             + "  ".join([check_sensor(), check_fallbacks(), stub_janitor(),
                          journal_integrity(), check_tool_wiring(),
-                         check_jsonl(), check_flatline()]))
+                         check_jsonl(), check_flatline(),
+                         check_unmet_demand()]))
     _rc = exit_code(SILENT_KEYS, DEAD_KEYS)
     if _rc:
         line += f"  SERIOUS:{','.join(sorted(SILENT_KEYS & DEAD_KEYS))}"
