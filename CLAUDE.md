@@ -129,6 +129,34 @@ or a path literal that already exists elsewhere, stop.
 
 ## 5. Scars — signatures, so a recurrence is a lookup not a re-diagnosis
 
+- **A status field is not liveness. Prove it by doing.** `ensure_body` returned
+  True on `docker inspect .State.Running`, which reads `true` for a container
+  whose PID namespace is full and which cannot fork a single process. The body sat
+  like that for **three and a half hours** on 2026-08-18 while every tool call the
+  creature made returned an OCI error, and the liveness check called it alive on
+  every cycle. Ask the thing to DO something; never accept its own report of its
+  own health. The house disease wearing the health check as a costume.
+- **An init that never calls `wait()` turns every orphan into a permanent
+  zombie.** The body ran as `docker run ... sleep infinity` with no `--init` since
+  the beginning. `sleep` does not reap, so anything the creature backgrounded, or
+  anything whose parent exited first, accumulated forever: **9,082 zombies between
+  08-16 20:20 and 08-18 04:11**, when `pids.current` hit 9085 against a
+  `pids.max` of 9090 and the namespace was full. Invariant: **PID 1 in any
+  container we start must reap.** Instrument: `pids.current` / `pids.max` in the
+  container's cgroup, and `ps -eo stat | grep -c ^Z`.
+- **A cost that scales with the creature's own growth is a bomb with no error
+  message.** `_tool_dependencies` re-searched every file once per tool name:
+  433 x 433 = **187,489 full-content regex scans per wake, 28.3 seconds**,
+  measured 2026-08-18. Nothing failed, nothing logged, and it got worse every
+  time the creature built a tool — the load parameter was its success. It was
+  found because Tue could HEAR the fan. When you write a scan over its library,
+  state what happens at 1,000 tools.
+- **Boundary groups that CONSUME their delimiter drop adjacent matches
+  silently.** `finditer` returns no overlapping matches, so the rewritten
+  dependency scan had to use lookaround: with consuming groups,
+  `"store_item plan_step"` yields only `store_item` — the space is eaten and the
+  next edge vanishes, producing a smaller plausible graph and no error. Verified
+  by mutation 2026-08-18, which is the only reason it is known.
 - **A guard whose count is always exactly zero is broken, not idle.** The stub
   janitor logged `aged-out 0` twenty-eight times with 25 stubs in front of it,
   because the template and the detector were four words apart.
@@ -298,7 +326,58 @@ journalctl --user -u growing-spine --since "2 hours ago"
 
 ---
 
-## 8. State — 2026-08-14 17:45
+## 8. State — 2026-08-18 07:55
+
+**2026-08-18: the body had been unable to fork for three and a half hours and
+nothing said so.** Found while chasing Tue's report that the laptop was louder
+than usual — the third time he has raised fan noise and the third time the noise
+was real. Instruments and numbers:
+
+- `pids.current` 9085 against `pids.max` 9090; `ps -eo stat | grep -c ^Z` = 9,082,
+  the oldest starting 08-16 20:20 and the newest 08-18 04:11 (the moment the
+  ceiling was reached). All parented to the container's PID 1, `sleep infinity`.
+- `sandbox.run_command("echo alive")` returned **exit 128 with
+  `OCI runtime exec failed: ... procReady not received` ON STDOUT**. The creature
+  received infrastructure breakage shaped exactly like the output of its own
+  command, for 3.5 hours.
+- `ensure_body` called it alive throughout, because it read
+  `docker inspect .State.Running`.
+- Nothing in the brain's journal, `spine-health.log`, or the dashboard named it.
+  Zero exec-failure lines in three hours.
+
+Fixed in `c76a7a8` (`--init` so tini is PID 1 and reaps; `run_command` routes
+exec-setup failure to stderr with stdout EMPTY, the `framework-tools/ask`
+contract applied to the path every tool call travels; `ensure_body` proves
+liveness via the new `sandbox.body_responds`, and verifies the respawned body
+too). `sandbox.exec_setup_failure` is the ONE classifier both the producer and
+the checker call. **Verified through the real path, not by hand:** the restarted
+brain found it itself —
+`07:47:54 BODY UNRESPONSIVE: exec probe exit 128 ... / 07:48:08 Body respawned.`
+Then `Init=true`, zombies 0, and from the container `echo alive` + `ask` -> `ok`.
+
+**The CPU was a second, unrelated fault, also measured.** `_build_knowledge_block`
+cost **45.0 s of every wake**, 27.6 s of it `_dependency_summary`:
+`_tool_dependencies` ran 433 x 433 = 187,489 full-content regex scans per cycle.
+Replaced with one compiled alternation scanned once per file (`530cbee`).
+Equivalence proven on the live 433-tool corpus: **28,312 ms -> 779 ms, 1011 edges
+both ways, dicts identical**. The quadratic version is kept in
+`tests/test_loop_v2.py` as the oracle. After both fixes, measured 07:52:
+`_build_knowledge_block` **45,032 -> 1,001 ms**, `_stuck_tool_procs` 250 -> 6 ms
+(the zombies were most of its cost). Host: 79C -> **70C**,
+`intel_powerclamp cur_state` 11 -> **-1 (off)**, loadavg 4.65 -> **1.51**,
+processes 9,328 -> **235**, container CPU 88.72% -> **0.00%**.
+**Honest attribution: neither fault was mine.** Both predate this session
+(`sleep infinity` from the beginning, the quadratic scan long-standing). My own
+per-cycle additions measured **15 ms combined** (`_build_data_warning` 9 ms,
+`_stuck_tool_procs` 6 ms). The loudest process on the box now is
+`bedrock_server` at 88% — Minecraft, not ours, and not a fault.
+
+Gates after all three commits: **laptop 300 PASS, PC 296 PASS**, each ending
+`ALL TESTS PASS`.
+
+---
+
+### Previous state — 2026-08-14 17:45
 
 **This section goes stale fast. It is yours to maintain: when you measure
 something that contradicts it, correct it and commit. You do not need
