@@ -1965,6 +1965,60 @@ async def main():
     else:
         print("SKIP embed exclude tests (embed unavailable)")
 
+    # ---- the dependency scan, compared against its own predecessor ---------
+    # The quadratic version (433 names re-searched in every file, 28.3s on the
+    # live corpus) is kept HERE, as the oracle, not in loop.py -- one graph
+    # builder ships, and this asserts the fast one still agrees with the slow one
+    # it replaced. Measured 2026-08-18 on 433 real tools: 28,312ms -> 779ms,
+    # 1011 edges both ways, dicts identical.
+    def _naive_deps(names, sources):
+        """The pre-2026-08-18 implementation, verbatim, as a test oracle."""
+        matchable = [n for n in names if len(n) >= 4]
+        g = {}
+        for tool in names:
+            deps = set()
+            code = sources.get(tool, "")
+            for other in matchable:
+                if other == tool:
+                    continue
+                if _re_g.search(r"(^|[\s/`;|&(])" + _re_g.escape(other)
+                                + r"(\s|$|['\"`;|&)])", code, _re_g.M):
+                    deps.add(other)
+            g[tool] = sorted(deps)
+        return g
+
+    import re as _re_g
+
+    def _fast_deps(names, sources):
+        pat = loop._dependency_pattern([n for n in names if len(n) >= 4])
+        g = {}
+        for tool in names:
+            d = {m.group(1) for m in pat.finditer(sources.get(tool, ""))} if pat else set()
+            d.discard(tool)
+            g[tool] = sorted(d)
+        return g
+
+    # Cases the lookaround change exists for. finditer returns no overlapping
+    # matches, so a boundary group that CONSUMED its delimiter would eat the start
+    # of the next name and drop the edge -- silently, with a plausible smaller
+    # graph. Authored deliberately: the real corpus is not guaranteed to contain
+    # adjacency or prefix collisions, and the oracle means authoring cannot make
+    # this pass falsely.
+    _names = ["fetch_news", "fetch_news_v2", "store_item", "plan_step"]
+    _srcs = {
+        "fetch_news": "store_item plan_step",           # ADJACENT: both must count
+        "fetch_news_v2": "fetch_news | store_item",     # pipe boundary
+        "store_item": "prefix collision: fetch_news_v2",  # not fetch_news
+        "plan_step": "no_fetch_news_here xstore_itemx",   # word-internal: neither
+    }
+    _ref, _got = _naive_deps(_names, _srcs), _fast_deps(_names, _srcs)
+    check("dependency scan agrees with the quadratic version it replaced",
+          _ref == _got)
+    check("adjacent tool names both counted (no delimiter eaten)",
+          _got["fetch_news"] == ["plan_step", "store_item"])
+    check("a name inside a longer name is not an edge",
+          _got["plan_step"] == [] and "fetch_news" not in _got["store_item"])
+
     # ---- the body's liveness contract (2026-08-18) -------------------------
     # On this day the container's PID namespace filled with 9,082 zombies
     # (`sleep infinity` as PID 1 never reaps). docker reported Running=true for
