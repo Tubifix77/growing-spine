@@ -159,8 +159,15 @@ or a path literal that already exists elsewhere, stop.
   433 x 433 = **187,489 full-content regex scans per wake, 28.3 seconds**,
   measured 2026-08-18. Nothing failed, nothing logged, and it got worse every
   time the creature built a tool — the load parameter was its success. It was
-  found because Tue could HEAR the fan. When you write a scan over its library,
-  state what happens at 1,000 tools.
+  found because Tue could HEAR the fan, which is not an instrument this system
+  owns. **It does now:** `loop._record_wake_cost` times `_build_context` on every
+  cycle (every per-cycle builder lives inside it, so anything added later is
+  covered by construction), edge-triggers one line into the brain's log when the
+  median crosses `WAKE_COST_BUDGET_MS` = 5,000, and the daily health line carries
+  `WAKE:p50 …ms max …ms` either way so the trend is visible without the threshold
+  having to be right. Budget DECLARED, never learned — an adaptive one ratchets
+  along with the fault and never says so. Costs 0.35 ms/cycle on the laptop.
+  Still: when you write a scan over its library, state what happens at 1,000 tools.
 - **Boundary groups that CONSUME their delimiter drop adjacent matches
   silently.** `finditer` returns no overlapping matches, so the rewritten
   dependency scan had to use lookaround: with consuming groups,
@@ -405,8 +412,29 @@ per-cycle additions measured **15 ms combined** (`_build_data_warning` 9 ms,
 `_stuck_tool_procs` 6 ms). The loudest process on the box now is
 `bedrock_server` at 88% — Minecraft, not ours, and not a fault.
 
-Gates after all three commits: **laptop 300 PASS, PC 296 PASS**, each ending
-`ALL TESTS PASS`.
+**Two instruments were added afterwards, both for US and Tue, neither entering
+the wake context.** (1) `spine_health.check_unmet_demand` — the builder's trigger,
+redefined because the parked wording could not be evaluated; see the builder entry
+under "deliberately NOT built". Baseline `UNMET:327n/7460d streak 0/7`, 53 ms,
+daily. (2) `loop._record_wake_cost` — the detector for the fault class the
+quadratic scan belonged to, since replacing that scan fixed only the instance and
+nothing stopped the next one being written the same way. First live sample after
+the 17:05 restart: **2,793 ms** (a cold first cycle; the steady figure measured
+16:51 was 1,090 ms), budget 5,000 ms, 0.35 ms/cycle to run.
+
+**Measured 16:51, nine hours after the fixes — they hold.** Zombies **0**,
+container `pids.current` **5**/9090, `Init=true`, **0 OCI-error records since the
+restart** (213 during the outage). 75C with `intel_powerclamp` **off**, loadavg
+2.52, 234 processes, container CPU 0.00%, brain averaging **5.8%** against 84.5%
+that morning. `bedrock_server` is the loudest thing on the box at ~30% over 44 h —
+Minecraft, still not ours. The creature: **1,098 thinks / 2,307 exec blocks by
+16:51**, already past 08-17's 1,585 exec blocks; **truncation down to 3.8%** since
+the restart (15.1% that morning) because **`mistral` is now serving 77.7% of
+thinks** against gemma's 11.3%. Of 184 "errors" since the restart, **161 are
+`Done-gate blocked a false completion`** — a guard rail firing correctly, not a
+fault.
+
+Gates: **laptop 318 PASS, PC 314 PASS**, each ending `ALL TESTS PASS`.
 
 ---
 
