@@ -2087,8 +2087,8 @@ def _tool_dependencies() -> dict:
     matchable = [n for n in own if len(n) >= 4]
     graph = {}
     base = os.path.join(VOLUME_MOUNT, "tools", "own")
+    pattern = _dependency_pattern(matchable)
     for tool in own:
-        deps = set()
         try:
             with open(os.path.join(base, tool), encoding="utf-8",
                       errors="replace") as f:
@@ -2096,14 +2096,38 @@ def _tool_dependencies() -> dict:
         except Exception:
             graph[tool] = []
             continue
-        for other in matchable:
-            if other == tool:
-                continue
-            if re.search(r"(^|[\s/`;|&(])" + re.escape(other)
-                         + r"(\s|$|['\"`;|&)])", code, re.M):
-                deps.add(other)
+        deps = {m.group(1) for m in pattern.finditer(code)} if pattern else set()
+        deps.discard(tool)
         graph[tool] = sorted(deps)
     return graph
+
+
+# Boundary chars from the original per-name search, kept verbatim: a tool name
+# counts as called only when it stands alone rather than inside a longer word.
+_DEP_LEAD = r"\s/`;|&("
+_DEP_TRAIL = r"\s'\"`;|&)"
+
+
+def _dependency_pattern(names):
+    """One alternation over every tool name, scanned once per file.
+
+    Was 433 separate re.search calls per file -- 187,489 full-content scans per
+    cycle, measured at 27.6 SECONDS of every wake on 2026-08-18, which is most of
+    what _build_knowledge_block cost and enough host CPU to be audible. Same
+    graph, one pass.
+
+    The boundaries are LOOKAROUND, not consuming groups, and that is load-bearing:
+    finditer will not return overlapping matches, so a trailing group that ate the
+    delimiter would hide the very next name (`foo bar` would find foo and lose
+    bar) and quietly drop edges. Longest name first so a name that is a prefix of
+    another cannot claim the match.
+    """
+    names = sorted({n for n in names}, key=len, reverse=True)
+    if not names:
+        return None
+    body = "|".join(re.escape(n) for n in names)
+    return re.compile("(?<![^" + _DEP_LEAD + "])(" + body
+                      + ")(?![^" + _DEP_TRAIL + "])")
 
 
 def _dependency_summary() -> dict:
