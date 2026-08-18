@@ -122,6 +122,16 @@ def start(dockerfile_dir: str = "."):
         "--memory", "1g",          # hard cap — prevent OOM kills of host
         "--memory-swap", "1g",     # no swap either — fail fast inside container
         "--cpus", "1.5",           # leave headroom for host OS and observer
+        # PID 1 must REAP. Without this the container's init is `sleep infinity`,
+        # which never calls wait(), so every tool process orphaned inside the body
+        # -- anything backgrounded, anything whose parent exits first -- becomes a
+        # permanent zombie. Measured 2026-08-18: 9,082 zombies accumulated between
+        # 08-16 20:20 and 08-18 04:11, at which point pids.current hit 9085 against
+        # a pids.max of 9090 and the body could no longer fork AT ALL. `docker exec`
+        # returned "procReady not received" for three and a half hours while
+        # `docker inspect` still reported Running=true. --init puts tini at PID 1
+        # (sleep infinity becomes its child) and tini reaps.
+        "--init",
     ] + _api_env + [
         IMAGE_NAME,
         "sleep", "infinity"
@@ -154,7 +164,69 @@ def run_command(cmd: str) -> tuple:
          "bash", "-c", pathline + f"echo {enc} | base64 -d | bash"],
         capture_output=True, text=True, errors="replace", timeout=300
     )
-    return r.stdout, r.stderr, r.returncode
+    out, err, code = r.stdout, r.stderr, r.returncode
+    if exec_setup_failure(out, err, code):
+        # The command never RAN. Docker's own diagnostic must not be delivered as
+        # the command's answer: on 2026-08-18 `echo alive` returned exit 128 with
+        # "OCI runtime exec failed: ... procReady not received" ON STDOUT, so the
+        # creature received infrastructure breakage shaped exactly like output,
+        # for three and a half hours. Same contract as framework-tools/ask:
+        # stdout is the answer or it is EMPTY, and every failure names itself on
+        # stderr. Keep the diagnostic -- discarding it is how a silent outage gets
+        # built -- but move it to the channel that means failure.
+        return "", (out + err).strip() or "container exec failed", code
+    return out, err, code
+
+
+# Docker CLI signatures for "the container could not start your process", as
+# opposed to "your process ran and failed". Matched on the docker/OCI wording
+# rather than on exit code alone, because 125-128 are also legitimate exit codes
+# for a command that really did run (`bash -c 'exit 127'`).
+_EXEC_SETUP_MARKERS = (
+    "oci runtime exec failed",
+    "error response from daemon",
+    "procready not received",
+    "cannot exec in a stopped",
+    "is not running",
+    "no such container",
+    "resource temporarily unavailable",
+)
+
+
+def exec_setup_failure(stdout: str, stderr: str, code: int) -> bool:
+    """True when the container refused to START the process at all.
+
+    Canonical: both run_command (to keep it off stdout) and body_responds (to
+    decide the body is dead) ask this one question, so the producer and the
+    checker cannot drift apart -- the central lesson of this codebase.
+    """
+    if code == 0:
+        return False
+    blob = ((stdout or "") + " " + (stderr or "")).lower()
+    return any(m in blob for m in _EXEC_SETUP_MARKERS)
+
+
+def body_responds(timeout: int = 20) -> tuple:
+    """Prove the body can execute, by executing. Returns (ok, detail).
+
+    `docker inspect .State.Running` is NOT liveness. A container whose PID
+    namespace is full is Running=true and cannot fork a single process; that is
+    how the body stayed "alive" for three and a half hours on 2026-08-18 while
+    every tool call the creature made came back as a docker error string. Ask the
+    body to do something and see whether it does.
+    """
+    try:
+        r = subprocess.run(
+            ["docker", "exec", CONTAINER_NAME, "true"],
+            capture_output=True, text=True, errors="replace", timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return False, "exec probe timed out after %ds" % timeout
+    except OSError as e:
+        return False, "could not run docker: %s: %s" % (type(e).__name__, e)
+    if r.returncode == 0:
+        return True, ""
+    detail = " ".join((r.stdout + " " + r.stderr).split())[:200]
+    return False, "exec probe exit %d: %s" % (r.returncode, detail)
 
 
 def respawn(dockerfile_dir: str = "."):

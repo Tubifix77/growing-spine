@@ -48,19 +48,41 @@ async def managed_exec(cmd: str, volume_mount: str, savegame_root: str,
 async def ensure_body(volume_mount: str, savegame_root: str,
                       dockerfile_dir: str, last_cmd: str = "") -> bool:
     """
-    Check container is running; respawn if not.
+    Check the body can EXECUTE; respawn if not.
     Returns True if body is alive (or was successfully respawned).
+
+    2026-08-18: this used to return True on `sandbox.is_running()` alone, which
+    reads docker's .State.Running field. A container whose PID namespace is full
+    reports Running=true and cannot fork one process -- the body sat like that for
+    three and a half hours while every tool call the creature made returned an OCI
+    error, and this function called it alive on every cycle. Liveness is now proven
+    by doing (sandbox.body_responds), never by asking for a status field. The house
+    disease is an instrument that reads healthy while broken, and this was one.
     """
     if sandbox.is_running():
-        return True
-
-    cause = "container stopped unexpectedly"
+        ok, detail = sandbox.body_responds()
+        if ok:
+            return True
+        cause = f"container is Running but cannot execute -- {detail}"
+        print(f"[runtime] BODY UNRESPONSIVE: {detail}")
+        journal.append(volume_mount, "body_unresponsive", cause[:400])
+    else:
+        cause = "container stopped unexpectedly"
     print(f"[runtime] Body death detected. Respawning...")
-    journal.append(volume_mount, "death", f"Body died. Last cmd: {last_cmd[:200]}")
+    journal.append(volume_mount, "death",
+                   f"Body died ({cause}). Last cmd: {last_cmd[:200]}")
 
     try:
         sandbox.respawn(dockerfile_dir)
         _death_log_entry(volume_mount, last_cmd, cause)
+        # Verify the REPLACEMENT, for the same reason as above: respawn() ends in
+        # `docker run` and a sleep, neither of which proves the new body works.
+        ok, detail = sandbox.body_responds()
+        if not ok:
+            print(f"[runtime] RESPAWN DID NOT REVIVE THE BODY: {detail}")
+            journal.append(volume_mount, "error",
+                           f"respawned body still cannot execute: {detail}")
+            return False
         print(f"[runtime] Body respawned.")
         return True
     except Exception as e:

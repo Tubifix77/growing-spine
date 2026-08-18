@@ -1965,6 +1965,61 @@ async def main():
     else:
         print("SKIP embed exclude tests (embed unavailable)")
 
+    # ---- the body's liveness contract (2026-08-18) -------------------------
+    # On this day the container's PID namespace filled with 9,082 zombies
+    # (`sleep infinity` as PID 1 never reaps). docker reported Running=true for
+    # three and a half hours while `echo alive` came back exit 128 with the OCI
+    # error ON STDOUT -- infrastructure breakage delivered to the creature shaped
+    # exactly like the output of its own command. Both halves are asserted here:
+    # the classification, and the stdout-stays-empty contract.
+    from executive import sandbox as _sb
+
+    # REAL captured text, not authored: measured from sandbox.run_command on the
+    # live laptop at 07:41 on 2026-08-18. A test that writes its own fixture in
+    # the words the detector hunts passes forever regardless (scar, CLAUDE.md
+    # section 5), so this string is copied from the corpus.
+    _oci = ("OCI runtime exec failed: exec failed: unable to start container "
+            "process: procReady not received")
+    check("exec_setup_failure: the real OCI text is infrastructure, not output",
+          _sb.exec_setup_failure(_oci, "", 128) is True)
+    check("exec_setup_failure: a command that RAN and failed is not infra",
+          _sb.exec_setup_failure("", "grep: no such file", 2) is False
+          and _sb.exec_setup_failure("", "", 127) is False)
+    check("exec_setup_failure: exit 0 is never infra failure",
+          _sb.exec_setup_failure(_oci, "", 0) is False)
+
+    # The contract, reached the way run_command really reaches it: through
+    # subprocess.run. Asserting the contract (stdout empty, reason preserved,
+    # nonzero code) rather than the mechanism.
+    _NL = chr(10)
+    class _R:
+        def __init__(self, o, e, c):
+            self.stdout, self.stderr, self.returncode = o, e, c
+    _real_run = _sb.subprocess.run
+    try:
+        _sb.subprocess.run = lambda *a, **k: _R(_oci + _NL, "", 128)
+        _o, _e, _c = _sb.run_command("echo alive")
+        check("run_command: infra failure leaves stdout EMPTY",
+              _o == "" and _c == 128)
+        check("run_command: the reason is kept, on stderr",
+              "procReady" in _e)
+        _sb.subprocess.run = lambda *a, **k: _R("alive" + _NL, "", 0)
+        _o2, _e2, _c2 = _sb.run_command("echo alive")
+        check("run_command: a real answer still passes through untouched",
+              _o2 == "alive" + _NL and _c2 == 0)
+    finally:
+        _sb.subprocess.run = _real_run
+
+    # ensure_body must not accept docker's status field as proof of life.
+    from executive import runtime as _rtm
+    with open(_rtm.__file__, encoding="utf-8") as _rf:
+        _src = _rf.read()
+    _eb = _src[_src.index("async def ensure_body"):_src.index("def sleep_duration_seconds")]
+    check("ensure_body proves liveness by executing, not by asking is_running",
+          "body_responds" in _eb)
+    check("ensure_body verifies the RESPAWNED body too",
+          _eb.count("body_responds") >= 2)
+
     print()
     if fails:
         print("FAILURES: " + ", ".join(fails))
