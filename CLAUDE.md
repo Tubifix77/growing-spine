@@ -129,6 +129,16 @@ or a path literal that already exists elsewhere, stop.
 
 ## 5. Scars — signatures, so a recurrence is a lookup not a re-diagnosis
 
+- **`journalctl` is the FRAMEWORK's stdout. What the creature DID is in
+  `~/growing-spine-mind/journal.jsonl`.** Measuring the creature from journald
+  undercounts everything, silently, because most of its record never goes to
+  stdout. On 2026-08-18 this produced three wrong numbers in one session:
+  "`served_by` is no longer greppable" (it is, in the journal file — 1,148 records
+  on 08-17), "0 exec blocks in three hours" (there were 595 that day), and "only
+  one wake fell in the dead window" (there were 152 thinks and **202 exec
+  blocks**). Worse, that file keys on **epoch `ts`, not a date string**, so
+  `grep '2026-08-18' journal.jsonl` returns 3 coincidental hits and reads exactly
+  like a quiet day. Parse `ts` with `time.localtime`; never date-grep it.
 - **A status field is not liveness. Prove it by doing.** `ensure_body` returned
   True on `docker inspect .State.Running`, which reads `true` for a container
   whose PID namespace is full and which cannot fork a single process. The body sat
@@ -354,6 +364,29 @@ the checker call. **Verified through the real path, not by hand:** the restarted
 brain found it itself —
 `07:47:54 BODY UNRESPONSIVE: exec probe exit 128 ... / 07:48:08 Body respawned.`
 Then `Init=true`, zombies 0, and from the container `echo alive` + `ask` -> `ok`.
+
+**The cost of the outage, from the creature's own journal (not journald).** In
+the 3h37m the body could not fork: **202 exec blocks attempted, 202 recorded as
+completed, 213 records carrying `stdout=OCI runtime exec failed...`**, alongside
+152 thinks and 27 exec_skips. Two OCI variants appear — `procReady not received`
+and `error executing setns` — both caught by `exec_setup_failure`, verified.
+So the creature ran two hundred commands whose output was a docker error, and its
+own record shows two hundred successful executions. An earlier figure in this
+session ("only one wake fell in the window") came from grepping journald for
+`Wake:` and was wrong by two orders of magnitude; see the journald scar in §5.
+
+**Throughput, measured from `journal.jsonl` by epoch `ts`:** 08-14 950 thinks /
+1,305 exec, 08-15 1,019 / 1,351, 08-16 759 / 1,085, **08-17 1,148 / 1,585** (the
+best day in the window), 08-18 371 / 595 by 08:05. Truncation share of thinks:
+**5.6% on 08-17, 15.1% on 08-18** — elevated today and concentrated in
+`google_gemma` (55 of ~210 of its calls). Provider mix 08-18: gemma 41.5%,
+**mistral 37.5%** (9.7% on 08-17), cerebras 5.4%. The mistral rung is carrying
+real load. Five-day `token ceiling` counts from journald are flat (134 / 115 /
+94 / 132 / 102), so **today's rise is not a regression from this session's
+changes** — but note `finish=length` is recorded via `record_success`, so a
+truncating rung is never walled and the fat-think rung below it is never reached
+by escalation. Size-aware routing stays rejected (§8, deliberately not built);
+this is recorded as a measurement, not a proposal.
 
 **The CPU was a second, unrelated fault, also measured.** `_build_knowledge_block`
 cost **45.0 s of every wake**, 27.6 s of it `_dependency_summary`:
