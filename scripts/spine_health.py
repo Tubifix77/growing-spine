@@ -289,6 +289,44 @@ def check_unmet_demand(today=None):
     return tag
 
 
+WAKE_COST_STATE = os.path.expanduser("~/spine-wake-cost.json")
+
+
+def check_wake_cost():
+    """Report the per-cycle context-build cost the brain recorded.
+
+    The NUMBER goes in the line every day, not only when it breaches: the fault
+    this watches for grows slowly with the creature's own success, so a visible
+    trend is worth more than a threshold being exactly right. Written by
+    loop._record_wake_cost; budget and derivation live there, and this reader
+    imports the budget rather than restating it -- a producer and a checker that
+    each carry their own copy of a number always drift.
+    """
+    try:
+        with open(WAKE_COST_STATE, encoding="utf-8") as f:
+            st = json.load(f)
+    except Exception:
+        return "WAKE:no-data"
+    if not isinstance(st, dict) or not st.get("n"):
+        return "WAKE:no-data"
+    try:
+        from executive.loop import WAKE_COST_BUDGET_MS as budget
+    except Exception:
+        return ("WAKE:p50 %.0fms max %.0fms n%s"
+                % (st.get("p50") or 0, st.get("max") or 0, st.get("n")))
+    age_h = (time.time() - (st.get("updated") or 0)) / 3600.0
+    tag = ("WAKE:p50 %.0fms max %.0fms n%s"
+           % (st.get("p50") or 0, st.get("max") or 0, st.get("n")))
+    if age_h > 3:
+        # The brain has not recorded a cycle in hours. That is not a wake-cost
+        # fault, and this check must not report a stale number as a live one.
+        return tag + "(STALE %.0fh)" % age_h
+    if st.get("over"):
+        tag += ("  WAKE-BUDGET:!![%.0fms > %dms -- a per-cycle cost is growing]"
+                % (st.get("p50") or 0, budget))
+    return tag
+
+
 def journal_integrity():
     """Detect + auto-repair torn/interleaved journal lines (abrupt-shutdown
     damage). Recovers the last complete {...} object from a torn line; drops
@@ -526,7 +564,7 @@ if __name__ == "__main__":
             + "  ".join([check_sensor(), check_fallbacks(), stub_janitor(),
                          journal_integrity(), check_tool_wiring(),
                          check_jsonl(), check_flatline(),
-                         check_unmet_demand()]))
+                         check_unmet_demand(), check_wake_cost()]))
     _rc = exit_code(SILENT_KEYS, DEAD_KEYS)
     if _rc:
         line += f"  SERIOUS:{','.join(sorted(SILENT_KEYS & DEAD_KEYS))}"

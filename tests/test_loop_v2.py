@@ -1966,6 +1966,58 @@ async def main():
     else:
         print("SKIP embed exclude tests (embed unavailable)")
 
+    # ---- wake cost: the instrument for the class, not the instance ----------
+    # Fixing the 187,489-scan was fixing one function. This watches every
+    # per-cycle builder, because they all live inside _build_context.
+    _wc = os.path.join(TMP, "wake_cost.json")
+    check("wake-cost tests write to TMP, never the real state file",
+          _wc.startswith(TMP) and _wc != loop.WAKE_COST_STATE_PATH)
+
+    # A healthy cost never shouts, however many cycles run.
+    _crossings = 0
+    for _ in range(30):
+        _p50, _mx, _cr = loop._record_wake_cost(1090.0, path=_wc)
+        _crossings += 1 if _cr else 0
+    check("a healthy per-cycle cost never fires the budget",
+          _crossings == 0 and abs(_p50 - 1090.0) < 1)
+
+    # Drive it into the fault state: the observed 45,032 ms.
+    _fired = 0
+    for _ in range(30):
+        _p50b, _mxb, _cr = loop._record_wake_cost(45032.0, path=_wc)
+        _fired += 1 if _cr else 0
+    check("the budget fires when the cost reaches the observed fault state",
+          _fired == 1)
+    check("it fires ONCE on the edge, not every cycle while it lasts",
+          _fired == 1 and _p50b > loop.WAKE_COST_BUDGET_MS)
+
+    # A fresh file must not shout on its first sample -- one cold cycle is not
+    # a regression, and a brand-new install must not open with an alarm.
+    _wc2 = os.path.join(TMP, "wake_cost2.json")
+    _first = loop._record_wake_cost(45032.0, path=_wc2)[2]
+    check("a single cold sample does not fire the budget",
+          _first is False)
+
+    # p50, not mean: one outlier must not move the verdict.
+    check("the summary is a median, so one outlier cannot swing it",
+          loop._wake_cost_summary([1000, 1000, 1000, 1000, 99999])[0] == 1000)
+
+    # The recorder must never be able to kill a cycle.
+    check("an unwritable path degrades quietly instead of raising",
+          loop._record_wake_cost(1.0, path=os.path.join(TMP, "no", "such",
+                                                        "dir", "x.json"))
+          == (0.0, 0.0, False))
+
+    # The checker must read the producer's budget, never restate it.
+    with open(os.path.join(os.path.dirname(os.path.dirname(
+            os.path.abspath(loop.__file__))), "scripts",
+            "spine_health.py"), encoding="utf-8") as _shf:
+        _shsrc = _shf.read()
+    check("the health reader imports the budget rather than carrying a copy",
+          "WAKE_COST_BUDGET_MS as budget" in _shsrc
+          and str(loop.WAKE_COST_BUDGET_MS) not in
+              _shsrc.split("def check_wake_cost")[1].split("def journal_integrity")[0])
+
     # ---- the builder's trigger, now that it can be computed ----------------
     # Redefined 2026-08-18. The parked wording ("demanded stubs >= 5 sustained
     # above zero for 7 consecutive days") could not be evaluated: demand_counts

@@ -3353,6 +3353,89 @@ def _build_active_project_block() -> str:
         return ""
 
 
+# ---------------------------------------------------------------------------
+# WAKE COST -- an instrument for the fault class that has no other detector.
+#
+# On 2026-08-18 _build_knowledge_block cost 45.0 s of every wake, 27.6 s of it a
+# scan that ran 433 x 433 = 187,489 full-content regex searches per cycle. Nothing
+# failed, nothing logged, and it got WORSE every time the creature built a tool --
+# the load parameter was its own success. It was found because Tue could hear the
+# laptop fan from across the room, which is not an instrument this system owns.
+#
+# Fixing that scan fixed the instance. This measures the CLASS: every per-cycle
+# builder lives inside _build_context, so anything added there later -- by me, or
+# by whoever comes next -- is timed by construction and cannot grow in silence.
+#
+# The budget is DECLARED, not learned. A threshold that adapts to what it observes
+# ratchets in whatever direction the fault is moving and never announces it, which
+# is exactly the disease this project spent a week removing from provider routing;
+# section 8 records the rule that came out of it -- declared numbers, and the
+# detector SHOUTS rather than quietly adjusting. Derivation of the 5 s: measured
+# cost after the fix is 1,090 ms (2026-08-18 16:51), the observed fault state was
+# 45,032 ms, and a wake cycle at the current rate of 82 thinks/hour is about 44 s.
+# So 5 s is ~4.6x headroom over the healthy measurement and ~9x below the fault,
+# and it is 11% of a cycle rather than 100% of one.
+#
+# WHO RECEIVES IT: us and Tue. The creature cannot fix _build_context -- that is
+# framework code it never sees -- so this does NOT enter the wake context. It is
+# edge-triggered into the brain's log the cycle it crosses, and the daily health
+# line carries the trend either way, so growth is visible without the threshold
+# having to be right.
+WAKE_COST_STATE_PATH = os.path.expanduser("~/spine-wake-cost.json")
+WAKE_COST_BUDGET_MS = 5000
+WAKE_COST_WINDOW = 50      # ~1 hour of cycles at the current rate
+
+
+def _wake_cost_summary(samples):
+    """p50 and max over the window. p50, not mean: one slow cycle from a cold
+    page cache must not read as a regression, and one fast one must not hide it."""
+    if not samples:
+        return 0.0, 0.0
+    ordered = sorted(samples)
+    return ordered[len(ordered) // 2], ordered[-1]
+
+
+def _record_wake_cost(ms: float, path: str = None, now: float = None):
+    """Append one wake's context-build cost. Returns (p50, max, crossed).
+
+    `crossed` is True only on the EDGE -- the cycle where the median goes from
+    inside the budget to outside it. A fact repeated every cycle is a nag that
+    gets skipped, and this one would repeat for as long as the fault lasted.
+
+    Never raises. An instrument that can kill a cycle is worse than no
+    instrument; the whole point of it is to be the thing that still works.
+    """
+    path = path or WAKE_COST_STATE_PATH
+    try:
+        st = {}
+        try:
+            with open(path, encoding="utf-8") as f:
+                st = json.load(f)
+        except Exception:
+            st = {}
+        if not isinstance(st, dict):
+            st = {}
+        samples = [x for x in (st.get("samples") or []) if isinstance(x, (int, float))]
+        was_over = bool(st.get("over"))
+        samples.append(round(float(ms), 1))
+        samples = samples[-WAKE_COST_WINDOW:]
+        p50, mx = _wake_cost_summary(samples)
+        # Only judge on a full-ish window: a fresh file must not shout on sample 1.
+        is_over = len(samples) >= 10 and p50 > WAKE_COST_BUDGET_MS
+        st = {"samples": samples, "over": is_over,
+              "p50": p50, "max": mx, "n": len(samples),
+              "updated": now or time.time()}
+        if is_over and (not was_over or float(st.get("worst_ms") or 0) < mx):
+            st["worst_ms"] = mx
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(st, f)
+        os.replace(tmp, path)
+        return p50, mx, (is_over and not was_over)
+    except Exception:
+        return 0.0, 0.0, False
+
+
 def _build_context(recent_journal: list, tue_message: str = None) -> str:
     protected = _load_protected_prompt()
     editable = _load_editable_prompt()
@@ -3397,7 +3480,14 @@ async def run_cycle(keychain: Keychain, dockerfile_dir: str):
     # retried next cycle instead of being silently lost.
     _peek = chatmod.peek_unread(VOLUME_MOUNT)
     tue_ts, tue_message = (_peek if _peek else (None, None))
+    _ctx_t0 = time.time()
     context = _build_context(recent_j, tue_message)
+    _cp50, _cmax, _crossed = _record_wake_cost((time.time() - _ctx_t0) * 1000.0)
+    if _crossed:
+        # Edge-triggered: said once when it starts, not every cycle while it lasts.
+        print(f"[executive] WAKE COST over budget: building this wake's context "
+              f"now costs {_cp50:.0f} ms median (peak {_cmax:.0f} ms) against a "
+              f"{WAKE_COST_BUDGET_MS} ms budget -- a per-cycle cost is growing")
 
     journal.append(VOLUME_MOUNT, "think_start", "Sending to keychain...")
     # 3072, not the 2048 default: measured 2026-08-06, 269 of 952 thinks (28%)
