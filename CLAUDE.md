@@ -640,11 +640,37 @@ any future correction needs doing twice.
   0, held through 42 edits on 8 Aug), and delivered tools would be a new
   injection channel into the creature's library — the exact class (a healthy-
   looking file doing something false) behind the mock scar. **Named triggers:**
-  (1) demanded stubs (`demand_counts` ≥ 5) sustained above zero for 7
-  consecutive days — its own hands stopped keeping up; or (2) the data-warning
-  surfacing NEW unreadable/fabricated stores in consecutive weeks — visibility
-  proved insufficient and quality needs fixing at construction time. Until one
-  fires, the graft answers a theory.
+  (1) **UNMET DEMAND GREW ON 7 CONSECUTIVE DAYS** — `spine_health.check_unmet_demand`,
+  emitted daily as `UNMET:<names>n/<demand>d<delta> streak N/7` and shouting
+  `BUILDER-TRIGGER:!!` with the top three names when it fires; or (2) the
+  data-warning surfacing NEW unreadable/fabricated stores in consecutive weeks —
+  visibility proved insufficient and quality needs fixing at construction time.
+  Until one fires, the graft answers a theory.
+
+  **Trigger (1) was redefined 2026-08-18, because the original could not be
+  evaluated at all.** It read "demanded stubs (`demand_counts` ≥ 5) sustained
+  above zero for 7 consecutive days", and both halves were broken:
+  `demand_counts` is a **cumulative all-time counter with no timestamps**, so
+  nothing in it can express any present tense — `health-summary-fixed` reads 378
+  today from invocations that stopped months ago, `llm_ask_helper` 104 for a tool
+  that died in `/tmp` on 23 June. And "demanded stubs" names the one population
+  the stub organ **zeroes by construction** (`_finish_stub_spec` opens with
+  `stubs = _library_hollow_tools()`), so the easy reading sits at 0 forever while
+  327 demanded names have no file at all. A hold resting on a number nobody has
+  computed is not a hold with a trigger.
+  Now measured as the **daily delta** of unmet demand — did it reach for
+  something it has not built *again today* — with one record per day in
+  `~/spine-health-unmet.json` (host home, outside the volume and the repo). A
+  flat day breaks the streak: that is its own hands keeping up, which is the
+  thing being watched. A **missing calendar day also breaks it** — the box was
+  off, so there is no evidence, and absence of evidence must never read as a
+  zero. A counter rewrite appears as a large negative delta and breaks the streak
+  rather than being smoothed. **Baseline, first reading 2026-08-18 08:07:
+  `UNMET:327n/7460d`, streak 0/7**; deltas only become meaningful from 08-19.
+  Cost 53 ms, daily (`spine-health.timer` is 06:30 daily, not hourly). This
+  instrument reports to **us and Tue, not the creature** — it answers whether to
+  graft a second actor, which is not a fact about its world, and the wake context
+  is unchanged.
 
 **Monthly ritual.** Ask the creature what made its work harder; it answers once —
 it has **no outbound channel** — then investigate and report back. First run
