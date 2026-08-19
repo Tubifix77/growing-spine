@@ -16,6 +16,11 @@ def _load_config() -> list:
 # probe refreshes exhausted_at, self-throttling to one attempt per window.
 UPWARD_REPROBE_SECS = 600
 
+# Distinct unrecognised provider errors already announced in this process. Bounds
+# the log to one line per novel failure mode rather than one per cycle. A brain
+# restart re-announces, which is correct: a new process has not reported it yet.
+_REPORTED_UNKNOWN = set()
+
 
 def order_providers(enabled, state, now, cooldown=UPWARD_REPROBE_SECS):
     """Priority-aware provider order with upward re-probe (2026-07-18).
@@ -41,7 +46,8 @@ def classify_error(err: str) -> str:
                          responses: empty completions, timeouts, conn resets --
                          2026-07-17: these used to hard-raise and abort the
                          WHOLE chain, losing the cycle even with open windows)
-    hard              -> raise
+    unknown           -> next provider, announced once, account NOT walled.
+                         The DEFAULT. Never abort a chain with open rungs.
     """
     err_l = err.lower()
     if ("413" in err or "request too large" in err_l or "request_too_large" in err_l
@@ -62,7 +68,18 @@ def classify_error(err: str) -> str:
         # must still never hard-raise on it.
         return "gone"
     if ("quota" in err_l or "rate_limit_exceeded" in err_l or "exceeded" in err_l
-            or "billing" in err_l or "429" in err):
+            or "billing" in err_l or "429" in err
+            # 402 Payment Required is how a spent free ALLOWANCE reads on a
+            # provider whose budget is monthly rather than daily. Mistral answers
+            # HTTP 402 with {"detail":"Check your subscription on
+            # admin.mistral.ai/subscription"} -- no "quota", no "billing", no
+            # "exceeded" anywhere in it, so before 2026-08-19 it fell through to
+            # the default and HARD-RAISED, killing 651 cycles in one day that had
+            # google_gemma and gemini_flash sitting open. The account is out of
+            # budget; that is quota, and it must wall the rung so the ladder falls
+            # through instead of dying.
+            or "402" in err or "payment required" in err_l
+            or "subscription" in err_l or "insufficient" in err_l):
         return "quota"
     if ("500" in err or "502" in err or "503" in err or "504" in err
             or "high traffic" in err_l):
@@ -71,7 +88,24 @@ def classify_error(err: str) -> str:
             or "connection refused" in err_l or "connection reset" in err_l
             or "temporary failure" in err_l):
         return "flaky"
-    return "hard"
+    # UNRECOGNISED, and that is a class of its own rather than a reason to stop.
+    #
+    # This default used to be "hard", which raises and aborts the WHOLE chain. The
+    # project learned that lesson once already -- on 2026-07-17 degenerate
+    # free-pool responses were hard-raising and losing cycles "even with open
+    # windows", and the fix was to enumerate them as flaky. Enumerating strings
+    # leaves the fail-CLOSED default in place, so it recurred on 2026-08-19 with a
+    # provider error nobody had seen yet: one rung 402 killed cognition that four
+    # other rungs could have served.
+    #
+    # A ladder whose entire purpose is graceful degradation must not treat "I do
+    # not recognise this" as "stop everything". Unknown errors move to the next
+    # rung, WITHOUT walling the account -- we do not know it is out of budget --
+    # and say so loudly exactly once per distinct error, because a graceful
+    # degradation that logs nothing is a silent outage. If every rung fails and an
+    # unknown was among them, complete() raises carrying that text, so the reason
+    # still reaches the log instead of a generic "all providers exhausted".
+    return "unknown"
 
 
 class Keychain:
@@ -109,6 +143,7 @@ class Keychain:
         ordered = order_providers(enabled, self.state, time.time())
 
         had_transient = False
+        unknown_err = ""
         for cfg in ordered:
             messages = []
             if system:
@@ -191,8 +226,21 @@ class Keychain:
                         stop_rung = True
                         break  # move to next provider
 
-                    # Hard error
-                    raise RuntimeError(f"Provider {cfg['key']} error: {err}")
+                    # Unrecognised. Route around it; never lose a cycle that
+                    # still has open rungs. Announced once per distinct error so a
+                    # new failure mode gets classified instead of accumulating in
+                    # silence -- once, not per cycle, or it becomes a nag.
+                    had_transient = True
+                    unknown_err = f"{cfg['key']}: {err}"
+                    sig = cfg["key"] + "|" + err[:120]
+                    if sig not in _REPORTED_UNKNOWN:
+                        _REPORTED_UNKNOWN.add(sig)
+                        print(f"[keychain] {cfg['key']} returned an error this "
+                              f"classifier does not recognise -- routing to the "
+                              f"next rung and NOT walling the account. Classify "
+                              f"it: {err[:200]}")
+                    stop_rung = True
+                    break  # next provider
 
                 if stop_rung:
                     break
@@ -204,6 +252,12 @@ class Keychain:
                 # followed by a flaky one would otherwise wall a healthy account.
                 qs.record_exhaustion(self.state, cfg["key"])
 
+        if unknown_err:
+            # Every rung failed AND one failed in a way we cannot name. Carry that
+            # text: "all providers exhausted" would throw away the only copy of
+            # the reason, which is how a silent outage gets built.
+            raise RuntimeError(
+                "All providers failed; last unrecognised error -- " + unknown_err)
         if had_transient:
             raise RuntimeError("All providers temporarily unavailable.")
         raise RuntimeError("All providers exhausted.")

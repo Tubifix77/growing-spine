@@ -443,8 +443,23 @@ async def main():
           classify_error("HTTP 413: Request too large ... TPM Limit 12000") == "too_large")
     check("classify: per-minute rate limit -> retryable",
           classify_error("rate_limit hit: 30 requests per minute") == "retryable")
-    check("classify: unknown -> hard",
-          classify_error("something exploded weirdly") == "hard")
+    # This asserted == "hard" until 2026-08-19 and was testing the very default
+    # that killed 651 cycles: "hard" raises and aborts the whole chain, so an error
+    # nobody had enumerated yet took down cognition that four open rungs could have
+    # served. Assert the CONTRACT -- an unrecognised error must never be the reason
+    # a ladder with open rungs stops.
+    check("classify: an unrecognised error never hard-raises the chain",
+          classify_error("something exploded weirdly") == "unknown")
+    # REAL string, from the creature's journal at 17:26 on 2026-08-19, not authored.
+    # Mistral answers a spent MONTHLY allowance with 402 and the word subscription:
+    # no "quota", no "billing", no "exceeded", no 429 anywhere in it.
+    _m402 = ('HTTP 402: {"detail":"Check your subscription on '
+             'https://admin.mistral.ai/subscription"}')
+    check("classify: a 402 spent-allowance is quota, so the rung gets walled",
+          classify_error(_m402) == "quota")
+    check("classify: payment/insufficient wording is also quota",
+          classify_error("HTTP 402 payment required") == "quota"
+          and classify_error("insufficient balance for this request") == "quota")
     # These two asserted `== "quota"` until 2026-08-10 and went red the moment the
     # mechanism improved, which is the scar in section 5: assert the CONTRACT. The
     # contract a dead model id must satisfy is "never hard-raise, and do not spend
@@ -537,6 +552,82 @@ async def main():
               "GONE" in _log and "gone/only:free" in _log)
         check("multi-model rung: the log says the rung was walled, not that it fell through",
               "walling it" in _log)
+
+        # ---- a ladder must not die on an error it cannot name (2026-08-19) ----
+        # The fault this replaces: mistral returned 402, classify_error had no
+        # branch for it, the default "hard" raised, and the cycle was lost while
+        # google_gemma and gemini_flash sat open. 651 times in one day. And because
+        # it raised, record_exhaustion never ran, so the rung was never walled and
+        # was retried every single cycle.
+        def _ladder(*keys):
+            k = _kcmod.Keychain.__new__(_kcmod.Keychain)
+            k.providers = [{"key": n, "endpoint": "e", "api_key": "k",
+                            "model_id": "m"} for n in keys]
+            k.state, k.last_used, k.last_model = {}, None, None
+            k.last_finish_reason, k.last_truncated = "", False
+            return k
+
+        _hit = []
+
+        async def _byrung(cfg, messages, max_tokens=2048, model=None):
+            _hit.append(cfg["key"])
+            if cfg["key"] == "weird":
+                return {"error": "HTTP 418 the server is a teapot",
+                        "text": "", "finish_reason": "", "truncated": False}
+            if cfg["key"] == "spent":
+                return {"error": _m402, "text": "", "finish_reason": "",
+                        "truncated": False}
+            return {"error": None, "text": "served", "finish_reason": "stop",
+                    "truncated": False, "tokens_used": 3}
+        _provmod.call = _byrung
+        try:
+            _hit.clear()
+            _kcmod._REPORTED_UNKNOWN.clear()
+            kA = _ladder("weird", "healthy")
+            _capA = _iog.StringIO()
+            with _ctxg.redirect_stdout(_capA):
+                _outA = await kA.complete("hi")
+            check("an unrecognised error routes to the next rung instead of "
+                  "killing the cycle",
+                  _outA == "served" and _hit == ["weird", "healthy"])
+            check("the rung that failed unrecognisably is NOT walled",
+                  "exhausted_at" not in kA.state.get("weird", {}))
+            check("the unrecognised error is announced, with its text, so it can "
+                  "be classified",
+                  "does not recognise" in _capA.getvalue()
+                  and "teapot" in _capA.getvalue())
+
+            # Announced once per distinct error, not once per cycle -- a line
+            # repeated every cycle is a nag that gets skipped.
+            _capB = _iog.StringIO()
+            with _ctxg.redirect_stdout(_capB):
+                await _ladder("weird", "healthy").complete("hi")
+            check("it is announced once per process, not once per cycle",
+                  "does not recognise" not in _capB.getvalue())
+
+            # The real mistral case end to end: walled, and the ladder serves on.
+            _hit.clear()
+            kC = _ladder("spent", "healthy")
+            _outC = await kC.complete("hi")
+            check("a spent monthly allowance walls its rung and the ladder still "
+                  "serves",
+                  _outC == "served" and _hit == ["spent", "healthy"]
+                  and "exhausted_at" in kC.state.get("spent", {}))
+
+            # If everything fails and one failure was unnameable, the reason must
+            # survive: "all providers exhausted" would discard the only copy.
+            _kcmod._REPORTED_UNKNOWN.clear()
+            _msg = ""
+            try:
+                with _ctxg.redirect_stdout(_iog.StringIO()):
+                    await _ladder("weird").complete("hi")
+            except RuntimeError as _re:
+                _msg = str(_re)
+            check("when every rung fails, the unrecognised reason is carried in "
+                  "the raise",
+                  "teapot" in _msg and "exhausted" not in _msg.lower())
+        finally:
+            _provmod.call = _fake
 
         _seen.clear()
         k3 = _rung(["gone/a:free", "gone/b:free"])
