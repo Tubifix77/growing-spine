@@ -190,6 +190,27 @@ or a path literal that already exists elsewhere, stop.
   docs are a sanity check, headers are the fact. And check whether the numbers
   you actually need are even returned — Mistral gives per-minute only, so the
   size of its free allowance is invisible until it runs out.
+- **A ladder's default for an unrecognised error must never be "stop".**
+  `classify_error` ended in `return "hard"`, and `hard` RAISES, aborting the whole
+  provider chain. So the first provider error nobody had enumerated took down
+  cognition that four open rungs could have served: mistral answers a spent
+  monthly allowance with `HTTP 402 {"detail":"Check your subscription on
+  admin.mistral.ai/subscription"}` — no *quota*, no *billing*, no *exceeded*, no
+  429 — and on 2026-08-19 that killed **651 cycles in one day**, dropping the
+  creature from 82 thinks/hour to **6**. Because it raised, `record_exhaustion`
+  never ran either, so the rung was never walled and was retried every cycle.
+  This project had already learned the lesson once — 2026-07-17, degenerate
+  free-pool responses hard-raising "even with open windows" — and fixed it by
+  **enumerating more strings**, which left the fail-closed default untouched. That
+  is why it recurred. Invariant: **an unrecognised error routes to the next rung,
+  does not wall the account, and is announced once with its text.** When you split
+  a failure class to know which one happened, the default is the half that bites.
+- **Adding a rung means adding its EXHAUSTION SIGNATURE, not just its key.** The
+  mistral rung was added 08-17 from live `x-ratelimit-*` headers — the right source
+  for *limits*, and silent about what the provider returns once the allowance is
+  gone. Two days later that unknown response shape was the outage. Before a rung
+  carries traffic, either know what its 402/429 body looks like or verify
+  `classify_error` maps it to something other than the default.
 - **A graceful degradation that logs nothing is a silent outage.** Groq withdrew
   `llama-3.3-70b-versatile` on 2026-08-17; the `groq` rung began returning 404,
   the ladder classified it `gone`, walled the rung and carried on — correctly,
@@ -518,10 +539,20 @@ implementation survives as `wake_catchup_fetcher.real` (541 b, 28 Jun).
   **All limits came from the account's own `x-ratelimit-*` headers, never docs** —
   Mistral publishes no free-tier numbers (its tier page defers to a signed-in
   panel), and the curated lists filling that gap are the same ones that gave this
-  file its wrong `groq: 14400`. **UNKNOWN: no daily or monthly header is returned,
-  so the size of the free allowance is invisible.** If it runs out the rung
-  402/429s and the keychain walls it honestly — watch for `mistral` appearing in
-  FLATLINE. Key lives at `/home/boas/mistral.key` (chmod 600, outside the repo).
+  file its wrong `groq: 14400`. **RESOLVED 2026-08-19, the hard way: the allowance is
+  MONTHLY and it ran out in two days.** No daily or monthly header is returned, so
+  its size stayed invisible until exhaustion, exactly as flagged. It became the
+  workhorse — 77.7% of thinks on 08-18, 72.9% on 08-19 — and spent a month of
+  budget by 05:00 on 08-19. Tue read the reset date off the Mistral admin panel:
+  **usage resets 2026-08-31.** Left **enabled** deliberately: walled costs one
+  re-probe per 10 min, and the rung then returns on 08-31 without anyone having to
+  remember a config flag.
+  **The sentence that stood here was wrong, and it was mine (08-17): "If it runs
+  out the rung 402/429s and the keychain walls it honestly."** It 402'd and the
+  keychain did NOT wall it — `classify_error` had no branch for 402, so the default
+  hard-raised and killed the cycle instead. A prediction about a path nobody had
+  exercised, written in the voice of a measurement; see the ladder scar in §5 for
+  what it cost. FLATLINE did report `mistral(12h)`, so that half held. Key lives at `/home/boas/mistral.key` (chmod 600, outside the repo).
 - **The ladder is six rungs (2026-08-17).** `groq` retired the day Groq withdrew
   `llama-3.3-70b-versatile`: it served at 10:28 and 404'd by 17:20 (direct probe).
   Not repointed — `openai/gpt-oss-120b` is already `groq_oss120` on the same

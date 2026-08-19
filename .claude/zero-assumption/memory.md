@@ -1,0 +1,34 @@
+# Zero-Assumption Memory Ledger
+
+Every row is a fact earned from a live lookup and trusted *only* because it carries a source.
+Never add a fact from memory. See the `zero-assumption` contract §5 for read/validate/write,
+staleness, and the contradiction protocol.
+
+- **claim** — short, stable identifier for the fact
+- **value** — the verified answer
+- **source** — URL or identifier that substantiates it
+- **retrieved** — ISO date (YYYY-MM-DD) fetched
+- **freshness** — `volatile` (re-verify every use) or `stable` (reuse while verified)
+- **status** — `verified` (trusted) or `superseded` (history only, not reused)
+
+| claim | value | source | retrieved | freshness | status |
+|-------|-------|--------|-----------|-----------|--------|
+| llama-3.3-70b-versatile availability on this Groq account | RETIRED — HTTP 404 model_not_found at 17:20 on 2026-08-17; same model served the rung at 10:28 the same day | live probe from growing-spine-body container | 2026-08-17 | volatile | verified |
+| curated free-LLM lists are unreliable for numbers | awesome-free-llm-apis (verified Mar 2026) states Groq 14,400 RPD; Groq's own docs say 1,000 RPD and this account's headers returned limit-requests=1000. config.yaml's wrong `limit: 14400` matches the list exactly | https://github.com/amardeeplakshkar/awesome-free-llm-apis vs https://console.groq.com/docs/rate-limits | 2026-08-17 | volatile | verified |
+| Google does NOT publish free-tier RPM/RPD/TPM in docs | rate-limits page defers to the signed-in AI Studio dashboard; only Batch API enqueued-token tables are public | https://ai.google.dev/gemini-api/docs/rate-limits | 2026-08-17 | volatile | verified |
+| Mistral does NOT publish free-tier numbers in docs | tier page says only "use included monthly usage within the limits shown on the Limits page" (signed-in Admin>API>Limits) | https://docs.mistral.ai/admin/user-management-finops/tier | 2026-08-17 | volatile | verified |
+| Mistral La Plateforme has a free tier for experimentation/prototyping | stated on Mistral's own site; NO numeric limits verifiable without an account | https://mistral.ai/news/september-24-release/ | 2026-08-17 | volatile | verified |
+| Mistral free allowance EXISTS and serves (this account) | mistral-large-latest / mistral-medium-latest / magistral-small-latest all returned real completions; 55 models visible to the key | live calls from the laptop, 2026-08-17 19:2x | 2026-08-17 | volatile | verified |
+| Mistral per-model limits ON THIS ACCOUNT (headers, not docs) | mistral-large-latest 4 req/min + 250,000 tok/min; mistral-medium-latest 50 req/min + 25,000 tok/min; magistral-small-latest 50 req/min + 50,000 tok/min. NO daily/monthly header returned | live x-ratelimit-* response headers | 2026-08-17 | volatile | verified |
+| Mistral endpoint shape fits this keychain unmodified | POST https://api.mistral.ai/v1/chat/completions, `Authorization: Bearer <key>`, body {model, messages, max_tokens} — same shape provider.py already posts. No explicit "OpenAI-compatible" wording on the page; structural match only | https://docs.mistral.ai/api/ | 2026-08-17 | stable | verified |
+| groq free-tier limits, llama-3.3-70b-versatile | 30 RPM / 1,000 RPD / 12,000 TPM / 100,000 TPD | https://console.groq.com/docs/rate-limits | 2026-08-14 | volatile | verified |
+| groq 429 behavior + headers | 429 Too Many Requests; retry-after only on 429; x-ratelimit-{limit,remaining,reset}-{requests,tokens} on all responses | https://console.groq.com/docs/rate-limits | 2026-08-14 | volatile | verified |
+| config.yaml groq quota claim (14,400/day) contradicts published RPD (1,000) | docs say 1,000 RPD for llama-3.3-70b-versatile; config claims 14400 — account headers are the tiebreaker for THIS account | config.yaml vs https://console.groq.com/docs/rate-limits | 2026-08-14 | volatile | verified |
+| updated zero-assumption contract (Tubifix77 repo) matches loaded local copy on all core rules | cite-or-refuse, ledger sole authority, register-on-verify, contradiction protocol, corroborate numbers — no differences found | https://raw.githubusercontent.com/Tubifix77/zero-assumption/main/skills/zero-assumption/references/contract.md | 2026-08-14 | stable | verified |
+| groq chat completions endpoint serves llama-3.3-70b-versatile from inside creature container | live call returned 'ALIVE' (this session, 2026-08-14, via docker exec + GROQ_API_KEY env) | live API call, instrument: urllib POST api.groq.com/openai/v1/chat/completions | 2026-08-14 | volatile | verified |
+| llama-3.3-70b-versatile deprecation | scheduled 2026-08-16 for free/developer tiers; recommended replacements: openai/gpt-oss-20b, openai/gpt-oss-120b, qwen/qwen3.6-27b | https://console.groq.com/docs/deprecations | 2026-08-14 | volatile | verified |
+| Gemini API free-tier rate limits are not published on the docs page | page says limits "can be viewed in Google AI Studio" (auth dashboard); no free-tier RPM/RPD/TPM table, no Gemma rows | https://ai.google.dev/gemini-api/docs/rate-limits | 2026-08-14 | volatile | verified |
+| groq free-tier limits, openai/gpt-oss-120b (also gpt-oss-20b, qwen3.6-27b) | 30 RPM / 1,000 RPD / 8,000 TPM / 200,000 TPD | https://console.groq.com/docs/rate-limits | 2026-08-14 | volatile | verified |
+| THIS account's live bucket for openai/gpt-oss-120b matches published free tier | x-ratelimit-limit-requests=1000, x-ratelimit-limit-tokens=8000 (headers on a live call from the creature's container) | live API headers, instrument: urllib POST from docker exec, 2026-08-14 17:36 | 2026-08-14 | volatile | verified |
+| ask tool end-to-end | `ask "Reply with the single word: ok"` -> exit 0, stdout exactly `ok`; quota file {"day":"2026-08-14","used":1} | live run inside growing-spine-body, 2026-08-14 17:36 | 2026-08-14 | volatile | verified |
+| Mistral free allowance is MONTHLY on this account | Exhausted after ~2 days carrying 73-78% of traffic; admin panel states usage resets 2026-08-31. Exhaustion response is HTTP 402 with body {"detail":"Check your subscription on https://admin.mistral.ai/subscription"} | Mistral admin panel (read by Tue) + 651 live 402 bodies in the creature's journal, 2026-08-19 | 2026-08-19 | volatile | verified |
