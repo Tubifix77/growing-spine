@@ -281,6 +281,19 @@ async def main():
         f.write('Error: LLM call failed: ask: HTTP 429 from provider: '
                 '{"error":{"message":"Rate limit rea' + _NL)
 
+    # A real tool IS executable -- tool-new/tool-edit set the bit, and only 2 of
+    # 485 live tools lack it. A fixture written with open() has no +x, so on POSIX
+    # (where the bit is real) the healthy fixtures read as unstartable and this
+    # block went red on the laptop while passing on the PC. Make the fixtures
+    # resemble the thing they stand for.
+    if os.name == "posix":
+        import stat as _stat_g
+        for _f in ("esc_quotes", "hdr_no_hash", "u2011", "err_as_tool",
+                   "real_tool", "hollow_tool"):
+            _fp = os.path.join(owndir, _f)
+            if os.path.exists(_fp):
+                os.chmod(_fp, os.stat(_fp).st_mode | _stat_g.S_IXUSR)
+
     check("both doors are watched: tool-edit is no longer invisible",
           loop._tools_touched([("tool-edit esc_quotes", 0)]) == {"esc_quotes"}
           and loop._tools_touched([("tool-new a", 0), ("tool-edit b", 0)])
@@ -305,6 +318,10 @@ async def main():
         f.write("#!/usr/bin/env bash" + _NL + "if [ -f x ]; then echo hi; fi" + _NL)
     with open(os.path.join(owndir, "sh_no_shebang"), "w", encoding="utf-8") as f:
         f.write("ls -la" + _NL + "echo done" + _NL)
+    if os.name == "posix":
+        for _f in ("good_sh", "sh_no_shebang"):
+            _fp = os.path.join(owndir, _f)
+            os.chmod(_fp, os.stat(_fp).st_mode | _stat_g.S_IXUSR)
     _sh_uns = loop._unstartable_tools_touched(
         [("tool-edit good_sh", 0), ("tool-edit sh_no_shebang", 0)])
     check("a working shell tool is not condemned by Python's grammar",
