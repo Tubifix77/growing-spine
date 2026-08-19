@@ -364,7 +364,60 @@ journalctl --user -u growing-spine --since "2 hours ago"
 
 ---
 
-## 8. State — 2026-08-18 07:55
+## 8. State — 2026-08-19 18:00
+
+**08-18 was the creature's best day on record: 1,467 thinks / 3,209 exec blocks**
+(08-17 was 1,148 / 1,585). First full day with `--init`, the clean exec path and
+the linear dependency scan. The container fixes survived a reboot around 20:20 on
+08-18: zombies **0**, `pids.current` **2**/9090, `Init=true`, 64C, no clamping.
+
+**Then 08-19: a rung I added on 08-17 killed 651 cycles and thinks fell from
+82/hour to 6.** `mistral`'s spent-allowance reply is
+`HTTP 402 {"detail":"Check your subscription ..."}` — no *quota*, *billing*,
+*exceeded* or 429 — so `classify_error` fell through to its default `"hard"`,
+which RAISES and aborts the whole chain, with `google_gemma` and `gemini_flash`
+open. The raise also pre-empted `record_exhaustion`, so the rung was never walled
+and was retried every cycle. Fixed in `c1b93a5`: 402/payment/subscription/
+insufficient -> `quota`, **and the default is no longer `hard`** — an unrecognised
+error routes to the next rung, does not wall the account, and announces itself once
+with its text; if all rungs fail and one was unnameable the raise carries that
+text. Verified: `mistral` reads WALLED (was `open` through 12h of failures),
+0 hard-raises, **thinks 6/h -> 85/h, errors 50/h -> 0**. See the two new §5 scars.
+
+**All three instruments built this week were CORRECT today and none of them was
+watching this.** FLATLINE named the silent providers; WAKE reported `p50 1713ms`
+against its 5,000 budget (true — the cycles died after context building); UNMET
+gave its first real delta, `327n/7460d -> 326n/7443d` = **-17, streak 0/7**
+(correct: unmet demand fell). The collapse was found because Tue asked for a check,
+which is the definition of a fault that is not fixed. So `f1ec46d` adds
+**`spine_health.check_throughput`** — thinks/hour, exec count, exec/think ratio,
+skips; declared floor **15/hour** (five full days ran 32–61/h, the fault ran at 6);
+wired into the **hourly** tripwire, because a 6h window read once at 06:30 would
+have missed all of 08-19. Verified firing live at 17:50:
+`THINK:9/h over 5.9h (exec 43, exec/think 0.80, skip 15) THROUGHPUT:!!`. Rate is
+taken over the span that PRODUCED records, not wall clock, so a box switched off
+overnight is not a collapse. Reads `journal.jsonl` by epoch `ts`, 32 MB of tail
+(the file is 130 MB / 293k records), and says when it could not reach the start.
+584 ms, hourly. For **us and Tue**; nothing enters the wake context.
+
+**Ladder state 2026-08-19.** `mistral` allowance is **MONTHLY, resets 2026-08-31**
+— left ENABLED so it returns on its own. `cerebras` probed directly through
+`provider.call`: `HTTP 402 "Payment required ... Visit your billing tab"` with
+`"param":"quota"`, dark 37h — that body DOES contain "quota" so it has been walled
+correctly all along. Not defunct (model exists, account out of credit), so no
+config change. **Named triggers: serves again by 08-20 -> short cycle, keep; else
+hold to 09-01 (month boundary, the hypothesis mistral just proved); still 402 after
+that -> retire and replace.** Checked in advance because retiring `groq` taught it:
+`cerebras` IS a `LEGACY_KEY_ALIAS`, so disabling deletes `CEREBRAS_API_KEY` from
+the container — but **no tool in `tools/own/` references it**, so retirement is
+safe. Carrying load until month-end: `google_gemma`, `gemini_flash`,
+`groq_oss120`, the OR pool. **No fat-think rung.**
+
+Gates: **laptop 333 PASS, PC 329 PASS**, each ending `ALL TESTS PASS`.
+
+---
+
+### Previous state — 2026-08-18 07:55
 
 **2026-08-18: the body had been unable to fork for three and a half hours and
 nothing said so.** Found while chasing Tue's report that the laptop was louder
