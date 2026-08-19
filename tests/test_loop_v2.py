@@ -251,6 +251,114 @@ async def main():
     gate = loop._enforce_done_gate([("tool-new hollow_tool", 0), ('remember current-phase "done"', 0)])
     check("B gate blocks done on a hollow tool (returns False)", gate is False)
 
+    # ---- the greenlight must require that the tool can START (2026-08-19) ----
+    # Ten tools sat in the library unable to run one line, two of them still being
+    # invoked 30 and 12 times a week, and nothing in the done-gate had ever asked
+    # whether a tool could start. The gate was also watching the wrong door:
+    # _hollow_tools_touched matches only tool-new, and all ten were written with
+    # tool-edit -- 185 edits against 90 creates that week.
+    _BS = chr(92)
+    _NL = chr(10)
+    # REAL fault shapes from the live library, not authored to match the detector.
+    with open(os.path.join(owndir, "esc_quotes"), "w", encoding="utf-8") as f:
+        f.write("#!/usr/bin/env python3" + _NL
+                + "p = f" + _BS + chr(34) + _BS + chr(34) + _BS + chr(34) + "hi" + _NL
+                + "import sys" + _NL + "print(sys.argv)" + _NL
+                + "total = sum(range(4))" + _NL)
+    with open(os.path.join(owndir, "hdr_no_hash"), "w", encoding="utf-8") as f:
+        f.write("tool: hdr_no_hash" + _NL + "call: hdr_no_hash" + _NL
+                + "#!/usr/bin/env python3" + _NL + "import sys" + _NL
+                + "print(sys.argv)" + _NL + "total = 2 + 2" + _NL)
+    with open(os.path.join(owndir, "u2011"), "w", encoding="utf-8") as f:
+        f.write("#!/usr/bin/env python3" + _NL + "x = keyword" + chr(8209)
+                + "archive" + _NL + "import sys" + _NL + "print(sys.argv)" + _NL)
+    # and the purest case: an error message written into the file AS the tool
+    with open(os.path.join(owndir, "err_as_tool"), "w", encoding="utf-8") as f:
+        # Faithful to the live file: the captured error is truncated mid-JSON, so
+        # it leaves an unbalanced quote. A single line of prose CAN be valid shell,
+        # so this class is caught only when it leaves something unterminated --
+        # stated here rather than overclaimed.
+        f.write('Error: LLM call failed: ask: HTTP 429 from provider: '
+                '{"error":{"message":"Rate limit rea' + _NL)
+
+    check("both doors are watched: tool-edit is no longer invisible",
+          loop._tools_touched([("tool-edit esc_quotes", 0)]) == {"esc_quotes"}
+          and loop._tools_touched([("tool-new a", 0), ("tool-edit b", 0)])
+          == {"a", "b"})
+
+    _uns = loop._unstartable_tools_touched(
+        [("tool-edit esc_quotes", 0), ("tool-edit hdr_no_hash", 0),
+         ("tool-edit u2011", 0), ("tool-edit err_as_tool", 0),
+         ("tool-edit real_tool", 0)])
+    check("escaped triple quotes are caught", "esc_quotes" in _uns)
+    check("a header written without the # is caught", "hdr_no_hash" in _uns)
+    check("a U+2011 typographic hyphen is caught", "u2011" in _uns)
+    check("an error message written in as the tool is caught",
+          "err_as_tool" in _uns)
+    check("a healthy tool written the same cycle is NOT flagged",
+          "real_tool" not in _uns)
+
+    # A working shell tool must never be condemned by Python's grammar, and a
+    # shell script without a shebang still runs under bash -- guessing from the
+    # extension would have condemned 26 live files, some of them working.
+    with open(os.path.join(owndir, "good_sh"), "w", encoding="utf-8") as f:
+        f.write("#!/usr/bin/env bash" + _NL + "if [ -f x ]; then echo hi; fi" + _NL)
+    with open(os.path.join(owndir, "sh_no_shebang"), "w", encoding="utf-8") as f:
+        f.write("ls -la" + _NL + "echo done" + _NL)
+    _sh_uns = loop._unstartable_tools_touched(
+        [("tool-edit good_sh", 0), ("tool-edit sh_no_shebang", 0)])
+    check("a working shell tool is not condemned by Python's grammar",
+          _sh_uns == {})
+
+    # The gate itself, through the real entry point.
+    _m.store(TMP, "current-project", "esc_quotes: a summariser")
+    _m.store(TMP, "current-phase", "done")
+    _g3 = loop._enforce_done_gate([("tool-edit esc_quotes", 0),
+                                   ('remember current-phase "done"', 0)])
+    check("the done-gate refuses a greenlight on a tool that cannot start",
+          _g3 is False)
+    # Assert the CONTRACT the creature actually receives -- the reason written to
+    # the done-block -- not which memory key holds the phase.
+    with open(loop.DONE_BLOCK_PATH, encoding="utf-8") as _bf:
+        _breason = _bf.read()
+    check("the block tells it plainly that the tool cannot start",
+          "cannot start" in _breason and "esc_quotes" in _breason)
+
+    # Remove the broken fixtures BEFORE the next assertion: a one-line broken file
+    # also counts as hollow, and left in place they pushed the library backlog past
+    # its tolerance so a LATER branch blocked everything -- which would have made
+    # the next check pass or fail for entirely the wrong reason.
+    for _n in ("esc_quotes", "hdr_no_hash", "u2011", "err_as_tool", "good_sh",
+               "sh_no_shebang"):
+        try:
+            os.remove(os.path.join(owndir, _n))
+        except Exception:
+            pass
+
+    # It must NOT be the reason a genuine completion is refused. Asserted against
+    # THIS branch rather than against the gate's overall verdict: by this point the
+    # suite has deliberately armed the gate-choice file and left a hollow tool
+    # behind, so a composite "was it allowed through" would pass or fail on five
+    # other branches' state and tell us nothing about this one.
+    _m.store(TMP, "current-project", "real_tool: a json fetcher")
+    _m.store(TMP, "current-phase", "done")
+    try:
+        os.remove(loop.DONE_BLOCK_PATH)
+    except OSError:
+        pass
+    loop._enforce_done_gate([("tool-edit real_tool", 0),
+                             ('remember current-phase "done"', 0)])
+    try:
+        with open(loop.DONE_BLOCK_PATH, encoding="utf-8") as _bf2:
+            _r2 = _bf2.read()
+    except OSError:
+        _r2 = ""
+    check("a healthy tool is never refused for being unstartable",
+          "cannot start" not in _r2)
+    check("and the scope is this cycle, so the library's broken tools cannot "
+          "wedge the gate",
+          loop._unstartable_tools_touched([("tool-edit real_tool", 0)]) == {})
+
     # NEW: cross-cycle library backlog. Create enough hollow stubs (beyond the
     # tolerance) WITHOUT touching them this cycle, then mark a CLEAN project done.
     # The widened gate must still block, citing the library backlog.

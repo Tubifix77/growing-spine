@@ -275,7 +275,11 @@ def tool_start_failure(name: str, text: str, path: str = None):
     if "python" not in first.lower():
         if _shell_syntax_ok(name, text) is False:
             return "shell syntax error (bash -n rejects it)"
-    if path:
+    # The execute bit is a POSIX fact. Off POSIX os.stat reports it from the file
+    # EXTENSION, so a perfectly good extensionless tool reads as non-executable and
+    # a checker run on the PC would condemn the whole library. Assert the contract
+    # always, the mechanism only where it can exist.
+    if path and os.name == "posix":
         try:
             import stat as _stat
             if not (os.stat(path).st_mode & _stat.S_IXUSR):
