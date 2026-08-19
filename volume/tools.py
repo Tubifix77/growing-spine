@@ -238,6 +238,83 @@ def tool_syntax_error(name: str, text: str):
         return "unparseable: %s" % type(e).__name__
 
 
+def tool_start_failure(name: str, text: str, path: str = None):
+    """Why this tool cannot START, or None. NEVER executes the tool.
+
+    The honest limit of a safe smoke test: we can prove a file is *startable*
+    without running it, and we cannot prove it *works* without side effects --
+    these tools write to the volume and call providers, so executing one to test
+    it is not available to us. Startable means: an interpreter line the kernel can
+    act on, a body that its declared interpreter can parse, and the execute bit.
+    All ten tools that could not start on 2026-08-19 fail one of those three.
+
+    For a file with no `#!` the decision is made by PARSING, not by guessing from
+    the name: if it parses as Python it is Python missing its interpreter line and
+    cannot start; if `bash -n` accepts it, it is a shell script that bash will
+    still run, which is not a fault. Guessing from the extension would have
+    reported 26 files, some of them working.
+    """
+    if not text.strip():
+        return "the file is empty"
+    first = text.split("\n", 1)[0]
+    if not first.startswith("#!"):
+        import ast as _ast
+        try:
+            _ast.parse(text)
+            return ("no #! line: this is Python, but nothing tells the kernel "
+                    "that, so it is handed to the shell instead")
+        except SyntaxError:
+            pass
+        if _shell_syntax_ok(name, text) is False:
+            return ("no #! line, and the body is neither valid Python nor valid "
+                    "shell")
+        return None
+    err = tool_syntax_error(name, text)
+    if err:
+        return err
+    if "python" not in first.lower():
+        if _shell_syntax_ok(name, text) is False:
+            return "shell syntax error (bash -n rejects it)"
+    if path:
+        try:
+            import stat as _stat
+            if not (os.stat(path).st_mode & _stat.S_IXUSR):
+                return "not executable (no +x), so the shell will refuse to run it"
+        except OSError:
+            pass
+    return None
+
+
+def _shell_syntax_ok(name: str, text: str):
+    """True / False / None (could not check). `bash -n` parses without running.
+
+    Fed on STDIN, not via a temp file: a temp path bash could not open made this
+    return False for a perfectly valid script, i.e. it reported the script broken
+    when the CHECKER was broken. That is the house disease, so before believing a
+    rejection it proves bash still accepts a trivially valid script. An instrument
+    that cannot run must say "unknown", never "faulty".
+    """
+    import subprocess
+
+    def _parse(src):
+        try:
+            # BYTES, not text: text mode translates newlines on write, so on a
+            # CRLF host bash received a trailing CR and rejected a perfectly valid
+            # script. Same class as the checker-vs-script confusion above.
+            r = subprocess.run(["bash", "-n"], input=src.encode("utf-8"),
+                               capture_output=True, timeout=15)
+            return r.returncode == 0
+        except Exception:
+            return None          # no bash, or it misbehaved
+
+    verdict = _parse(text)
+    if verdict is not False:
+        return verdict           # True, or None for "could not check"
+    if _parse("true" + chr(10)) is not True:
+        return None              # bash cannot even parse `true` -- do not blame the script
+    return False
+
+
 def demand_counts(volume_mount: str) -> dict:
     """Merged invocation counts per tool, from BOTH usage counters.
 

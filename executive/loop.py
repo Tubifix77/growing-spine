@@ -2178,6 +2178,47 @@ def _dependency_summary() -> dict:
 _TOOL_PLACEHOLDER_MARKERS = toolmod.TOOL_PLACEHOLDER_MARKERS
 
 
+def _tools_touched(executed) -> set:
+    """Own-tool names the creature CREATED OR REWROTE this cycle.
+
+    Both doors. _hollow_tools_touched has only ever matched `tool-new`, and on
+    2026-08-19 every one of the ten tools that could not start had been written
+    with `tool-edit` -- 185 edits against 90 creates that week. A gate that
+    watches only the door the creature uses less often is not a gate.
+    """
+    touched = set()
+    for (cmd, _code) in executed:
+        for mm in re.finditer(r"\btool-(?:new|edit)\s+([A-Za-z0-9_.\-]+)", cmd):
+            touched.add(mm.group(1))
+    return touched
+
+
+def _unstartable_tools_touched(executed) -> dict:
+    """{tool: reason} for tools written this cycle that cannot start.
+
+    Scoped to THIS CYCLE deliberately. A library-wide block would be a trap it
+    cannot exit -- ten tools are broken today and some of them it may never care
+    about again -- whereas a tool it wrote sixty seconds ago is always something it
+    can still fix. Never executes anything.
+    """
+    base = os.path.join(VOLUME_MOUNT, "tools", "own")
+    bad = {}
+    for name in sorted(_tools_touched(executed)):
+        path = os.path.join(base, name)
+        try:
+            with open(path, encoding="utf-8", errors="replace") as f:
+                body = f.read()
+        except Exception:
+            continue          # unreadable: do not block on what we cannot check
+        try:
+            reason = toolmod.tool_start_failure(name, body, path)
+        except Exception:
+            reason = None     # an instrument must never be the thing that blocks
+        if reason:
+            bad[name] = reason
+    return bad
+
+
 def _hollow_tools_touched(executed) -> list:
     """Return names of own-tools that were CREATED via tool-new this cycle but are
     still empty placeholders (the tool-new scaffold, never filled in). Marking a
@@ -2381,6 +2422,28 @@ def _enforce_done_gate(executed):
                 f.write(reason)
             journal.append(VOLUME_MOUNT, "error",
                            "Done-gate blocked an empty (placeholder) completion: " + reason)
+            return False
+
+        # A 'done' on a tool that cannot START is a greenlight on something that
+        # has never run one line. Until 2026-08-19 nothing checked this, and ten
+        # tools sat in the library unable to start -- two of them still being
+        # invoked 30 and 12 times a week. The smoke test is static: startable, not
+        # working, because running a tool to test it would write to the creature's
+        # own world.
+        unstartable = _unstartable_tools_touched(executed)
+        if unstartable and not failures:
+            mem.store(VOLUME_MOUNT, "current-phase", "code")
+            detail = "; ".join("%s -- %s" % (n, r)
+                               for n, r in sorted(unstartable.items()))
+            reason = (f"You marked this project done, but the tool(s) you wrote "
+                      f"this cycle cannot start at all: {detail}. Nothing in them "
+                      f"has run, so nothing about them has been tested. Phase "
+                      f"reverted to code. Fix the file so it starts, RUN it once "
+                      f"to see it work, and only then mark done.")
+            with open(DONE_BLOCK_PATH, "w", encoding="utf-8") as f:
+                f.write(reason)
+            journal.append(VOLUME_MOUNT, "error",
+                           "Done-gate blocked a tool that cannot start: " + reason)
             return False
 
         # Gate-choice UPGRADE enforcement (2026-08-01): "a near-duplicate will
