@@ -2183,6 +2183,81 @@ async def main():
         finally:
             _sh.MIND, _sh.OWN = _old_mind, _old_own
 
+    # ---- throughput: the vital sign nothing was watching (2026-08-19) -------
+    # On 08-19 one rung's unrecognised 402 hard-raised and killed 651 cycles;
+    # thinks fell from 1,467/day to a 6/hour rate and every existing instrument
+    # stayed quiet, because each was watching something else. This watches the
+    # creature itself.
+    if _sh_ok:
+        _jt = os.path.join(TMP, "throughput_journal.jsonl")
+
+        def _write_journal(recs):
+            with open(_jt, "w", encoding="utf-8") as f:
+                for r in recs:
+                    f.write(json.dumps(r) + NL)
+
+        _now = 1787000000.0
+        _real_journal = _sh.JOURNAL
+        _sh.JOURNAL = _jt
+        check("throughput tests read a journal in TMP, not the real one",
+              _sh.JOURNAL.startswith(TMP) and _sh.JOURNAL != _real_journal)
+        try:
+            # Healthy: 40 thinks spread across the last hour.
+            _write_journal(
+                [{"ts": _now - 3600 + i * 90, "kind": "served_by",
+                  "content": "x finish=stop"} for i in range(40)]
+                + [{"ts": _now - 3600 + i * 90, "kind": "exec_start",
+                    "content": "b"} for i in range(35)])
+            _t = _sh.check_throughput(now=_now)
+            check("a healthy rate does not raise the throughput alarm",
+                  "THROUGHPUT:!!" not in _t and "exec/think" in _t)
+
+            # The 08-19 fault shape: 6 thinks/hour sustained.
+            _write_journal([{"ts": _now - 3600 + i * 600, "kind": "served_by",
+                             "content": "x finish=stop"} for i in range(6)])
+            _t2 = _sh.check_throughput(now=_now)
+            check("the 08-19 collapse rate DOES raise the alarm",
+                  "THROUGHPUT:!!" in _t2)
+
+            # Total silence must be reported as silence, never divided into a rate.
+            _write_journal([{"ts": _now - 99999, "kind": "served_by",
+                             "content": "old"}])
+            check("no thinking at all is reported as NONE, not as a rate",
+                  "NONE" in _sh.check_throughput(now=_now))
+
+            # THE case that would make this lie: the box was off for most of the
+            # window. Wall-clock rate would read as a collapse; the rate must be
+            # taken over the span that actually produced records. Absence of
+            # evidence is not a zero -- the rule the UNMET streak follows too.
+            _write_journal([{"ts": _now - 1200 + i * 30, "kind": "served_by",
+                             "content": "x finish=stop"} for i in range(40)])
+            _t3 = _sh.check_throughput(now=_now)
+            check("a box that was switched off for most of the window is not "
+                  "reported as a throughput collapse",
+                  "THROUGHPUT:!!" not in _t3)
+
+            # The tail reader must not choke on a truncated first line.
+            with open(_jt, "w", encoding="utf-8") as f:
+                f.write('{"ts": 1, "kind": "ser' + NL)
+                f.write(json.dumps({"ts": _now - 60, "kind": "served_by",
+                                    "content": "x"}) + NL)
+            _recs, _ = _sh._journal_tail_records(path=_jt)
+            check("the tail reader skips a torn line instead of raising",
+                  len(_recs) == 1)
+
+            # And it must report when it could NOT see the file's start, rather
+            # than presenting a partial history as complete.
+            _big = os.path.join(TMP, "big.jsonl")
+            with open(_big, "w", encoding="utf-8") as f:
+                for i in range(400):
+                    f.write(json.dumps({"ts": _now - i, "kind": "served_by",
+                                        "content": "x" * 200}) + NL)
+            _r2, _complete = _sh._journal_tail_records(path=_big, tail_bytes=4096)
+            check("a truncated read says it did not reach the journal's start",
+                  _complete is False and len(_r2) > 0)
+        finally:
+            _sh.JOURNAL = _real_journal
+
     # ---- the dependency scan, compared against its own predecessor ---------
     # The quadratic version (433 names re-searched in every file, 28.3s on the
     # live corpus) is kept HERE, as the oracle, not in loop.py -- one graph

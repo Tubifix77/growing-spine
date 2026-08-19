@@ -327,6 +327,91 @@ def check_wake_cost():
     return tag
 
 
+# ---------------------------------------------------------------------------
+# THROUGHPUT -- is the creature actually thinking and acting?
+#
+# Added 2026-08-19, because that day it wasn't and nothing said so. One rung's
+# unrecognised 402 was hard-raising and killing cycles: thinks fell from 1,467 on
+# 08-18 to a 6/hour rate, 651 cycles were lost, and every instrument this system
+# owns stayed quiet. FLATLINE correctly reported which PROVIDERS were silent, the
+# wake-cost check correctly reported that context building was cheap, UNMET
+# correctly reported demand -- and not one of them was watching the only number
+# that says whether the creature is alive in the sense that matters. It was found
+# because Tue asked for a check.
+#
+# Read from journal.jsonl (the creature's own record) by epoch ts. NOT from
+# journalctl, which carries the framework's stdout and undercounts everything --
+# that scar cost three wrong numbers on 08-18.
+JOURNAL = os.path.join(MIND, "journal.jsonl")
+# The journal is append-only and already 130 MB / 293k records (2026-08-19), so a
+# full parse would grow without bound. 32 MB of tail covers roughly a fortnight at
+# the current ~5k records/day. If the tail does not reach far enough to hold the
+# baseline days, the check SAYS so rather than reporting a short baseline as fact.
+THROUGHPUT_TAIL_BYTES = 32 * 1024 * 1024
+RECENT_HOURS = 6
+# DECLARED, not learned. The last five full days ran 759-1,467 thinks/day, i.e.
+# 32-61/hour; the 08-19 fault ran at 6/hour. 15/hour sits far below every healthy
+# day and 2.5x above the fault. A floor that adapts to what it observes would have
+# followed this collapse down and never fired -- the ratchet disease, section 8.
+THINK_FLOOR_PER_HOUR = 15
+
+
+def _journal_tail_records(path=None, tail_bytes=None):
+    """Parsed records from the end of the journal, plus whether we hit its start."""
+    path = path or JOURNAL
+    tail_bytes = THROUGHPUT_TAIL_BYTES if tail_bytes is None else tail_bytes
+    recs, complete = [], True
+    try:
+        size = os.path.getsize(path)
+    except OSError:
+        return recs, True
+    try:
+        with open(path, "rb") as f:
+            if size > tail_bytes:
+                f.seek(size - tail_bytes)
+                f.readline()          # discard the partial first line
+                complete = False      # we did NOT see the file's beginning
+            for raw in f:
+                if not raw.startswith(b"{"):
+                    continue
+                try:
+                    recs.append(json.loads(raw.decode("utf-8", "replace")))
+                except Exception:
+                    continue
+    except OSError:
+        pass
+    return recs, complete
+
+
+def check_throughput(now=None):
+    """thinks/exec over a recent window, judged on the span that actually ran."""
+    now = now or time.time()
+    recs, _ = _journal_tail_records()
+    if not recs:
+        return "THINK:no-journal"
+    lo = now - RECENT_HOURS * 3600
+    thinks = [r for r in recs if r.get("kind") == "served_by" and (r.get("ts") or 0) >= lo]
+    execs = [r for r in recs if r.get("kind") == "exec_start" and (r.get("ts") or 0) >= lo]
+    skips = [r for r in recs if r.get("kind") == "exec_skip" and (r.get("ts") or 0) >= lo]
+    if not thinks:
+        # No thinking at all in the window. Cannot compute a rate; say the plain
+        # fact instead of dividing by a span that does not exist.
+        return "THINK:!!NONE in %dh" % RECENT_HOURS
+    # Rate over the span that PRODUCED records, not over wall-clock. The box gets
+    # shut down; a night off must not read as a throughput collapse. Absence of
+    # evidence is not a zero -- the same rule the UNMET streak follows.
+    span_h = max((max(r["ts"] for r in thinks) - min(r["ts"] for r in thinks)) / 3600.0,
+                 0.25)
+    rate = len(thinks) / span_h
+    ratio = (len(execs) / len(thinks)) if thinks else 0.0
+    tag = ("THINK:%.0f/h over %.1fh (exec %d, exec/think %.2f, skip %d)"
+           % (rate, span_h, len(execs), ratio, len(skips)))
+    if rate < THINK_FLOOR_PER_HOUR:
+        tag += ("  THROUGHPUT:!![%.0f/h < %d/h floor -- the creature is barely "
+                "thinking]" % (rate, THINK_FLOOR_PER_HOUR))
+    return tag
+
+
 def journal_integrity():
     """Detect + auto-repair torn/interleaved journal lines (abrupt-shutdown
     damage). Recovers the last complete {...} object from a torn line; drops
