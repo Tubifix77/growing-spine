@@ -118,7 +118,10 @@ literal **will** drift, and no test notices.
 - `volume/paths.py` → `mind_root()` — one derivation of the mind root (was five).
 - `volume/tools.py` → `tool_description()`, `is_tool_file()` / `list_tools()`
   (the isfile check lives in the lister because callers kept forgetting it),
-  `tool_stem()`, `demand_counts()`, `TOOL_PLACEHOLDER_MARKERS` / `is_hollow_stub()`.
+  `tool_stem()`, `demand_counts()`, `TOOL_PLACEHOLDER_MARKERS` / `is_hollow_stub()`,
+  `tool_start_failure()` / `tool_syntax_error()` / `looks_like_python()` — the ONE
+  startability predicate, called by the done-gate, the in-loop warning and any
+  census. It never executes a tool.
 - `executive/loop.py` → `TOOL_CLUSTERS` (one taxonomy: label + member_kws + title_kws).
 - `executive/embed_gate.py` → `refresh_standard()`, `_is_junk()`.
 
@@ -174,6 +177,24 @@ or a path literal that already exists elsewhere, stop.
   `"store_item plan_step"` yields only `store_item` — the space is eaten and the
   next edge vanishes, producing a smaller plausible graph and no error. Verified
   by mutation 2026-08-18, which is the only reason it is known.
+- **An instrument that cannot run must say UNKNOWN, never FAULTY.** Building the
+  shell half of the startability check, `bash -n` was handed a temp file it could
+  not open and returned nonzero — so a perfectly valid script was reported broken,
+  which is the house disease inside the checker itself. Then text-mode newline
+  translation made bash receive a trailing CR and reject valid bash. It now feeds
+  BYTES on stdin, and before believing any rejection it proves bash still parses
+  `true`. Whenever a checker's failure and its subject's failure look the same,
+  make the checker prove itself first.
+- **An error message can be written into a file AS the program.** `extract-key-insights`
+  has, as its entire line 1, `Error: LLM call failed: ask: HTTP 429 from provider:
+  {"error":{"message":"Rate limit rea` — a failed LLM call's output piped into
+  `tool-edit`. `ask` reported that failure honestly on stderr with a nonzero exit;
+  one of the creature's own wrappers converted it to stdout text, and the text
+  became a tool. This is why the 10% of its tools that RETURN error strings as
+  their value matters: it does not merely mislead a caller, it manufactures broken
+  programs. Note the honest limit of detection here — a single line of prose can be
+  syntactically valid shell, so this class is caught only when it leaves something
+  unterminated, which a truncated JSON error does.
 - **A guard whose count is always exactly zero is broken, not idle.** The stub
   janitor logged `aged-out 0` twenty-eight times with 25 stubs in front of it,
   because the template and the detector were four words apart.
@@ -275,7 +296,12 @@ or a path literal that already exists elsewhere, stop.
   `_locked` is a no-op by design, so the whole gate was red on the PC peer while
   a sibling test two hundred lines away existed purely to keep the suite runnable
   there (found 2026-08-11). Assert the contract always, the mechanism where it
-  can exist.
+  can exist. **Third instance 2026-08-19**, in one feature: the
+  execute-bit check in `tool_start_failure` is only real on POSIX (off POSIX
+  `os.stat` reports it from the file EXTENSION), so it condemned the whole library
+  on the PC; then the fixtures, written with `open()` and therefore without `+x`,
+  read as unstartable on the LAPTOP where the bit is real. Green on one machine and
+  red on the other, twice, in opposite directions. Gate both, always.
 - **A guard verified through the guarded door is not verified.** The P1-F12 chat
   test wrote both its messages with `enqueue` — the locked writer — so it passed
   continuously while `observer.py` appended to the same file with a bare
@@ -465,7 +491,26 @@ fallen by **2026-08-26**, a week after the warning went live, in-loop visibility
 has been shown insufficient and a stderr warning (never a refusal) in `tool-edit`
 becomes justified. Instrument: the count in `_library_broken_tools()`.
 
-Gates: **laptop 343 PASS, PC 339 PASS**, each ending `ALL TESTS PASS`.
+**The greenlight now requires that the tool can START (`a502b2a`, `5521450`).**
+The creature marks completion with `remember current-phase done`; the done-gate
+already refused that on a failed check or an unfilled `tool-new` scaffold, and
+never asked whether the tool could run one line. It was also watching the wrong
+door — `_hollow_tools_touched` matches only `tool-new`, and **all ten broken tools
+were written with `tool-edit`** (185 edits vs 90 creates that week). `_tools_touched`
+now matches both. The smoke test is STATIC and never executes the tool: these tools
+write to the volume and call providers, so running one to test it is not available
+to us. Startable, not working — an interpreter line the kernel can act on, a body
+its declared interpreter can parse, the execute bit. For a file with no shebang the
+decision is made by PARSING, not by guessing from the extension: guessing would
+have condemned 26 live files, some of them working. **Scoped to THIS cycle** — a
+library-wide block would be a trap it cannot exit, while a tool it wrote sixty
+seconds ago is always still fixable. Live census under the predicate: **34 of 485
+cannot start** — 21 no-shebang, 7 shell-syntax, 6 Python-syntax — and four sampled
+by hand were all real, no false positives. `ToolUsageAuditor`, which §8 has listed
+as "reading zero bytes and returning nothing without error", turns out to be
+**unstartable**, which explains it.
+
+Gates: **laptop 354 PASS, PC 350 PASS**, each ending `ALL TESTS PASS`.
 
 ---
 
