@@ -248,7 +248,26 @@ or a path literal that already exists elsewhere, stop.
   tools that cannot find each other's data. Say *where*, exactly — not *which volume*.
 - **Documentation that shows a convention imprecisely gets obeyed literally.**
   The contract showed the tool header without `#`, so files died with
-  `tool:: command not found` for two months.
+  `tool:: command not found` for two months. **Re-checked 2026-08-19 and the
+  documentation half is CLOSED:** `protected-prompt.md` now shows the header with
+  `#` and says outright "Those three lines are COMMENTS -- keep the `#` ... the
+  file dies before it runs", and `tool-new`'s template writes it correctly. Three
+  tools authored THIS WEEK still reproduce the fault, two of them with the shebang
+  pushed to line 4. So this is no longer a documentation defect, and re-fixing the
+  wording would be treating a symptom that is not there. It is one of three
+  generation-artifact families (below) that share a single root: **nothing
+  validates a tool file at the moment it is written.**
+- **An LLM writing an executable file produces three recurring corruptions, and
+  none of them is a logic error.** Census of the live 485-tool library,
+  2026-08-19, `volume/tools.tool_syntax_error`: **10 tools cannot start at all.**
+  (1) **Backslash-escaped triple quotes** — `prompt = f\"\"\"` — 5 tools, from
+  generating Python through a shell layer whose escapes survived into the file.
+  (2) **Unicode look-alikes** — `invalid character '‑' (U+2011)`, a typographic
+  non-breaking hyphen where ASCII `-` was meant, inside identifiers like
+  `keyword‑archive` — 2 tools. (3) **The header without `#`** — 3 tools. All were
+  written through `tool-edit`, the proper door, which leaves a `.bak` and escapes
+  nothing; the corruption is in what the creature handed it. When you diagnose a
+  broken tool here, check for these three before reading the logic.
 - **YAML's Norway problem:** a bare `off`/`on`/`yes`/`no` key parses as a boolean.
 - **Tests that assert a MECHANISM go red when you improve the mechanism.** Assert
   the contract instead. They also go red where the mechanism is deliberately
@@ -413,7 +432,40 @@ the container — but **no tool in `tools/own/` references it**, so retirement i
 safe. Carrying load until month-end: `google_gemma`, `gemini_flash`,
 `groq_oss120`, the OR pool. **No fat-think rung.**
 
-Gates: **laptop 333 PASS, PC 329 PASS**, each ending `ALL TESTS PASS`.
+**Tool-library audit, 2026-08-19 (the creature's OUTPUT, not the framework).**
+Library **485 tools**, up from 433 on 08-18. In the last 7 days the journal shows
+**90 created via `tool-new`, 185 edited via `tool-edit`**, 159 resolving to files
+on disk, 182 distinct tools invoked. **Every one of the 159 written this week was
+invoked in that week — zero never-used.** That retires the old "half the library
+is never invoked" story for good. Quality census: **64% carry the `# tool:` header
+contract**, 107 use `argparse`, **51% use stderr with a nonzero exit**, but **10%
+(50 tools) RETURN error text as their value** — a failed subprocess becomes a
+string that flows downstream as if it were content, which is the house disease in
+its own toolkit. **10 tools cannot start at all** (three families, §5).
+The single most-invoked tool is `step-planner-tracker` (84 lines, ~867 mentions in
+exec blocks over the week); its `save_state` writes the shared state file
+**without tmp+replace**, so a crash mid-write corrupts the file 800+ calls depend
+on. Its tool, its call — not ours to fix.
+
+**Built for the creature (not us): `loop._build_broken_tool_warning`** (`32a32cb`).
+Names the count and the tools that cannot start, edge-triggered on the SET
+changing, silent otherwise. States the invariant ("a tool must be able to start"),
+never the mechanism — told to stop escaping quotes it would obey the letter and
+reach the fault another way, as it did with `jq -n` then heredocs. Results cached
+on `(mtime, size)` because a full `ast.parse` of 485 files per cycle is exactly the
+cost class that hid the quadratic scan: **cold 349 ms, warm 16 ms** — and a test
+proves the cache holds and that a touched file is the only one re-parsed. Bash
+tools are never judged by Python's grammar.
+
+**Deliberately NOT done: a write-time syntax check in `tool-edit`.** It would catch
+this at authorship, when the creature still has context, instead of hours later —
+but `framework-tools/` is protected scar tissue (§2.2) and I have injected two
+faults of my own this week. **Named trigger:** if the broken-tool count has not
+fallen by **2026-08-26**, a week after the warning went live, in-loop visibility
+has been shown insufficient and a stderr warning (never a refusal) in `tool-edit`
+becomes justified. Instrument: the count in `_library_broken_tools()`.
+
+Gates: **laptop 343 PASS, PC 339 PASS**, each ending `ALL TESTS PASS`.
 
 ---
 
