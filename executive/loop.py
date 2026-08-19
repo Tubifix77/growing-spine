@@ -3227,6 +3227,106 @@ def _build_stuck_tool_warning() -> str:
         return ""
 
 
+# A tool that cannot START is invisible to the creature in aggregate. It sees the
+# individual failure when it runs one -- 2026-08-19: `memory_augmented_search`
+# returned exit 1 with a SyntaxError, 30 times in a week -- but a failure scattered
+# one-per-cycle across days is not a pattern it has any instrument for, and it kept
+# calling it. Twelve files in its library carry the same corruption: triple-quotes
+# arriving backslash-escaped, `prompt = f\"\"\"`, from generating Python through a
+# shell layer whose escapes survived into the file. Worse, one of them
+# (`LiveStateComplianceChecker`) ran inside a multi-command block, so the BLOCK
+# exited 0 and the breakage wore success.
+#
+# So: state the count and the names, deterministically, on a change of state. The
+# invariant is "a tool must be able to start" -- never "stop escaping quotes",
+# which it would obey to the letter and then reach the same fault by another route.
+BROKEN_WARNING_STATE_PATH = os.path.join(VOLUME_MOUNT, "state",
+                                         "broken_tool_warning.json")
+# Parse cache. A full ast.parse of the library is exactly the cost class that hid
+# the 187,489-scan: 485 tools today, and the load parameter is the creature's own
+# success. Keyed on (mtime, size), so the steady state parses only what changed --
+# about 30 files a day. At 1,000 tools the first run after a restart pays once.
+BROKEN_CACHE_PATH = os.path.join(VOLUME_MOUNT, "state", "tool_parse_cache.json")
+
+
+def _library_broken_tools():
+    """{tool: reason} for own tools that cannot be started at all."""
+    base = os.path.join(VOLUME_MOUNT, "tools", "own")
+    try:
+        names = toolmod.list_tools(base)
+    except Exception:
+        return {}
+    try:
+        with open(BROKEN_CACHE_PATH, encoding="utf-8") as f:
+            cache = json.load(f)
+        if not isinstance(cache, dict):
+            cache = {}
+    except Exception:
+        cache = {}
+    fresh, broken = {}, {}
+    for n in names:
+        path = os.path.join(base, n)
+        try:
+            st = os.stat(path)
+            key = [int(st.st_mtime), st.st_size]
+        except OSError:
+            continue
+        prev = cache.get(n)
+        if isinstance(prev, list) and len(prev) == 3 and prev[:2] == key:
+            reason = prev[2]                      # unchanged since last parse
+        else:
+            try:
+                with open(path, encoding="utf-8", errors="replace") as f:
+                    reason = toolmod.tool_syntax_error(n, f.read())
+            except OSError:
+                continue
+        fresh[n] = [key[0], key[1], reason]
+        if reason:
+            broken[n] = reason
+    try:
+        os.makedirs(os.path.dirname(BROKEN_CACHE_PATH), exist_ok=True)
+        tmp = BROKEN_CACHE_PATH + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(fresh, f)
+        os.replace(tmp, BROKEN_CACHE_PATH)
+    except OSError:
+        pass
+    return broken
+
+
+def _build_broken_tool_warning() -> str:
+    """Edge-triggered: speaks when the SET of unstartable tools changes."""
+    broken = _library_broken_tools()
+    try:
+        with open(BROKEN_WARNING_STATE_PATH, encoding="utf-8") as f:
+            prev = set(json.load(f).get("tools") or [])
+    except Exception:
+        prev = set()
+    cur = set(broken)
+    if cur != prev:
+        try:
+            os.makedirs(os.path.dirname(BROKEN_WARNING_STATE_PATH), exist_ok=True)
+            tmp = BROKEN_WARNING_STATE_PATH + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump({"tools": sorted(cur)}, f)
+            os.replace(tmp, BROKEN_WARNING_STATE_PATH)
+        except OSError:
+            pass
+    if not cur or cur == prev:
+        return ""
+    shown = sorted(cur)[:6]
+    lines = ["## Tools that cannot start",
+             "%d of your tools fail before running a single line, so every call to "
+             "one of them is wasted:" % len(cur)]
+    for n in shown:
+        lines.append("  %s -- %s" % (n, broken[n]))
+    if len(cur) > len(shown):
+        lines.append("  (+%d more)" % (len(cur) - len(shown)))
+    lines.append("Open one and check that line. A tool must be able to start; "
+                 "until it can, anything that reaches for it gets nothing.")
+    return "\n".join(lines) + "\n\n"
+
+
 def _build_knowledge_block() -> str:
     """ALWAYS shown. The creature's toolkit as three NEUTRAL, ground-truth fields
     per the lifecycle Built -> Adopted -> Depends-on, plus category coverage and
@@ -3463,11 +3563,12 @@ def _build_context(recent_journal: list, tue_message: str = None) -> str:
     loop_warning = _build_loop_warning()
     data_warning = _build_data_warning()
     stuck_warning = _build_stuck_tool_warning()
+    broken_warning = _build_broken_tool_warning()
     done_block = _build_done_block()
     retro_directive = _build_retro_directive_block()
     dup_report = _run_dup_scan_if_due()
     return (done_block + retro_directive + dup_report
-            + loop_warning + data_warning + stuck_warning
+            + loop_warning + data_warning + stuck_warning + broken_warning
             + active_project + knowledge + protected + "\n\n"
             + editable + catalogue_block + workspace_block + memory_text
             + journal_text + chat_block)

@@ -205,6 +205,39 @@ def _norm_tool_key(k: str) -> str:
     return k[:-3] if k.endswith(".py") else k
 
 
+def looks_like_python(name: str, text: str) -> bool:
+    """A file we are entitled to hold to Python's grammar.
+
+    Shebang first, extension second. A bash tool must never be judged by
+    ast.parse -- that would report the whole shell library as broken.
+    """
+    head = text[:120].lower()
+    if head.startswith("#!") and "python" in head.split("\n", 1)[0]:
+        return True
+    return name.endswith(".py") and not head.startswith("#!")
+
+
+def tool_syntax_error(name: str, text: str):
+    """The reason a Python tool cannot start, or None.
+
+    Returns a short human reason, never a traceback: this text is shown to the
+    creature, and the point is that it can find the line, not that it can admire
+    the exception. Only files that claim to be Python are judged.
+    """
+    if not text.strip() or not looks_like_python(name, text):
+        return None
+    import ast
+    try:
+        ast.parse(text)
+        return None
+    except SyntaxError as e:
+        msg = (e.msg or "syntax error").strip()
+        return "line %s: %s" % (e.lineno if e.lineno else "?", msg[:70])
+    except (ValueError, RecursionError) as e:
+        # null bytes, or an expression nested past the parser's limit
+        return "unparseable: %s" % type(e).__name__
+
+
 def demand_counts(volume_mount: str) -> dict:
     """Merged invocation counts per tool, from BOTH usage counters.
 

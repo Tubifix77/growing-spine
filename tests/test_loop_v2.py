@@ -431,6 +431,7 @@ async def main():
           pt == "" and pn == 0 and pr is False)
 
     # ---- keychain error taxonomy (tonight's real strings, 2026-07-17) ----
+    from volume import tools as _vtools_g
     from keychain.keychain import classify_error
     check("classify: empty completion -> flaky (next provider, not abort)",
           classify_error("empty completion (content and reasoning both null)") == "flaky")
@@ -2182,6 +2183,103 @@ async def main():
                   "quiet" not in _sh.unmet_demand_now({"quiet": 1}))
         finally:
             _sh.MIND, _sh.OWN = _old_mind, _old_own
+
+    # ---- tools that cannot start (2026-08-19) -------------------------------
+    # Twelve files in the live library carry backslash-escaped triple quotes,
+    # `prompt = f\\"""`, from the creature generating Python through a shell
+    # layer whose escapes survived into the file. Two were live and invoked 30 and
+    # 12 times in a week; one of them ran inside a multi-command block so the block
+    # exited 0 and the breakage wore success.
+    BS = chr(92)
+    _bt_own = os.path.join(TMP, "brokenlib", "tools", "own")
+    os.makedirs(os.path.join(TMP, "brokenlib", "state"), exist_ok=True)
+    os.makedirs(_bt_own, exist_ok=True)
+
+    def _put(name, body):
+        with open(os.path.join(_bt_own, name), "w", encoding="utf-8") as f:
+            f.write(body)
+
+    # REAL shape, copied from the live corpus, not authored to match the detector.
+    _put("escaped_quotes", "#!/usr/bin/env python3" + NL
+         + "prompt = f" + BS + '"' + BS + '"' + BS + '"hello' + NL)
+    _put("healthy_py", "#!/usr/bin/env python3" + NL + "print(1)" + NL)
+    # The false positive that would matter most: a shell tool must never be judged
+    # by Python's grammar, or the whole bash half of the library reads as broken.
+    _put("healthy_sh", "#!/bin/bash" + NL + "if [ -f x ]; then echo hi; fi" + NL)
+    _put("empty_tool", "")
+
+    _bt_prev_vm = loop.VOLUME_MOUNT
+    _bt_prev_broken = loop.BROKEN_WARNING_STATE_PATH
+    _bt_prev_cache = loop.BROKEN_CACHE_PATH
+    loop.VOLUME_MOUNT = os.path.join(TMP, "brokenlib")
+    loop.BROKEN_WARNING_STATE_PATH = os.path.join(TMP, "brokenlib", "state", "bw.json")
+    loop.BROKEN_CACHE_PATH = os.path.join(TMP, "brokenlib", "state", "pc.json")
+    check("broken-tool tests point at a library in TMP, not the real volume",
+          loop.VOLUME_MOUNT.startswith(TMP)
+          and loop.BROKEN_CACHE_PATH.startswith(TMP))
+    try:
+        _br = loop._library_broken_tools()
+        check("the real escaped-quote corruption is detected",
+              "escaped_quotes" in _br and "line 2" in _br["escaped_quotes"])
+        check("a bash tool is NOT judged by Python's grammar",
+              "healthy_sh" not in _br)
+        check("valid python and an empty file are not reported as broken",
+              "healthy_py" not in _br and "empty_tool" not in _br)
+
+        # First sighting speaks; an unchanged set stays silent. A fact repeated
+        # every cycle is a nag the creature learns to skip.
+        _w1 = loop._build_broken_tool_warning()
+        check("the warning names the count and the tool on first sighting",
+              "escaped_quotes" in _w1 and "cannot start" in _w1)
+        _w2 = loop._build_broken_tool_warning()
+        check("an unchanged set of broken tools says nothing further",
+              _w2 == "")
+
+        # It must state the INVARIANT, not the mechanism. Told "stop escaping
+        # quotes" it would obey the letter and reach the same fault another way.
+        # Judge the GUIDANCE line, not the whole block: the tool names come from
+        # the library and may legitimately contain anything.
+        _guide = [l for l in _w1.splitlines() if "A tool must" in l]
+        check("the warning states the invariant, not the mechanism to avoid",
+              len(_guide) == 1 and "must be able to start" in _guide[0]
+              and not any(w in _guide[0].lower()
+                          for w in ("escap", "quote", "heredoc", "backslash")))
+
+        # The parse cache is what keeps this off the quadratic-scan list: at 485
+        # tools a full ast.parse every cycle is precisely the cost class that hid
+        # the 187,489-scan. Prove unchanged files are not re-parsed.
+        _calls = []
+        _real_tse = _vtools_g.tool_syntax_error
+
+        def _counting(name, text):
+            _calls.append(name)
+            return _real_tse(name, text)
+        _vtools_g.tool_syntax_error = _counting
+        try:
+            loop._library_broken_tools()
+            check("an unchanged library is not re-parsed (the cache holds)",
+                  _calls == [])
+            # touch one file: only that one is re-parsed
+            _p = os.path.join(_bt_own, "healthy_py")
+            with open(_p, "w", encoding="utf-8") as f:
+                f.write("#!/usr/bin/env python3" + NL + "print(2)" + NL)
+            os.utime(_p, (time.time() + 5, time.time() + 5))
+            _calls.clear()
+            loop._library_broken_tools()
+            check("a changed file IS re-parsed, and only that one",
+                  _calls == ["healthy_py"])
+        finally:
+            _vtools_g.tool_syntax_error = _real_tse
+
+        # A newly broken tool re-arms the warning.
+        _put("second_break", "#!/usr/bin/env python3" + NL + "def f(:" + NL)
+        _w3 = loop._build_broken_tool_warning()
+        check("a NEWLY broken tool re-arms the warning",
+              "second_break" in _w3 and "2 of your tools" in _w3)
+    finally:
+        loop.VOLUME_MOUNT = _bt_prev_vm
+        loop.BROKEN_WARNING_STATE_PATH = _bt_prev_broken
+        loop.BROKEN_CACHE_PATH = _bt_prev_cache
 
     # ---- throughput: the vital sign nothing was watching (2026-08-19) -------
     # On 08-19 one rung's unrecognised 402 hard-raised and killed 651 cycles;
