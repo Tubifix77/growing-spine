@@ -409,7 +409,64 @@ journalctl --user -u growing-spine --since "2 hours ago"
 
 ---
 
-## 8. State — 2026-08-19 18:00
+## 8. State — 2026-08-21 16:40
+
+**2026-08-20 the laptop ran something else and the spine did not run at all: the
+journal has ZERO records for that date.** 08-21 booted 00:04 and has cycled every
+hour since — 200–450 records in each of hours 00..16, no gap. (Tue recalled
+turning it on at 07:00 for ~8 hours; the instruments say 16.5, and hourly record
+counts are the stronger evidence. Worth knowing which to trust when they differ.)
+
+**The 08-19 ladder fix is fully holding. Errors 805 -> 13, and none of the 13 is a
+fault**: 11 done-gate false-completion blocks, 1 spin trap, 1 upgrade-blocked-as-
+no-change. **Zero provider errors all day.** 08-21: **703 thinks / 680 exec /
+129 skips** over 16.5 h (~43 thinks/h). `THINK:36/h over 5.9h exec/think 1.07`,
+no alarm.
+
+**Three designs proved themselves on live data, all first real exercises:**
+- **The missing-day rule.** `UNMET` history now reads `08-18, 08-19, 08-21` —
+  08-20 simply absent — and the streak stays `0/7`. A day with no evidence is not
+  read as a zero, which is what that branch was written for on 08-18.
+- **Rate over the span that produced records.** A 16.5 h day starting at midnight,
+  and `check_throughput` reported 36/h rather than dividing by wall clock.
+- **The linear dependency scan.** `WAKE:p50 1704ms` against 1713 two days ago,
+  with the library slightly larger. Flat, as a linear scan should be.
+
+**The broken-tool warning worked, and this is the part that matters: the creature
+repaired its own tools.** Python-syntax family **10 -> 9**, full startability
+predicate **34 -> 31 of 484**. `contextual_alert_updater.py` edited 12:52 today and
+now STARTS. **`extract-key-insights` — the file whose entire line 1 was
+`Error: LLM call failed: ask: HTTP 429 ...` — was edited 10:13 today and now
+STARTS.** The warning state file was rewritten at 10:33 holding 9, so it re-armed
+and spoke again when the set changed; 22 journal records mention it. No direct
+intervention, no tool of its own touched by us. **The named trigger for a
+write-time check in `tool-edit` (count must fall by 08-26) is satisfied
+directionally — do not touch `framework-tools/`.** The stragglers are old:
+`ToolUsageAuditor` untouched since 08-07, `ascii_plot` since 07-14.
+
+**The startability gate has not fired once in 16.5 h** — no "Done-gate blocked a
+tool that cannot start" in the journal. Live confirmation of zero false positives,
+which was the risk worth watching.
+
+**Ladder, and the cerebras trigger has RESOLVED.** `cerebras` last served
+**08-18 04:46**, now 83 h dark, so it did NOT serve by 08-20. Per the named
+trigger: **hold to 2026-09-01** (month boundary, the hypothesis mistral proved).
+`mistral` walled 59 h, waiting on its 08-31 reset. Carrying today:
+`google_gemma` **75.1%**, `openrouter_super` 12.8%, `gemini_flash` 3.1%.
+
+**Open, watch it: `exec/think` has roughly halved** — 2.19 on 08-18, 1.87 on
+08-19, **0.97 today** — with 81 of today's 129 skips being "thought, but proposed
+no commands" and truncation back up to **8.9%** (3.8% on 08-18). The plausible
+cause is that the fat-think rung is gone until 08-31 and `google_gemma` carries
+75% while truncating 5.4% of its own replies. Recorded as a measurement with a
+candidate cause, NOT a diagnosis — the test is whether the ratio recovers when
+`mistral` returns on 08-31. If it does not, the cause is elsewhere.
+
+Gates: **laptop 354 PASS, PC 350 PASS**, each ending `ALL TESTS PASS`.
+
+---
+
+### Previous state — 2026-08-19 18:00
 
 **08-18 was the creature's best day on record: 1,467 thinks / 3,209 exec blocks**
 (08-17 was 1,148 / 1,585). First full day with `--init`, the clean exec path and
