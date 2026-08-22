@@ -409,7 +409,60 @@ journalctl --user -u growing-spine --since "2 hours ago"
 
 ---
 
-## 8. State — 2026-08-21 16:40
+## 8. State — 2026-08-22 09:05
+
+**Overnight run 08-21 19:00 -> 08-22 08:55, 13.9 h continuous** (records in every
+hour, no gap; the box was off 17:00-19:00 on 08-21). **550 thinks at 39/h, 532
+exec, 67 skips, 11 errors** — 9 done-gate false-completion blocks, 1 spin trap,
+and 1 unclassified `IncompleteRead(78 bytes read)` from the generic handler at
+`loop.py:3848`. One occurrence in 14 h is not a symptom; noted, not chased.
+Full day 08-21: **896 thinks / 885 exec / 16 errors**. Truncation 7.3%,
+`google_gemma` carrying **89%** of traffic. `exec/think` steady at **0.97** — still
+the open watch item, still waiting on mistral's 08-31 return to test the cause.
+60C, clamp off, zombies 0, `pids.current` 2.
+
+**The warning and the gate disagreed about what "cannot start" means, and the
+creature found the hole for me.** At 00:30 it wrote `proactiverearchpipeline`
+(note the typo'd filename; its own header says `proactiveresearchpipeline`) with
+`cat << EOF > /mind/tools/own/...`. Valid Python, correct shebang, **no execute
+bit** — `tool-new` sets it, a redirect does not. Invisible to BOTH guards:
+- the GATE, because `_tools_touched` matched only `tool-new`/`tool-edit`;
+- the WARNING, because it called `tool_syntax_error` while the gate called
+  `tool_start_failure`. Two definitions of one predicate — exactly the drift §4
+  exists to prevent, and I introduced it two days ago.
+
+Fixed in `b8df799`: **one predicate**, so the creature is now told about all **32**
+rather than 9; `_tools_touched` also counts a redirect or `tee` into `tools/own`
+(WRITE forms only — a bare `cat` of a tool file is reading, and blocking on that
+would be a gate nobody could satisfy); **`st_mode` added to the parse cache key**,
+because `chmod +x` changes neither mtime nor size and a fixed tool would otherwise
+have stayed on the list forever; and an **empty file is no longer a start failure**
+— with no shebang the kernel returns ENOEXEC, the shell runs it and exits 0, so it
+starts and does nothing, which is the hollow organ's fault to report, not this one.
+
+**Census under the one predicate: 32 of 485** — 19 no-shebang, 7 shell-syntax,
+5 Python-syntax, 1 not-executable. Note the families **re-partitioned rather than
+changed**: `tool_start_failure` reports the FIRST failure it finds, so four `.py`
+files that previously counted as Python-syntax now report the missing `#!` first.
+9 + those = the same set.
+
+**The startability gate has still fired ZERO times** across ~40 h live. No false
+positives, and no true ones either — the creature has not yet marked done in the
+same cycle as writing an unstartable tool.
+
+**Repairs held but did not continue overnight**: the Python-syntax family stayed at
+9 (it fixed `contextual_alert_updater.py` and `extract-key-insights` on 08-21 and
+nothing since). The 08-26 trigger for a write-time check in `tool-edit` is still
+satisfied directionally; the wider count now being visible to it is the next test.
+
+**Ladder unchanged**: `cerebras` 99 h dark (holds to 09-01), `mistral` 75 h walled
+(returns 08-31). No provider errors in the window.
+
+Gates: **laptop 359 PASS, PC 353 PASS**, each ending `ALL TESTS PASS`.
+
+---
+
+### Previous state — 2026-08-21 16:40
 
 **2026-08-20 the laptop ran something else and the spine did not run at all: the
 journal has ZERO records for that date.** 08-21 booted 00:04 and has cycled every
