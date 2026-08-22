@@ -2190,6 +2190,16 @@ def _tools_touched(executed) -> set:
     for (cmd, _code) in executed:
         for mm in re.finditer(r"\btool-(?:new|edit)\s+([A-Za-z0-9_.\-]+)", cmd):
             touched.add(mm.group(1))
+        # A REDIRECT into tools/own is authoring a tool just as much as tool-edit
+        # is, and the creature does it: `proactiverearchpipeline` was created on
+        # 2026-08-22 at 00:30 with `cat << EOF > /mind/tools/own/...`, which left
+        # it without the execute bit (tool-new sets it, a redirect does not) and
+        # invisible to this function. Only WRITE forms count -- a bare
+        # `cat /mind/tools/own/x` is reading, and blocking a completion because it
+        # read a broken file it did not write would be a gate nobody could satisfy.
+        for mm in re.finditer(r"(?:>>?|\|\s*tee(?:\s+-a)?)\s*"
+                              r"(?:/mind/)?tools/own/([A-Za-z0-9_.\-]+)", cmd):
+            touched.add(mm.group(1))
     return touched
 
 
@@ -3331,19 +3341,23 @@ def _library_broken_tools():
         path = os.path.join(base, n)
         try:
             st = os.stat(path)
-            key = [int(st.st_mtime), st.st_size]
+            # MODE is in the key because the execute bit is now part of the
+            # verdict, and `chmod +x` changes neither mtime nor size -- so without
+            # it a tool the creature had just fixed would stay on the list
+            # forever, which is a stale nag rather than a signal.
+            key = [int(st.st_mtime), st.st_size, st.st_mode]
         except OSError:
             continue
         prev = cache.get(n)
-        if isinstance(prev, list) and len(prev) == 3 and prev[:2] == key:
-            reason = prev[2]                      # unchanged since last parse
+        if isinstance(prev, list) and len(prev) == 4 and prev[:3] == key:
+            reason = prev[3]                      # unchanged since last check
         else:
             try:
                 with open(path, encoding="utf-8", errors="replace") as f:
-                    reason = toolmod.tool_syntax_error(n, f.read())
+                    reason = toolmod.tool_start_failure(n, f.read(), path)
             except OSError:
                 continue
-        fresh[n] = [key[0], key[1], reason]
+        fresh[n] = [key[0], key[1], key[2], reason]
         if reason:
             broken[n] = reason
     try:

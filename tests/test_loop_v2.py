@@ -2320,9 +2320,16 @@ async def main():
     os.makedirs(os.path.join(TMP, "brokenlib", "state"), exist_ok=True)
     os.makedirs(_bt_own, exist_ok=True)
 
-    def _put(name, body):
-        with open(os.path.join(_bt_own, name), "w", encoding="utf-8") as f:
+    def _put(name, body, executable=True):
+        _p = os.path.join(_bt_own, name)
+        with open(_p, "w", encoding="utf-8") as f:
             f.write(body)
+        # The warning now uses the SAME predicate as the done-gate, which includes
+        # the execute bit, so a fixture written with open() and left without +x
+        # reads as unstartable on POSIX. A real tool has the bit; give it to them.
+        if executable and os.name == "posix":
+            import stat as _st
+            os.chmod(_p, os.stat(_p).st_mode | _st.S_IXUSR)
 
     # REAL shape, copied from the live corpus, not authored to match the detector.
     _put("escaped_quotes", "#!/usr/bin/env python3" + NL
@@ -2395,6 +2402,38 @@ async def main():
                   _calls == ["healthy_py"])
         finally:
             _vtools_g.tool_syntax_error = _real_tse
+
+        # The warning and the gate must agree about what "cannot start" means.
+        # They did not until 2026-08-22: the gate used tool_start_failure and the
+        # warning used tool_syntax_error, so `proactiverearchpipeline` -- valid
+        # Python, correct shebang, written with `cat > ...` and therefore with no
+        # execute bit -- was invisible to BOTH. One predicate now.
+        if os.name == "posix":
+            _put("no_exec_bit", "#!/usr/bin/env python3" + NL + "print(1)" + NL,
+                 executable=False)
+            _nb = loop._library_broken_tools()
+            check("a tool with no execute bit is reported as unable to start",
+                  "no_exec_bit" in _nb)
+            # THE cache trap: chmod +x changes neither mtime nor size, so a key of
+            # (mtime, size) would keep reporting a tool the creature had just
+            # fixed -- a stale nag rather than a signal.
+            import stat as _st2
+            _nep = os.path.join(_bt_own, "no_exec_bit")
+            os.chmod(_nep, os.stat(_nep).st_mode | _st2.S_IXUSR)
+            check("chmod +x invalidates the cache, so a fixed tool leaves the list",
+                  "no_exec_bit" not in loop._library_broken_tools())
+            os.remove(_nep)
+
+        # A redirect into tools/own is authoring a tool, and the creature does it.
+        check("a heredoc redirect into tools/own counts as touching that tool",
+              loop._tools_touched(
+                  [("cat << 'EOF' > /mind/tools/own/written_raw", 0)])
+              == {"written_raw"})
+        check("tee counts too, append or not",
+              loop._tools_touched([("x | tee -a tools/own/t1", 0)]) == {"t1"})
+        check("but merely READING a tool file is not authoring it",
+              loop._tools_touched([("cat /mind/tools/own/somebody_elses", 0)])
+              == set())
 
         # A newly broken tool re-arms the warning.
         _put("second_break", "#!/usr/bin/env python3" + NL + "def f(:" + NL)

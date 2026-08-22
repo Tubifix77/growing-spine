@@ -254,8 +254,13 @@ def tool_start_failure(name: str, text: str, path: str = None):
     still run, which is not a fault. Guessing from the extension would have
     reported 26 files, some of them working.
     """
+    # An EMPTY file is deliberately NOT a start failure: with no shebang the
+    # kernel returns ENOEXEC, the shell runs it, and it exits 0 -- it starts and
+    # does nothing. "Does nothing" belongs to the hollow organ (is_hollow_stub,
+    # and the done-gate branch that runs before this one); reporting it here as
+    # well would count one fault twice under two different names.
     if not text.strip():
-        return "the file is empty"
+        return None
     first = text.split("\n", 1)[0]
     if not first.startswith("#!"):
         import ast as _ast
