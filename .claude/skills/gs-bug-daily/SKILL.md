@@ -64,6 +64,8 @@ Full scar list: `CLAUDE.md` §5. Do not restate it here — point at it.
 > when its allowance runs out; a predicate split on 08-19 left the warning
 > reporting 9 while the gate checked 32, and the creature found the hole three
 > days before we would have.
+>
+> **Deliver:** One line per fix: what it should have changed, the number that shows it, and moved / did not move / could not locate. "Could not locate" is a permitted answer and counts as unverified.
 
 > **Then look for obedient-but-wrong behaviour — the hardest and most valuable
 > item here.** Something the creature did repeatedly, correctly following a
@@ -76,10 +78,14 @@ Full scar list: `CLAUDE.md` §5. Do not restate it here — point at it.
 > a bad result; the same wrong shape rebuilt by a different mechanism after we
 > named a mechanism instead of an invariant; repeated confusion about where
 > something lives or what a tool is called.
+>
+> **Deliver:** At least three `think` records quoted with timestamps, or the number of records you read and what you concluded from them. Reading none is not an answer.
 
 > **For every instrument that fired this window, ask whether it fired for the
 > right reason** — a correct alarm raised by the wrong cause is a coincidence
 > that will not repeat.
+>
+> **Deliver:** One line per instrument that fired: right reason / wrong reason / cannot tell.
 
 ## Tier 3 — the blank pass. Mandatory, and it must be answerable as "none".
 

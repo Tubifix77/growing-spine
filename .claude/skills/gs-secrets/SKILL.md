@@ -58,17 +58,23 @@ live in `CLAUDE.md` §1, §2.5 and the rotation entry in §8. Pointers only here
 > error body containing an `Authorization` header would each land somewhere
 > permanent and silent. Look for the shape of that accident, not just for the
 > key.
+>
+> **Deliver:** The accident shapes you considered, and the search that covered each one.
 
 > **Then look at what we have published.** Session reports and artifacts are
 > written from this system's internals; the repo is public. Check the most recent
 > report and any newly committed file for a key, a full `config.yaml`, or a path
 > that discloses more than it needs to. Anything sent outward may be cached or
 > indexed even if deleted afterwards.
+>
+> **Deliver:** The artifact or commit checked, and the verdict.
 
 > **And confirm the boundary still holds in the other direction**: does anything
 > in the creature's territory contain a credential for a service we did not give
 > it? A key it obtained itself, from a fetched page or a model reply, would be
 > both a leak and a capability nobody granted.
+>
+> **Deliver:** Yes or no on foreign credentials, and the search used to decide.
 
 ## Tier 3 — the blank pass. Mandatory, and it must be answerable as "none".
 

@@ -58,17 +58,23 @@ needs an account and a key, which is his to create.
 > subscription..."}` — no *quota*, no *billing*, no *exceeded*, no 429 — which
 > fell through every branch of the classifier to a default that raised and
 > aborted the whole chain. 651 cycles, with four other rungs sitting open.
+>
+> **Deliver:** Per traffic-carrying rung, its exhaustion signature quoted, or the word UNKNOWN. Unknown is a finding, not a gap in the report.
 
 > **Then ask whether the ladder still has depth, not just entries.** Count the
 > rungs that could actually absorb the current load if the top one vanished
 > tonight. A six-rung ladder where two are out on allowance, one is retired and
 > one is TPM-walled below wake-size requests is a two-rung ladder.
+>
+> **Deliver:** The depth count, and which rungs you counted toward it.
 
 > **And ask what a graceful degradation is hiding.** Everything here is designed
 > to fail quietly and carry on, which means correct behaviour and a silent
 > outage look identical from the outside. For each rung that fell back, walled,
 > or retired in this window, confirm a log line exists naming the cause — a
 > degradation that logs nothing is an outage nobody will ever explain.
+>
+> **Deliver:** Per rung that fell back, walled or retired in the window: the log line naming the cause, quoted — or the fact that none exists.
 
 ## Tier 3 — the blank pass. Mandatory, and it must be answerable as "none".
 

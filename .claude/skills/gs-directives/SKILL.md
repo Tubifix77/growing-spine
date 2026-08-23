@@ -80,16 +80,22 @@ a directive surface.
 > reproduced it. Re-fixing the wording then would have been treating a symptom
 > that was not there. Check whether the directive is still wrong before blaming
 > it.
+>
+> **Deliver:** Each candidate as a triple — instruction, behaviour, bad outcome — or the number of instructions you checked and why none matched.
 
 > **Then read the prompts as the creature, not as their author.** Take one
 > instruction and ask what the cheapest literal compliance looks like. If
 > cheapest-literal-compliance is harmful, the instruction is the bug regardless
 > of how clear it seems to whoever wrote it.
+>
+> **Deliver:** One instruction quoted, its cheapest literal compliance spelled out, and whether that compliance is harmful.
 
 > **And ask what it needs to know that we have never told it.** Absence is a
 > directive fault too, and it is invisible by construction. Look for facts it
 > repeatedly re-derives, capabilities it has but never uses, and things it built
 > a tool to discover that the framework could simply state.
+>
+> **Deliver:** At least one named absence, or the list of re-derived facts and unused capabilities you checked before concluding there is none.
 
 ## Tier 3 — the blank pass. Mandatory, and it must be answerable as "none".
 

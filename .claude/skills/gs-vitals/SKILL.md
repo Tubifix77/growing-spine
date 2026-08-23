@@ -53,16 +53,22 @@ for three and a half hours while every check called it healthy.
 > Attributing someone else's game to the creature is the easiest wrong answer
 > available, and the opposite error is just as easy: on 2026-08-18 the fan noise
 > was real, ours, and had been going for 32 hours.
+>
+> **Deliver:** Every process above 2% named and attributed ours / not ours. No process left unattributed.
 
 > **Then account honestly for our own additions.** Time every per-cycle builder
 > we have added and state the total, whether or not it is the cause. On
 > 2026-08-18 the answer was 15 ms combined against a 45-second fault that
 > predated the session — and saying so plainly was worth more than being either
 > blamed or exonerated.
+>
+> **Deliver:** The total milliseconds of our per-cycle additions, whether or not they are the cause.
 
 > **Ask what would have to be true for this box to be unhealthy in a way none of
 > the numbers above would show.** Thermal throttling, PID exhaustion and zombie
 > accumulation were each invisible until someone looked for them specifically.
+>
+> **Deliver:** One named blind spot, or the list of sensors you enumerated before concluding there is none.
 
 ## Tier 3 — the blank pass. Mandatory, and it must be answerable as "none".
 

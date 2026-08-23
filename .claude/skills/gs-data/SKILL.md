@@ -55,6 +55,8 @@ here, so a correction there corrects this.
 > tell you a store is broken; only tracing tells you why. `keyword-archive.jsonl`
 > has sat at 0 of 2,618 lines readable by its own writer's reader, across weeks,
 > because nobody followed one record through.
+>
+> **Deliver:** The store named, its writer tool, its reader tool, and whether the reader parses what the writer actually wrote.
 
 > **Then ask what the creature believes is in there.** Read its `think` records
 > for claims about its own memory — "I recall", "the archive says", "as noted
@@ -62,11 +64,15 @@ here, so a correction there corrects this.
 > is building on nothing, and that is far worse than a parse-rate number
 > suggests. This is the closest thing we have to measuring whether its knowledge
 > actually compounds.
+>
+> **Deliver:** Three `think` records quoted, each with whether the store backs the claim it makes — or the number of records read and why none made such a claim.
 
 > **And ask whether a store that looks healthy is real.** A file can be
 > perfectly parseable and entirely fabricated. Sample actual record content, not
 > just its shape: reserved hosts, placeholder answers, records that merely
 > restate their input, timestamps that are all from one minute.
+>
+> **Deliver:** Five sampled records with a real / fabricated verdict on each.
 
 ## Tier 3 — the blank pass. Mandatory, and it must be answerable as "none".
 

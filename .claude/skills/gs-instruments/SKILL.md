@@ -69,6 +69,8 @@ warnings (`_build_loop_warning`, `_build_data_warning`,
 > reported demand — three instruments, all accurate, and the creature had been
 > down for twelve hours because none of them watched whether it was thinking.
 > The gap was found because Tue asked for a check.
+>
+> **Deliver:** One sentence per instrument naming that circumstance, or the literal words "cannot state" — which is itself the finding, and must be reported as one.
 
 > **Then audit the newest instruments hardest.** Anything added in the last week
 > has the least evidence behind it and the most confidence attached to it. For
@@ -76,11 +78,15 @@ warnings (`_build_loop_warning`, `_build_data_warning`,
 > would you know the difference between "no false positives" and "wired to
 > nothing"? The startability gate has fired zero times in forty hours and both
 > readings remain open.
+>
+> **Deliver:** Per instrument added in the last seven days: has it fired for real, and has its threshold ever been approached. Yes/no each.
 
 > **And ask which alarm you have started ignoring.** A unit that sits in
 > `failed` as designed, a tag that is always `!!`, a warning whose count never
 > moves — habituation is an instrument failure that lives in the reader, not the
 > code. Name any signal that has become wallpaper.
+>
+> **Deliver:** The signal named, or the list of always-on signals you checked before concluding none has become wallpaper.
 
 ## Tier 3 — the blank pass. Mandatory, and it must be answerable as "none".
 

@@ -74,6 +74,28 @@ So every skill has three tiers, and all three are mandatory:
 That is the ratchet: the lists grow from what has bitten us rather than from what
 someone imagined on the day they were written.
 
+### Every Tier 2 item ends in **Deliver:** — and that is not decoration
+
+`gs-bug-daily`'s first run, 2026-08-23, produced a controlled experiment on its
+own three Tier 2 items. The one that demanded an artifact ("name the number that
+shows the fix moved") was done, and it found the run's main fault. The one that
+described an activity ("look for obedient-but-wrong behaviour, read its `think`
+records") was satisfied with a single grep on a hypothesis; when that came back
+empty the session moved on and never read a record. Same model, same run,
+minutes apart. The difference was the wording.
+
+An activity can be discharged by a gesture. An artifact cannot. So each item now
+names what must be produced, and **every one accepts a null result only in an
+evidenced form** — the number of records read, the list checked, or the literal
+words "cannot state". "I looked and found nothing" is not an answer any of them
+accepts.
+
+Fourteen of the original twenty-four items were activity-shaped, including all
+three in `gs-directives`, whose entire purpose is finding instructions that get
+obeyed without the work happening. The lesson the framework keeps teaching about
+directives to the creature — state the invariant, never the activity — applies
+to the directives we write for ourselves.
+
 ## The one architectural rule
 
 **Skills carry procedure. `CLAUDE.md` carries doctrine.**

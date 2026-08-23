@@ -62,17 +62,23 @@ delete its `.bak` or junk files — they are its safety net.
 > a helper that returns an answer and no such field, so its "cost-aware" figure
 > is `"N/A"` essentially always. Aspirational naming is a real and recurring
 > pattern in this library, and only reading catches it.
+>
+> **Deliver:** The three named, and for each whether the name matches the behaviour, with the line that shows it.
 
 > **Then look for what it is trying and failing to do.** Repeated near-duplicate
 > names, the same tool rewritten many times in a week, wrappers around wrappers,
 > a tool whose whole body is a call to one other tool. Those are its unmet needs
 > showing through the shape of the library, and they say more about what the
 > framework is not giving it than any error count does.
+>
+> **Deliver:** The near-duplicate, repeated-rewrite and wrapper lists — or the counts you computed that show none.
 
 > **Ask what the library says about its craft over time**, using the history
 > file: is the header-contract share rising, is the error-as-value share
 > falling, is the broken count trending down. A single census is a snapshot; the
 > question worth answering is whether it is getting better at this.
+>
+> **Deliver:** The three trend numbers with a direction each, or the literal words "no prior record" if this is the first run.
 
 ## Tier 3 — the blank pass. Mandatory, and it must be answerable as "none".
 
