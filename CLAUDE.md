@@ -38,8 +38,25 @@ cycle, not when you are certain. Its tools are its world. Instead:
 - Surface on a **change of state, never continuously**. A fact repeated every
   cycle is a nag it learns to skip, or a trap it cannot exit when it looks and
   finds nothing it can fix.
-- Direct intervention only if it is genuinely stuck, and only after discussing it
-  with Tue. Consent in chat is the floor, not the ceiling.
+- **STOP THE BLEEDING FIRST, and that is not an intervention.** If one of its
+  tools is wedging the system, kill the processes and respawn the body
+  immediately — no consent, no discussion, no waiting. **Its TOOLS are its world;
+  its PROCESSES are not.** A process is ephemeral and the body is disposable by
+  design; killing one changes nothing durable. `ensure_body` already does the
+  automated version of exactly this. Only after the bleeding stops does the method
+  below apply, and by then there is time to follow it properly.
+  Two things to keep straight when judging the emergency. **A runaway tool cannot
+  starve the host**: the container is capped at 1.5 of 4 cores and 1 GB, hard, so
+  the "148%" of 2026-08-14 WAS that cap, not the box being taken. The genuinely
+  unbounded resources are **disk** and **PIDs** — and the only thing that has ever
+  wedged the whole spine was PID exhaustion, which was our `sleep infinity`, not
+  its tool. So measure before you conclude its tool is the emergency.
+  And if a hand had to intervene at all, **that is the finding**: the framework
+  was missing a bound. The fix is the limiter — a cap, a timeout, a reaper — never
+  an edit to its tool. `run_command` times out at 300 s, but that binds the EXEC
+  and not the children it backgrounds, which is how 49 orphans accumulated.
+- Direct intervention IN ITS TOOLS only if it is genuinely stuck, and only after
+  discussing it with Tue. Consent in chat is the floor, not the ceiling.
 
 **2. You are the framework's debugger, not the creature's nanny.**
 It is meant to stand alone, permanently, with nobody watching. So:

@@ -122,6 +122,24 @@ For **each** fault, produce all six:
 > not building one now", give the reason and the named trigger with a date that
 > would change that — a hold without a date is inaction wearing caution's clothes.
 
+### When the fault is an emergency
+
+If the fault you are reporting is *currently* wedging the system — a tool
+spinning, a body that cannot fork, a disk filling — **stop the bleeding before
+you write anything.** Kill the processes, respawn the body. That is not an
+intervention in its world: its tools are its world, its processes are not, and
+the body is disposable by design.
+
+Then come back and produce all six items anyway, because the emergency is the
+evidence rather than the exception. Item 2 has a specific answer in this case:
+**the framework was missing a bound**, and item 4's detector is a limiter — a
+cap, a timeout, a reaper — not an edit to its tool. Record what the intervention
+was, so the next run can see whether the limiter made it unnecessary.
+
+Judge the emergency on measurements, not on the reading that alarms most: the
+container is capped at 1.5 cores and 1 GB, so a runaway tool of its own cannot
+starve the host. Disk and PIDs are the unbounded ones.
+
 ## Write the numbers down
 
 Append one record per run to `gs-history/products.jsonl` in this repo checkout.
