@@ -60,7 +60,13 @@ a directive surface.
    mechanism, and arrive on a change of state rather than continuously?
 9. **The done-block reason text** it receives when a gate blocks it — is it
    actionable, or does it name a condition without a next step?
-10. Deltas against the previous run of this skill.
+10. **The composition of the wake context**: how many characters are static
+    contract versus live state. Added 2026-08-23 by the blank pass — the
+    contract is 84 lines / 10,730 chars injected every cycle and nothing
+    measures what share of its attention budget goes to text that never
+    changes. Do NOT call `_build_context` to find out: it ends in
+    `_mark_surfaced()` and writes rotation state.
+11. Deltas against the previous run of this skill.
 
 ## Tier 2 — pointed open inspection. Prose, and it cannot be skipped.
 
