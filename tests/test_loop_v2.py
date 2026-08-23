@@ -2435,6 +2435,32 @@ async def main():
               loop._tools_touched([("cat /mind/tools/own/somebody_elses", 0)])
               == set())
 
+        # ---- reaching for a broken tool re-arms the warning (2026-08-23) ----
+        # Found by gs-bug-daily on its first run: the set stabilised at 32 on
+        # 08-22 09:16 and the warning then said NOTHING for 28 hours -- zero
+        # mentions in the wake context -- while all 32 stayed broken. Told about 9
+        # it had repaired two within a day; told about 32 once and never again, it
+        # repaired none. Set-change alone is not enough to keep a fact present.
+        _rj_use = [{"kind": "exec_start",
+                    "content": "Block 1: escaped_quotes --topic x"}]
+        _w4 = loop._build_broken_tool_warning()          # settle the set first
+        _w5 = loop._build_broken_tool_warning()
+        check("a stable set still says nothing on its own (no nagging)",
+              _w5 == "")
+        _w6 = loop._build_broken_tool_warning(_rj_use)
+        check("reaching for a broken tool re-arms the warning",
+              _w6 != "" and "escaped_quotes" in _w6)
+        check("and it leads with what was reached for, not the whole list",
+              "You reached for" in _w6)
+        _w7 = loop._build_broken_tool_warning(_rj_use)
+        check("reaching for the SAME tool again does not repeat the warning",
+              _w7 == "")
+        # A mention in its own reasoning is not an attempt to run it.
+        _rj_think = [{"kind": "think_end",
+                      "content": "later I might use hdr_no_hash for this"}]
+        check("a think-record mention is not 'reaching for' a tool",
+              loop._build_broken_tool_warning(_rj_think) == "")
+
         # A newly broken tool re-arms the warning.
         _put("second_break", "#!/usr/bin/env python3" + NL + "def f(:" + NL)
         _w3 = loop._build_broken_tool_warning()

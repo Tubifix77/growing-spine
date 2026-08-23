@@ -3371,37 +3371,100 @@ def _library_broken_tools():
     return broken
 
 
-def _build_broken_tool_warning() -> str:
-    """Edge-triggered: speaks when the SET of unstartable tools changes."""
+def _tools_reached_for(recent_journal, names) -> set:
+    """Which of `names` appear at a command position in recent exec blocks.
+
+    Uses the journal slice the wake already holds -- 20 records, in memory, no
+    extra read. The point is to know which broken tools the creature is actually
+    trying to USE, because those are the only ones it has any reason to fix.
+    """
+    if not recent_journal or not names:
+        return set()
+    pat = _dependency_pattern([n for n in names if len(n) >= 4])
+    if pat is None:
+        return set()
+    hit = set()
+    for e in recent_journal:
+        if e.get("kind") not in ("exec_start", "exec_end"):
+            continue
+        for m in pat.finditer(str(e.get("content", ""))):
+            hit.add(m.group(1))
+    return hit & set(names)
+
+
+def _build_broken_tool_warning(recent_journal=None) -> str:
+    """Edge-triggered, on TWO signals: the set changing, or a broken tool being
+    reached for again.
+
+    Set-change alone was not enough, and gs-bug-daily caught it on 2026-08-23:
+    the set stabilised at 32 on 08-22 09:16 and the warning then said nothing for
+    **28 hours**, with zero mentions in the wake context, while all 32 stayed
+    broken. Told about 9 on 08-21 the creature repaired two within a day; told
+    about 32 once and then never again, it repaired none. It was not ignoring a
+    long list -- it was not being told.
+
+    Firing every cycle is not the fix: a fact repeated every cycle is a nag it
+    learns to skip, and a standing list of 32 mostly-stale tools is exactly the
+    trap it cannot exit -- `ascii_plot` has been untouched since 07-14 and there
+    is no reason for it to care. So the second trigger is REACHING FOR one. That
+    re-arms by itself, names a tool it demonstrably wants, and stays quiet about
+    the ones costing it nothing.
+    """
     broken = _library_broken_tools()
+    cur = set(broken)
+    reached = _tools_reached_for(recent_journal, cur)
     try:
         with open(BROKEN_WARNING_STATE_PATH, encoding="utf-8") as f:
-            prev = set(json.load(f).get("tools") or [])
+            st = json.load(f)
+        prev = set(st.get("tools") or [])
+        prev_reached = set(st.get("reached") or [])
     except Exception:
-        prev = set()
-    cur = set(broken)
-    if cur != prev:
+        prev, prev_reached = set(), set()
+
+    set_changed = cur != prev
+    new_reach = bool(reached - prev_reached)
+    if set_changed or reached != prev_reached:
         try:
             os.makedirs(os.path.dirname(BROKEN_WARNING_STATE_PATH), exist_ok=True)
             tmp = BROKEN_WARNING_STATE_PATH + ".tmp"
             with open(tmp, "w", encoding="utf-8") as f:
-                json.dump({"tools": sorted(cur)}, f)
+                json.dump({"tools": sorted(cur), "reached": sorted(reached)}, f)
             os.replace(tmp, BROKEN_WARNING_STATE_PATH)
         except OSError:
             pass
-    if not cur or cur == prev:
+    if not cur or not (set_changed or new_reach):
         return ""
-    shown = sorted(cur)[:6]
-    lines = ["## Tools that cannot start",
-             "%d of your tools fail before running a single line, so every call to "
-             "one of them is wasted:" % len(cur)]
-    for n in shown:
-        lines.append("  %s -- %s" % (n, broken[n]))
-    if len(cur) > len(shown):
-        lines.append("  (+%d more)" % (len(cur) - len(shown)))
-    lines.append("Open one and check that line. A tool must be able to start; "
+
+    lines = ["## Tools that cannot start"]
+    if reached:
+        # Lead with what it just tried to use. This is the actionable half.
+        lines.append("You reached for %s, and %s cannot start:"
+                     % (_and_list(sorted(reached)),
+                        "it" if len(reached) == 1 else "they"))
+        for n in sorted(reached):
+            lines.append("  %s -- %s" % (n, broken[n]))
+        rest = len(cur) - len(reached)
+        if rest > 0:
+            lines.append("(%d other tools in your library also cannot start.)"
+                         % rest)
+    else:
+        shown = sorted(cur)[:6]
+        lines.append("%d of your tools fail before running a single line, so "
+                     "every call to one of them is wasted:" % len(cur))
+        for n in shown:
+            lines.append("  %s -- %s" % (n, broken[n]))
+        if len(cur) > len(shown):
+            lines.append("  (+%d more)" % (len(cur) - len(shown)))
+    lines.append("Open it and check that line. A tool must be able to start; "
                  "until it can, anything that reaches for it gets nothing.")
     return "\n".join(lines) + "\n\n"
+
+
+def _and_list(items) -> str:
+    items = list(items)
+    if len(items) == 1:
+        return items[0]
+    return ", ".join(items[:-1]) + " and " + items[-1]
 
 
 def _build_knowledge_block() -> str:
@@ -3640,7 +3703,7 @@ def _build_context(recent_journal: list, tue_message: str = None) -> str:
     loop_warning = _build_loop_warning()
     data_warning = _build_data_warning()
     stuck_warning = _build_stuck_tool_warning()
-    broken_warning = _build_broken_tool_warning()
+    broken_warning = _build_broken_tool_warning(recent_journal)
     done_block = _build_done_block()
     retro_directive = _build_retro_directive_block()
     dup_report = _run_dup_scan_if_due()
