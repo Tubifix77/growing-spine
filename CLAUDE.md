@@ -78,10 +78,12 @@ checklist is blind to whatever it was written before: on 2026-08-19 three
 instruments were all correct and the creature had been down twelve hours, and the
 gap was found by an open-ended look. **Anything a blank pass finds that mattered
 becomes a mandated item there, dated.** When you correct a scar, correct it HERE —
-the skills point at §5 rather than quoting it, so one edit is enough. Each skill
-appends one record per run to `~/gs-history/<name>.jsonl` on the laptop (host
-home: outside the volume, outside this public repo), which is what turns snapshots
-into trends.
+the skills point at §5 rather than quoting it, so one edit is enough. **They run in
+the inspection session, never on the laptop** — the laptop runs the creature, this
+session watches it from outside over the bridge, and the creature never sees them.
+Each appends one record per run to `gs-history/<name>.jsonl` in the checkout,
+gitignored for the same reason `audit/` is, which is what turns snapshots into
+trends.
 
 ---
 

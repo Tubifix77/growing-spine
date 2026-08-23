@@ -78,7 +78,7 @@ live in `CLAUDE.md` §1, §2.5 and the rotation entry in §8. Pointers only here
 
 ## Write the numbers down
 
-Append one record per run to `~/gs-history/secrets.jsonl` on the laptop.
+Append one record per run to `gs-history/secrets.jsonl` in this repo checkout.
 **One record per line.** Record **no key material, not even truncated** — only
 names, counts, paths, and dates.
 

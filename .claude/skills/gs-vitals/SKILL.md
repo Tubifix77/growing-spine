@@ -71,7 +71,7 @@ for three and a half hours while every check called it healthy.
 
 ## Write the numbers down
 
-Append one record per run to `~/gs-history/vitals.jsonl` on the laptop.
+Append one record per run to `gs-history/vitals.jsonl` in this repo checkout.
 **One record per line.** A skipped run is absent, never a zero.
 
 Keys: `ts`, `run`, `uptime_h`, `brain_up_h`, `loadavg1`, `procs`, `zombies`,

@@ -81,7 +81,7 @@ delete its `.bak` or junk files — they are its safety net.
 
 ## Write the numbers down
 
-Append one record per run to `~/gs-history/products.jsonl` on the laptop.
+Append one record per run to `gs-history/products.jsonl` in this repo checkout.
 **One record per line.** A skipped run is absent, never a zero.
 
 Keys: `ts`, `run`, `tools`, `created`, `edited`, `by_redirect`, `invoked`,

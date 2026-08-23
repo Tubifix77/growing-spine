@@ -90,7 +90,7 @@ warnings (`_build_loop_warning`, `_build_data_warning`,
 
 ## Write the numbers down
 
-Append one record per run to `~/gs-history/instruments.jsonl` on the laptop.
+Append one record per run to `gs-history/instruments.jsonl` in this repo checkout.
 **One record per line.** A skipped run is absent, never a zero.
 
 Keys: `ts`, `run`, `instruments{name:{last_fired,ever_fired,both_states,

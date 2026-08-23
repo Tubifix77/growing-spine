@@ -75,7 +75,7 @@ here, so a correction there corrects this.
 
 ## Write the numbers down
 
-Append one record per run to `~/gs-history/data.jsonl` on the laptop.
+Append one record per run to `gs-history/data.jsonl` in this repo checkout.
 **One record per line** — this is the exact fault the creature keeps rebuilding
 and we must not hand it a bad example.
 

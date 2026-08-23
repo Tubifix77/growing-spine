@@ -82,8 +82,8 @@ Full scar list: `CLAUDE.md` §5. Do not restate it here — point at it.
 
 ## Write the numbers down
 
-Append one record per run to `~/gs-history/bug-daily.jsonl` on the laptop —
-host home, so it is outside the creature's volume and outside this public repo.
+Append one record per run to `gs-history/bug-daily.jsonl` in this repo checkout.
+Gitignored, so it never publishes.
 **One record per line.** A skipped run is absent, never a zero.
 
 Keys: `ts`, `run`, `window_h`, `span_h`, `thinks`, `exec`, `skips`, `errors`,

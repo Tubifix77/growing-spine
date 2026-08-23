@@ -12,3 +12,8 @@ DEV-LEDGER.md
 # in a LIVE system, in a PUBLIC repo. Never commit these. Ignored rather than
 # merely untracked, because `git add -A` would otherwise publish the lot.
 audit/
+
+# /gs-* inspection history: one record per run, written by the session that
+# runs the skills (the PC, not the laptop). Same reason as audit/ -- a running
+# log of a live system's failure modes does not belong in a public repo.
+gs-history/

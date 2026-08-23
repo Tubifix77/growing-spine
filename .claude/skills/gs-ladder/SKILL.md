@@ -77,7 +77,7 @@ needs an account and a key, which is his to create.
 
 ## Write the numbers down
 
-Append one record per run to `~/gs-history/ladder.jsonl` on the laptop.
+Append one record per run to `gs-history/ladder.jsonl` in this repo checkout.
 **One record per line.** A skipped run is absent, never a zero.
 
 Keys: `ts`, `run`, `rungs{key:{state,last_success_h,share_pct,trunc_pct}}`,
