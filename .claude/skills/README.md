@@ -13,7 +13,7 @@ them fire on a matching request.
 | `gs-instruments` | Do the checks themselves still work? | After adding an instrument; after any fault a human found first |
 | `gs-directives` | Is the framework telling it something wrong? | Monthly, or after a fault that smells like obedience |
 | `gs-secrets` | Has a key escaped, and which are pending rotation? | After any session that touched config; before publishing |
-| `gs-fan-diagnostic` | Why is the fan running hard, and is it even us? | On any report of noise, heat or sluggishness |
+| `gs-fan-diagnostic` | Why is the fan running hard, and is it even us? | **After `gs-vitals`**, on any report of noise, heat or sluggishness |
 
 ## Where these run
 
@@ -128,9 +128,27 @@ and **not one was fixed by us**. What was built was a predicate, an in-loop
 warning and a done-gate, and the creature then repaired two of them itself,
 including the file whose entire first line was a rate-limit error message.
 
+## One measurement, two callers
+
+`gs-vitals` and `gs-fan-diagnostic` originally shared about 45% of their checks —
+temperature, load, process count, container CPU, disk, per-cycle cost — each with
+its own copy. Two skills measuring the same thing their own way is the
+producer-and-checker drift this project keeps getting burned by, so:
+
+- **`gs-vitals` owns the box measurement.** Routine, broad, and it names the
+  conditions that escalate.
+- **`gs-fan-diagnostic` runs after it** and adds only what matters when the fan is
+  the symptom: is-this-me, the tenant diff at a 0.4% threshold, the periodic-job
+  sweep, iowait, and thermal history. It records a `vitals_run` reference rather
+  than storing the shared numbers twice.
+
+Counting the overlap also exposed a gap: `gs-vitals` had no check for the
+creature's own stuck tool processes while a sibling skill did. It has one now.
+
 ## A skill may carry a reference file
 
-`gs-fan-diagnostic` ships `baseline.md` beside it: the tenants that normally run
+`baseline-laptop.md` sits at the root of this directory, shared by `gs-vitals`
+and `gs-fan-diagnostic`: the tenants that normally run
 on that laptop together — Bedrock and its manager, Steam, Heroic, opensnitch, ufw,
 pihole — with no fan problem. Without it, every run rediscovers Tue's desktop and
 concludes "close Steam and Heroic", which describes his machine back to him

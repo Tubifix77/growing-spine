@@ -31,19 +31,42 @@ for three and a half hours while every check called it healthy.
    clamping). A clamped box understates every software timing you take on it.
 5. `docker stats --no-stream` for every container.
 6. Every process above 2% CPU with its full cmdline, **each explicitly
-   attributed ours / not ours**.
-7. **Body liveness by doing** — `sandbox.body_responds()`. Never a status field.
-8. Failed systemd units, and for each: is it the designed alarm (`exit_code`
+   attributed ours / not ours** — against the tenant list in
+   `../baseline-laptop.md`, which is the shared reference for what normally runs
+   on that machine. Do not re-derive it and never conclude "close Steam and
+   Heroic": those are the normal state.
+7. **The creature's own running processes** — `/mind/tools/` cmdlines with ages
+   (`loop._stuck_tool_procs`). Added 2026-08-23: a tool that has not returned
+   still holds its CPU and memory, and this check was absent while a sibling
+   skill had it.
+8. **Body liveness by doing** — `sandbox.body_responds()`. Never a status field.
+9. Failed systemd units, and for each: is it the designed alarm (`exit_code`
    returns nonzero when a traffic-carrying rung is silent) or a real failure?
-9. Per-cycle framework cost: `WAKE` p50/max against `WAKE_COST_BUDGET_MS`.
-10. **Disk headroom** on the volume and on `/`. `journal.jsonl` is append-only
+10. Per-cycle framework cost: `WAKE` p50/max against `WAKE_COST_BUDGET_MS`.
+11. **Disk headroom** on the volume and on `/`. `journal.jsonl` is append-only
     and already 130 MB; a full disk is a spectacular silent failure and nothing
     else watches it. Report free bytes and the journal's growth since last run.
-11. **Did the deploy load?** Compare `git log -1` on the laptop against the code
+12. **Did the deploy load?** Compare `git log -1` on the laptop against the code
     the running brain actually holds — import the module and check for the
     symbol the last change introduced. A restart is assumed, not proven,
     otherwise.
-12. Deltas against the previous run of this skill.
+13. Deltas against the previous run of this skill.
+
+### When to escalate to `gs-fan-diagnostic`
+
+This skill is the routine breadth check. Hand off to `gs-fan-diagnostic` — which
+owns the baseline diff, the periodic-job sweep and the heat-versus-work verdict —
+when **any** of these is true:
+
+- package temperature is high while `loadavg`, container CPU and iowait are all
+  normal (that is the physical-cause shape: dust, a soft surface, thermal paste);
+- `intel_powerclamp cur_state` is above 0, i.e. the kernel is already protecting
+  the box;
+- a process above the threshold is **not on the tenant list**;
+- a human reported noise, heat or sluggishness — their ear has been right 3/3, and
+  that is a trigger on its own regardless of what these numbers say.
+
+Escalating means running the five checks that skill adds, not repeating these.
 
 ## Tier 2 — pointed open inspection. Prose, and it cannot be skipped.
 
@@ -83,7 +106,7 @@ Append one record per run to `gs-history/vitals.jsonl` in this repo checkout.
 Keys: `ts`, `run`, `uptime_h`, `brain_up_h`, `loadavg1`, `procs`, `zombies`,
 `pids_current`, `pids_max`, `init`, `temp_c`, `powerclamp`, `container_cpu_pct`,
 `body_responds`, `failed_units[]`, `wake_p50_ms`, `disk_free_gb`,
-`journal_mb`, `deploy_loaded`.
+`journal_mb`, `deploy_loaded`, `stuck_tools`.
 
 ## If something is wrong
 
