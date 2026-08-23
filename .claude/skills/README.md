@@ -1,6 +1,6 @@
 # `/gs-*` — the standing inspections
 
-Eight skills, one per area of the system. Invoke by name (`/gs-vitals`) or let
+Nine skills, one per area of the system. Invoke by name (`/gs-vitals`) or let
 them fire on a matching request.
 
 | Skill | The question it answers | Cadence |
@@ -13,6 +13,7 @@ them fire on a matching request.
 | `gs-instruments` | Do the checks themselves still work? | After adding an instrument; after any fault a human found first |
 | `gs-directives` | Is the framework telling it something wrong? | Monthly, or after a fault that smells like obedience |
 | `gs-secrets` | Has a key escaped, and which are pending rotation? | After any session that touched config; before publishing |
+| `gs-fan-diagnostic` | Why is the fan running hard, and is it even us? | On any report of noise, heat or sluggishness |
 
 ## Where these run
 
@@ -98,7 +99,8 @@ to the directives we write for ourselves.
 
 ## Tier 4, in the four skills that examine what the creature produced
 
-`gs-products`, `gs-data`, `gs-directives` and `gs-bug-daily` can each surface a
+`gs-products`, `gs-data`, `gs-directives`, `gs-bug-daily` and
+`gs-fan-diagnostic` can each surface a
 fault in the creature's own output. Those four carry a fourth mandatory tier: the
 **response protocol**.
 
@@ -125,6 +127,22 @@ The pattern this encodes is the one that worked: ten unstartable tools were foun
 and **not one was fixed by us**. What was built was a predicate, an in-loop
 warning and a done-gate, and the creature then repaired two of them itself,
 including the file whose entire first line was a rate-limit error message.
+
+## A skill may carry a reference file
+
+`gs-fan-diagnostic` ships `baseline.md` beside it: the tenants that normally run
+on that laptop together — Bedrock and its manager, Steam, Heroic, opensnitch, ufw,
+pihole — with no fan problem. Without it, every run rediscovers Tue's desktop and
+concludes "close Steam and Heroic", which describes his machine back to him
+instead of diagnosing anything.
+
+Two rules for a reference file. **Tue owns it** — a baseline nobody maintains
+becomes a source of false findings. And **it must say when it does not know**: the
+first numeric baseline was measured while an inspection was running and was
+discarded on Tue's challenge, so the file records no trustworthy CPU numbers yet,
+states how a real baseline must be taken, and permits "I cannot say whether this
+is abnormal" as an answer. A baseline that describes the measurer is worse than
+none.
 
 ## The one architectural rule
 
