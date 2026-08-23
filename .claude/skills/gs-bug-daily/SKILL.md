@@ -43,7 +43,15 @@ Full scar list: `CLAUDE.md` §5. Do not restate it here — point at it.
    (`volume.tools.tool_start_failure`).
 9. `git log` since the previous run: what landed, on both machines, and whether
    the running brain actually holds it.
-10. **Deltas against the previous run of this skill**, from the history file.
+10. **Which authoring door it used** — `tool-new` / `tool-edit` / redirect-or-tee
+    into `tools/own`. Added 2026-08-23 by the blank pass: the redirect is the door
+    that leaves no `.bak` and no execute bit, and nothing else asks. First
+    reading: tool-edit 7, redirect 1, tool-new 0.
+11. **Is the broken-tool warning actually reaching the wake context?** Count
+    records mentioning it in the window, not just whether the state file exists.
+    Added 2026-08-23: the state file said 32 and looked healthy while the fact had
+    not been said once in 28 hours.
+12. **Deltas against the previous run of this skill**, from the history file.
 
 ## Tier 2 — pointed open inspection. Prose, and it cannot be skipped.
 
