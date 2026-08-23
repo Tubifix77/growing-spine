@@ -13,7 +13,7 @@ them fire on a matching request.
 | `gs-instruments` | Do the checks themselves still work? | After adding an instrument; after any fault a human found first |
 | `gs-directives` | Is the framework telling it something wrong? | Monthly, or after a fault that smells like obedience |
 | `gs-secrets` | Has a key escaped, and which are pending rotation? | After any session that touched config; before publishing |
-| `gs-fan-diagnostic` | Why is the fan running hard, and is it even us? | **After `gs-vitals`**, on any report of noise, heat or sluggishness |
+| `gs-fan-diagnostic` | Why is the fan running hard, and is it even us? | On any report of noise, heat or sluggishness (standalone; reuses a fresh `gs-vitals` if there is one) |
 
 ## Where these run
 
@@ -128,6 +128,33 @@ and **not one was fixed by us**. What was built was a predicate, an in-loop
 warning and a done-gate, and the creature then repaired two of them itself,
 including the file whose entire first line was a rate-limit error message.
 
+## Overlap is fine. A second DEFINITION is not.
+
+Every skill must be runnable **alone**. Someone reporting a loud fan types
+`/gs-fan-diagnostic`, not a two-step sequence, so a skill that depends on a
+sibling having run first is broken at the moment it is most needed. Duplicated
+*measurement* is the price of that, and it is worth paying.
+
+What must never be duplicated is a **definition**: what counts as a normal tenant,
+what threshold matters, what the container's caps are. Those live once, in
+`baseline-laptop.md`. Two skills measuring temperature is fine; two skills each
+deciding for themselves what normal means is the producer-and-checker drift this
+project keeps getting burned by.
+
+So when an overlap audit finds two skills covering the same ground, the remedy is
+usually to **share the definition, not remove the check**. Three outcomes are
+possible and only the first is common:
+
+- **Shared definition** — keep both, point both at one reference. Usual case.
+- **Redundant** — one skill is a strict subset of another. Delete it.
+- **An extension** — one skill is really a branch off a single finding in another.
+  Integrate it there.
+
+Running the audit is worth it regardless of the outcome: comparing `gs-vitals`
+against `gs-fan-diagnostic` on 2026-08-23 found that **`gs-vitals` had no check
+for the creature's own stuck tool processes** while its sibling did. The
+duplication was harmless; the hole it exposed was not.
+
 ## One measurement, two callers
 
 `gs-vitals` and `gs-fan-diagnostic` originally shared about 45% of their checks —
@@ -137,10 +164,11 @@ producer-and-checker drift this project keeps getting burned by, so:
 
 - **`gs-vitals` owns the box measurement.** Routine, broad, and it names the
   conditions that escalate.
-- **`gs-fan-diagnostic` runs after it** and adds only what matters when the fan is
-  the symptom: is-this-me, the tenant diff at a 0.4% threshold, the periodic-job
-  sweep, iowait, and thermal history. It records a `vitals_run` reference rather
-  than storing the shared numbers twice.
+- **`gs-fan-diagnostic` stands alone** — it takes the same box measurement in its
+  part A, using the same thresholds — and adds in part B what only matters when
+  the fan is the symptom: is-this-me, the tenant diff at 0.4%, the periodic-job
+  sweep, iowait, and thermal history. If a fresh vitals run exists it reuses those
+  numbers; it never requires one.
 
 Counting the overlap also exposed a gap: `gs-vitals` had no check for the
 creature's own stuck tool processes while a sibling skill did. It has one now.

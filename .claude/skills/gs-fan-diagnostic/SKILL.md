@@ -1,17 +1,23 @@
 ---
 name: gs-fan-diagnostic
-description: Diagnose why the Growing Spine laptop's CPU fan is running hard — the deep pass that runs AFTER gs-vitals, adding the tenant-baseline diff, the periodic-job sweep, the is-this-me check and a heat-versus-work verdict. Fire on "the fan is running", "the laptop is loud", "it sounds hot", "gs-fan-diagnostic", or any report of noise, heat or sluggishness.
+description: Diagnose why the Growing Spine laptop's CPU fan is running hard — standalone, against a reference list of the tenants that normally run there together with no problem, so the answer is never "close Steam and Heroic". Adds the is-this-me check, the periodic-job sweep and a heat-versus-work verdict. Fire on "the fan is running", "the laptop is loud", "it sounds hot", "gs-fan-diagnostic", or any report of noise, heat or sluggishness.
 ---
 
 # gs-fan-diagnostic — why is it hot, and is it even us?
 
-**Run `gs-vitals` first, and do not repeat it.** That skill owns the box
-measurement: temperature, clamp, load, process count, zombies, container PIDs and
-CPU, stuck tool processes, disk, and per-cycle framework cost. It also names the
-conditions that send you here.
+**This skill stands alone.** "The fan is loud" is exactly the moment someone
+types it cold, so it takes its own box measurements in part A below — it never
+requires `gs-vitals` to have run.
 
-This skill adds the five things that only matter when **the fan** is the symptom.
-Everything below assumes you already have the vitals numbers in hand.
+If `gs-vitals` HAS just run, reuse its numbers instead of taking them again and
+reference its history record. Reuse when available, measure when not; never
+depend.
+
+The overlap with `gs-vitals` in part A is deliberate. What must not be duplicated
+is a **definition** — the tenant list, the thresholds, the container caps — and
+those live once, in `../baseline-laptop.md`. Two skills measuring temperature is
+fine. Two skills deciding for themselves what "normal" means is the
+producer-and-checker drift this project keeps getting burned by.
 
 Tue reports this roughly fortnightly. His ear has been right **three times out of
 three**: thermal clamping, a 49-orphan runaway hitting the container's CPU cap,
@@ -32,7 +38,25 @@ That file also records that there is **no trustworthy numeric baseline yet** and
 why the first attempt was discarded. Until quiet samples accumulate, **"I cannot
 say whether this is abnormal" is a permitted and honest answer.**
 
-## Tier 1 — the five checks this skill adds. Run all of them.
+## Tier 1 part A — the box measurement. Take it, or reuse a fresh `gs-vitals` run.
+
+Same checks and the same thresholds as `gs-vitals`, because a fan diagnosis that
+skips them is guessing. Definitions come from `../baseline-laptop.md`; do not
+invent local ones.
+
+1. Package temperature and `intel_powerclamp cur_state` (−1 or 0 = not clamping).
+2. `loadavg` (all three), total process count, zombie count.
+3. Container `pids.current` / `pids.max`, `HostConfig.Init`, and container CPU
+   from `docker stats` — against the cap of **1.5 of 4 cores**, so a reading near
+   150% is at its ceiling rather than eating the box.
+4. Disk free on `/` and on the volume, plus the journal's size.
+5. Per-cycle framework cost: `WAKE` p50/max against its budget — and only trust
+   any brain-CPU average if brain uptime exceeds 2 hours, or it is cold-start
+   noise.
+6. The creature's own running processes: `/mind/tools/` cmdlines with ages
+   (`loop._stuck_tool_procs`). A tool that has not returned still holds its CPU.
+
+## Tier 1 part B — the five checks only this skill makes. Run all of them.
 
 1. **Is this me?** Is an inspection session running on that laptop now, or in the
    previous 15 minutes? Every `/gs-*` run sweeps Python across 488 tool files;
@@ -120,6 +144,6 @@ Append one record per run to `gs-history/fan.jsonl` in this repo checkout.
 Keys: `ts`, `run`, `reported_by_human`, `inspection_active`,
 `processes_over_0_4[{name,avg,inst,in_baseline}]`, `not_in_baseline[]`,
 `timers_fired_last_hour[]`, `iowait_pct`, `clamp_engaged_min`, `verdict`
-(work | heat | inspection | cannot-tell), `quiet`, plus a `vitals_run` reference
-to the `gs-history/vitals.jsonl` record this run sits on top of — so the shared
-numbers are stored once, not twice.
+(work | heat | inspection | cannot-tell), `quiet`, and the part-A box numbers.
+If a fresh `gs-vitals` record was reused rather than re-measured, set
+`vitals_run` to its timestamp instead of copying its fields.
