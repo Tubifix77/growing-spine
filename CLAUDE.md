@@ -61,10 +61,27 @@ It is meant to stand alone, permanently, with nobody watching. So:
 | `audit/RE-INSPECTION-2026-08-06.md` | both machines, **gitignored** | Per-finding verdict record for all 67 static-audit findings. |
 | Assistant memory | `D:\AI\claude-memory\memory.md`, section "Growing Spine" | Doctrine, scars, standing decisions. Read that section, not the whole file. |
 | `growing-spine-architecture.md` | this repo | Design + version history. |
+| `.claude/skills/README.md` | this repo | The eight `/gs-*` standing inspections and the rule that keeps them from drifting out of sync with this file. |
 
 `audit/` and `DEV-LEDGER.md` are gitignored deliberately: **this repo is public**,
 and those files are a file-and-line map of a running system's failure modes.
 Never commit them. Never commit `config.yaml` — it holds API keys.
+
+---
+
+**The `/gs-*` skills carry PROCEDURE; this file carries DOCTRINE.** Eight standing
+inspections live in `.claude/skills/` — `gs-bug-daily`, `gs-products`, `gs-vitals`,
+`gs-ladder`, `gs-data`, `gs-instruments`, `gs-directives`, `gs-secrets`. Each one
+mandates exactly what must be inspected, so a check is never the whim of the day,
+and each ends with a pointed open pass plus one blank pass, because a pure
+checklist is blind to whatever it was written before: on 2026-08-19 three
+instruments were all correct and the creature had been down twelve hours, and the
+gap was found by an open-ended look. **Anything a blank pass finds that mattered
+becomes a mandated item there, dated.** When you correct a scar, correct it HERE —
+the skills point at §5 rather than quoting it, so one edit is enough. Each skill
+appends one record per run to `~/gs-history/<name>.jsonl` on the laptop (host
+home: outside the volume, outside this public repo), which is what turns snapshots
+into trends.
 
 ---
 
