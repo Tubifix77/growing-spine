@@ -79,6 +79,43 @@ here, so a correction there corrects this.
 > Name one thing about its data that no item above would have caught — or say
 > plainly that you found none. If it mattered, add it to Tier 1, dated.
 
+## Tier 4 — the response protocol. Mandatory for every fault found in what the creature produced.
+
+**A fault in its output is never fixed by fixing its tool.** The doctrine and the
+reasons are in `CLAUDE.md`, "The method" — not restated here. What follows is the
+required OUTPUT FORM, because a method stated as a philosophy gets agreed with and
+skipped.
+
+For **each** fault, produce all six:
+
+1. **The class, not the instance.** Name the kind of fault, in words a detector
+   could be written against. *"`extract-key-insights` contains a rate-limit error
+   message"* is an instance; *"a failed command's stdout can be written into a
+   file as a program"* is a class. Only the class can be defended against.
+2. **The machine that produced it.** What in the framework allowed a file in this
+   shape to exist at all? If the honest answer is "nothing prevents it", that is
+   the finding, and it is a framework finding rather than a creature one.
+3. **Why it cannot see it now.** The harder half, and where the framework bug
+   usually turns out to be. A fault it is told about at every single invocation
+   but cannot add up across cycles is invisible in the only sense that matters —
+   that was the whole of the ten unstartable tools.
+4. **The detector.** Does one exist that catches the NEXT instance of this class
+   without anyone asking? Name it, or state plainly that building it is the
+   deliverable. It must pass two tests: it would have caught **this** instance
+   retroactively, and it fires on the next one **unprompted**.
+5. **How the fact reaches the creature.** It cannot request a check for a problem
+   it does not know it has, so a tool it must choose to run is worthless here —
+   the fact has to arrive the way the gate fact arrives. Name the channel and its
+   trigger. If the finding reaches only us, say so: that is a weaker outcome and
+   must be labelled as one, not presented as a fix.
+6. **Confirmation that no tool of its own was edited** and that none of its junk
+   or `.bak` files was deleted.
+
+> **Deliver:** All six, per fault. **A fault reported without items 4 and 5 is a
+> complaint, not a finding.** If the honest answer to 4 is "no detector, and I am
+> not building one now", give the reason and the named trigger with a date that
+> would change that — a hold without a date is inaction wearing caution's clothes.
+
 ## Write the numbers down
 
 Append one record per run to `gs-history/data.jsonl` in this repo checkout.
@@ -88,6 +125,8 @@ and we must not hand it a bad example.
 Keys: `ts`, `run`, `stores{name:{lines,parse_pct,bytes,writer}}`,
 `unreadable[]`, `fabricated[]`, `split_paths[]`, `zero_byte_read[]`,
 `chat_last_in`, `chat_last_reply`, `volume_mb`.
+
+Plus, for Tier 4: `faults[]` with `class`, `machine`, `blindness`, `detector`, `channel`, and `no_tool_edited: true` on each. A fault recorded without a `detector` and a `channel` is stored as `incomplete: true`, so the gap is countable later rather than forgotten.
 
 ## What is not ours to fix
 

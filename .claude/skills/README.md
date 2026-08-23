@@ -96,6 +96,36 @@ obeyed without the work happening. The lesson the framework keeps teaching about
 directives to the creature — state the invariant, never the activity — applies
 to the directives we write for ourselves.
 
+## Tier 4, in the four skills that examine what the creature produced
+
+`gs-products`, `gs-data`, `gs-directives` and `gs-bug-daily` can each surface a
+fault in the creature's own output. Those four carry a fourth mandatory tier: the
+**response protocol**.
+
+**The fix for a fault in its output is never its tool.** It is a detector that
+exists from now on, and which surfaces the current instance so the creature
+repairs that itself. Fixing the tool removes one fault and teaches the framework
+nothing; a detector removes the class and hands the instance back to its owner.
+
+That is doctrine — `CLAUDE.md`, "The method" — and the tier does not restate it.
+What the tier adds is the output form, because a method written as a philosophy
+gets agreed with and skipped. Six items per fault: the **class** rather than the
+instance, the **machine** that allowed it, **why the creature cannot see it now**,
+the **detector** (existing or to be built, and it must both catch this instance
+retroactively and fire on the next one unprompted), the **channel** by which the
+fact reaches the creature unprompted, and confirmation that **no tool of its own
+was edited**.
+
+**A fault reported without a detector and a channel is a complaint, not a
+finding.** Where the honest answer is "no detector, not building one now", the
+reason and a dated trigger are required — a hold without a date is inaction
+wearing caution's clothes.
+
+The pattern this encodes is the one that worked: ten unstartable tools were found
+and **not one was fixed by us**. What was built was a predicate, an in-loop
+warning and a done-gate, and the creature then repaired two of them itself,
+including the file whose entire first line was a rate-limit error message.
+
 ## The one architectural rule
 
 **Skills carry procedure. `CLAUDE.md` carries doctrine.**
