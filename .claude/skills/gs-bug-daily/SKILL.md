@@ -51,7 +51,13 @@ Full scar list: `CLAUDE.md` §5. Do not restate it here — point at it.
     records mentioning it in the window, not just whether the state file exists.
     Added 2026-08-23: the state file said 32 and looked healthy while the fact had
     not been said once in 28 hours.
-12. **Deltas against the previous run of this skill**, from the history file.
+12. **Did engagement convert to action?** Count the cycles in which the
+    creature *engaged* with a standing warning (quoted it, reasoned about it,
+    named a tool from it) against the number of items it actually repaired.
+    Added 2026-08-24 by the blank pass: on this run it engaged in four
+    separate cycles and the count stayed at 32, and no item above asks that.
+    A count is a lagging indicator; engagement is the leading one.
+13. **Deltas against the previous run of this skill**, from the history file.
 
 ## Tier 2 — pointed open inspection. Prose, and it cannot be skipped.
 
