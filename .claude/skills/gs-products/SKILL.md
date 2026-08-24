@@ -52,7 +52,32 @@ delete its `.bak` or junk files — they are its safety net.
     must be reproducible by someone else.
 11. Attic size and anything stranded there that still has demand.
 12. `/workspace`: does `README.md` exist and describe what is there.
-13. Deltas against the previous run of this skill.
+13. **The effort funnel** — added 2026-08-24 on Tue's suggestion, because the
+    error buckets say what went wrong and never what fraction of intent becomes a
+    working tool. Report every stage, even the ones that read zero:
+
+    | stage | how to get it |
+    |---|---|
+    | distinct tools worked on | union of names across all three doors |
+    | authoring actions | `tool-new` + `tool-edit` + redirect invocations |
+    | **rounds per tool** | actions ÷ distinct tools |
+    | early rejection | gate-choice "near-duplicate will not be built", oracle `_REST_SENTINEL` |
+    | done-marks attempted | `remember current-phase done` in the window |
+    | **late rejection** | done-gate blocks by kind: false-completion / hollow / upgrade-no-change / cannot-start |
+    | done accepted | attempted − refused |
+    | passed but cannot start | of the tools accepted this window, how many fail `tool_start_failure` |
+
+    **Rounds must be paired with the outcome, or the metric scolds honest
+    iteration.** First reading, 2026-08-24: 50 edits across 11 tools (4.5 each),
+    and two tools took 29 of the 50 — `SystemicEventAnalyzer` 15 edits in one
+    hour, `plan_gap_store` 14 over 7.3 h — and **both ended green and start
+    fine**. That is intense, converting work, not thrash. So report
+    rounds-to-green separately from rounds-then-abandoned, and never present a
+    high round count as a fault on its own.
+
+    Watch the early-rejection stage especially: it read **zero** on the first
+    run, and a stage that always reads exactly zero is broken rather than idle.
+14. Deltas against the previous run of this skill.
 
 ## Tier 2 — pointed open inspection. Prose, and it cannot be skipped.
 
@@ -148,6 +173,8 @@ Append one record per run to `gs-history/products.jsonl` in this repo checkout.
 Keys: `ts`, `run`, `tools`, `created`, `edited`, `by_redirect`, `invoked`,
 `never_invoked`, `cannot_start`, `families{}`, `hollow`, `twins`, `near_miss`,
 `header_pct`, `argparse_n`, `stderr_pct`, `err_as_value_pct`, `worth_copying[]`.
+
+Plus the funnel: `funnel{tools_worked, actions{new,edit,redirect}, rounds_per_tool, early_rejected, done_attempted, late_rejected{by_kind}, done_accepted, accepted_cannot_start, rounds_to_green[], rounds_abandoned[]}`.
 
 Plus, for Tier 4: `faults[]` with `class`, `machine`, `blindness`, `detector`, `channel`, and `no_tool_edited: true` on each. A fault recorded without a `detector` and a `channel` is stored as `incomplete: true`, so the gap is countable later rather than forgotten.
 
