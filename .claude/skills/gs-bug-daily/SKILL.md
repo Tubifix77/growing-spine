@@ -57,7 +57,12 @@ Full scar list: `CLAUDE.md` §5. Do not restate it here — point at it.
     Added 2026-08-24 by the blank pass: on this run it engaged in four
     separate cycles and the count stayed at 32, and no item above asks that.
     A count is a lagging indicator; engagement is the leading one.
-13. **Deltas against the previous run of this skill**, from the history file.
+13. **The effort funnel for this window**, as defined in `../effort-funnel.md`.
+    The error buckets say what went wrong; the funnel says what fraction of what
+    it set out to build became a working tool. Report every stage including the
+    zeroes, and keep rounds-to-green separate from rounds-then-abandoned — a tool
+    that took fifteen attempts and works is a success story, not a fault.
+14. **Deltas against the previous run of this skill**, from the history file.
 
 ## Tier 2 — pointed open inspection. Prose, and it cannot be skipped.
 
@@ -99,6 +104,35 @@ Full scar list: `CLAUDE.md` §5. Do not restate it here — point at it.
 > plainly that you found none. If you found one and it mattered, add it to
 > Tier 1 in this file, dated. That is how this list grows from experience rather
 > than from imagination.
+
+## Fix the obvious, up front, and say what you fixed
+
+**This skill does repair — but only our own code, and only when the fix is
+obvious.** Do it before writing the report, and list every one in the executive
+summary so nothing is repaired silently.
+
+Obvious means **all** of these:
+
+- the fault is in **framework code** — `executive/`, `keychain/`, `volume/`,
+  `scripts/`. Never a tool of the creature's: those go to Tier 4 and are never
+  fixed by us, whatever the temptation.
+- the fix is small enough to hold in your head, and you can name the invariant it
+  restores;
+- it ships with a test that **fails without it**;
+- the gate passes on **both machines** afterwards.
+
+Never "obvious", regardless of how clear it looks:
+
+- a **directive or prompt change** — that is announced in Tue's voice and is his
+  call (`CLAUDE.md` §2.7);
+- a **config or provider change** — that follows the ladder discipline, code
+  before config, and a rung's exhaustion signature must be known first;
+- anything in `framework-tools/` — protected scar tissue;
+- anything you would have to argue for. If it needs an argument it is a finding
+  with a named trigger and a date, not a fix.
+
+An emergency is different again and comes first: see "When the fault is an
+emergency" below. Stop the bleeding, then report all six items anyway.
 
 ## Tier 4 — the response protocol. Mandatory for every fault found in what the creature produced.
 
@@ -163,9 +197,46 @@ Gitignored, so it never publishes.
 
 Keys: `ts`, `run`, `window_h`, `span_h`, `thinks`, `exec`, `skips`, `errors`,
 `err_guardrail`, `err_provider`, `err_unclassified`, `err_other`,
-`truncation_pct`, `cannot_start`, `fixes_verified`, `fixes_unverified`.
+`truncation_pct`, `cannot_start`, `fixes_verified`, `fixes_unverified`,
+`fixes_failed`, `fixed_up_front[]`, `open_items[]`, and the `funnel{}` block from
+`../effort-funnel.md`.
 
 Plus, for Tier 4: `faults[]` with `class`, `machine`, `blindness`, `detector`, `channel`, and `no_tool_edited: true` on each. A fault recorded without a `detector` and a `channel` is stored as `incomplete: true`, so the gap is countable later rather than forgotten.
+
+## The executive summary — last thing in the report, first thing read
+
+Tue reads this to know in five seconds whether he needs to care. It is numbers
+and plain statements, no hedging, and it **must state the clean case explicitly**:
+"No issues found" is a required sentence when true, not an absence the reader has
+to infer.
+
+Three lines, always all three:
+
+```
+FIXED UP FRONT   n — one clause each, naming what was wrong
+OPEN             n — one clause each, with the trigger and date that resolves it
+NO ISSUES        (or the word NONE against a heading that would otherwise be empty)
+```
+
+Then the three-state accounting for everything under monitoring. **Every item
+must land in exactly one column, and the columns must sum to the total** — an
+item that is neither done, unverified, nor failed has been lost:
+
+```
+UNDER MONITORING  n total
+  verified        n — the number moved and I can point at it
+  unverified      n — could not locate the number, or not enough time has passed
+  failed          n — the number moved the wrong way
+```
+
+Cover in that accounting: every fix from the previous session, every named
+trigger with a date, every instrument that should have fired, and every open lead
+carried forward. **"Unverified" is a first-class answer and must never be rounded
+up to "verified"** — a fix whose effect you cannot locate has not been verified,
+and saying so is the whole point of the column.
+
+End with the one-line trend against the previous run: thinks/hour, errors,
+`cannot_start`, and rounds-per-tool from the funnel.
 
 ## Output shape
 

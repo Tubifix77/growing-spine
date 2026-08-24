@@ -229,9 +229,34 @@ instrument only we can read makes us better caretakers; only something the
 creature receives makes it more independent — and the doctrine prefers the
 latter, so when a finding could become a fact it can act on, say so.
 
-## Report-only
+## Repair: our code yes, its world no
 
-No skill repairs anything. Mixing diagnosis and repair in one command is how a
-check becomes a whim. Findings about the creature's own tools are never fixed by
-us at all — the method is to ask why the framework let the fault be built, then
-make it visible so the creature prunes it itself.
+The original rule here was "no skill repairs anything". Tue overrode it on
+2026-08-24, correctly: leaving an obvious fault in our own code unfixed so it can
+be written up is theatre, not discipline. The rule is now split along the line
+that actually matters.
+
+**Its world: never.** A fault in the creature's tools, data or prompts is never
+fixed by us. That is Tier 4 — name the class, the machine, the blindness, the
+detector and the channel, then let it prune the instance itself. No exceptions
+except an emergency, and an emergency means killing processes and respawning the
+body, which touches nothing durable.
+
+**Our code: fix the obvious, up front, and declare it.** `executive/`,
+`keychain/`, `volume/`, `scripts/`. Obvious means: small, you can name the
+invariant it restores, it ships with a test that fails without it, and the gate
+passes on both machines. Never a directive or prompt change (Tue's call), never
+config or a provider rung, never `framework-tools/`, and never anything you would
+have to argue for — if it needs an argument it is a finding with a dated trigger,
+not a fix.
+
+Everything repaired must appear in the run's executive summary. Nothing gets
+fixed silently; that is what keeps this from becoming the whim the original rule
+was guarding against.
+
+Currently mandated in `gs-bug-daily`, which also carries the executive-summary
+format: FIXED UP FRONT / OPEN / NO ISSUES, then a three-state accounting —
+verified, unverified, failed — where every monitored item lands in exactly one
+column and the columns sum to the total. **"No issues found" is a required
+sentence when true**, not an absence the reader has to infer. And "unverified" is
+first-class: a fix whose effect cannot be located has not been verified.

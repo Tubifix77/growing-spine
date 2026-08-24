@@ -52,31 +52,10 @@ delete its `.bak` or junk files — they are its safety net.
     must be reproducible by someone else.
 11. Attic size and anything stranded there that still has demand.
 12. `/workspace`: does `README.md` exist and describe what is there.
-13. **The effort funnel** — added 2026-08-24 on Tue's suggestion, because the
-    error buckets say what went wrong and never what fraction of intent becomes a
-    working tool. Report every stage, even the ones that read zero:
-
-    | stage | how to get it |
-    |---|---|
-    | distinct tools worked on | union of names across all three doors |
-    | authoring actions | `tool-new` + `tool-edit` + redirect invocations |
-    | **rounds per tool** | actions ÷ distinct tools |
-    | early rejection | gate-choice "near-duplicate will not be built", oracle `_REST_SENTINEL` |
-    | done-marks attempted | `remember current-phase done` in the window |
-    | **late rejection** | done-gate blocks by kind: false-completion / hollow / upgrade-no-change / cannot-start |
-    | done accepted | attempted − refused |
-    | passed but cannot start | of the tools accepted this window, how many fail `tool_start_failure` |
-
-    **Rounds must be paired with the outcome, or the metric scolds honest
-    iteration.** First reading, 2026-08-24: 50 edits across 11 tools (4.5 each),
-    and two tools took 29 of the 50 — `SystemicEventAnalyzer` 15 edits in one
-    hour, `plan_gap_store` 14 over 7.3 h — and **both ended green and start
-    fine**. That is intense, converting work, not thrash. So report
-    rounds-to-green separately from rounds-then-abandoned, and never present a
-    high round count as a fault on its own.
-
-    Watch the early-rejection stage especially: it read **zero** on the first
-    run, and a stage that always reads exactly zero is broken rather than idle.
+13. **The effort funnel**, as defined in `../effort-funnel.md` — every stage,
+    including the ones that read zero, and rounds-to-green reported separately
+    from rounds-then-abandoned. The definition lives there because
+    `gs-bug-daily` computes it too, per window, and neither skill owns it.
 14. Deltas against the previous run of this skill.
 
 ## Tier 2 — pointed open inspection. Prose, and it cannot be skipped.
