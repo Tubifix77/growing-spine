@@ -281,6 +281,66 @@ async def main():
     check("below threshold: three repeats say nothing",
           loop._build_loop_warning() == "")
 
+    # ---- tool-edit write-time startability feedback (2026-08-26) ------------
+    # The 2026-08-19 named trigger fired: the broken-tool count sat at 32 for
+    # four days with engagement but no repair, so the fact now arrives at
+    # authorship. tool-edit runs INSIDE the container where volume/tools.py does
+    # not exist, so it carries a VERBATIM mirror of the four canonical functions
+    # -- and this test is the only thing standing between mirror and drift.
+    # Subprocess only: importing would write __pycache__ into framework-tools,
+    # which once emptied the creature's toolset for four days.
+    NL = chr(10)
+    import re as _re_te, subprocess as _sp_te
+    _te_path = os.path.join(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__))), "framework-tools", "tool-edit")
+    with open(_te_path, encoding="utf-8") as _tf:
+        _te_src = _tf.read()
+    with open(os.path.join(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__))), "volume", "tools.py"),
+            encoding="utf-8") as _cf:
+        _canon_src = _cf.read()
+    _mirror = _te_src.split("BEGIN startability mirror")[1]                      .split("END startability mirror")[0]
+    _drift = []
+    for _fn in ("looks_like_python", "tool_syntax_error", "_shell_syntax_ok",
+                "tool_start_failure"):
+        _m = _re_te.search(r"(?ms)^def " + _fn + r"\(.*?(?=^def |^class |\Z)",
+                           _canon_src)
+        if not (_m and _m.group(0).rstrip() in _mirror):
+            _drift.append(_fn)
+    check("tool-edit's startability mirror is verbatim-identical to the "
+          "canonical (drift breaks this test)", _drift == [])
+
+    _te_own = os.path.join(TMP, "te_own")
+    os.makedirs(_te_own, exist_ok=True)
+    with open(os.path.join(_te_own, "victim"), "w", encoding="utf-8") as _vf:
+        _vf.write("#!/usr/bin/env python3" + NL + "print(1)" + NL)
+    _te_env = dict(os.environ, SPINE_OWN_DIR=_te_own)
+    _BSq = chr(92) + chr(34)
+    _broken_body = ("#!/usr/bin/env python3" + NL + "p = f" + _BSq + _BSq + _BSq
+                    + "hi" + NL + "import sys" + NL + "print(sys.argv)" + NL)
+
+    _r = _sp_te.run([sys.executable, _te_path, "victim"], input=_broken_body,
+                    capture_output=True, text=True, env=_te_env, timeout=60)
+    check("tool-edit: a broken file is SAVED (warning, never a refusal)",
+          _r.returncode == 0 and "Rewrote" in _r.stdout
+          and open(os.path.join(_te_own, "victim"),
+                   encoding="utf-8").read() == _broken_body)
+    check("tool-edit: and stderr says it cannot START, with the line",
+          "cannot START" in _r.stderr and "line 2" in _r.stderr
+          and "must be able to start" in _r.stderr)
+
+    _healthy = ("#!/usr/bin/env python3" + NL + "import sys" + NL
+                + "print(sys.argv)" + NL)
+    _r2 = _sp_te.run([sys.executable, _te_path, "victim"], input=_healthy,
+                     capture_output=True, text=True, env=_te_env, timeout=60)
+    check("tool-edit: a healthy file draws no warning",
+          _r2.returncode == 0 and _r2.stderr.strip() == "")
+
+    _r3 = _sp_te.run([sys.executable, _te_path, "victim"], input="",
+                     capture_output=True, text=True, env=_te_env, timeout=60)
+    check("tool-edit: the empty-stdin refusal still stands (regression)",
+          _r3.returncode == 1 and "Refusing to write empty content" in _r3.stdout)
+
     # The contract that replaces old B4: the ban is GONE from every message.
     for _w in (_w1, _w2, _w3):
         pass

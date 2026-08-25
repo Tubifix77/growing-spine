@@ -405,6 +405,13 @@ or a path literal that already exists elsewhere, stop.
   cap, weak calls starve smart rungs and a weak author's buggy tools are lasting
   pollution. `openrouter/free` auto-routing stays rejected.
 - **Reversible actions are just done**, not asked about.
+- **The repair boundary is not Tue's to arbitrate case-by-case** (stated
+  2026-08-26): a known-failing behaviour in OUR framework is fixed without
+  asking — "I don't want something running that we know fails if it's part of
+  our own framework." A fault in the creature's own output is never fixed and
+  never needs his sign-off either: the response is always visibility — make it
+  see the failure at the moment it makes it, every time it makes it. Do not
+  send decisions of this shape back to him; he is the idea guy.
 - **A defunct model is removed the moment it is detected** — Tue's standing
   practice, stated 2026-08-17; do not queue it for his decision. Set
   `enabled: false` with a dated comment naming what happened. Check first whether
@@ -494,15 +501,19 @@ Fixed up front under the new rule: 499/client-closed/cancelled -> `flaky`
 over 4 tools, done 5 attempted / 4 refused / 1 accepted — the collapse that led
 to the keyhole. `plan_from_question` took 13 edit rounds and IS green.
 
-**The 08-26 trigger (broken-tool count must fall) comes due today and will
-FAIL** — 32 since 08-22, engagement without repair (4 cycles quoting the warning,
-0 repairs). Under the standing terms a write-time stderr warning in `tool-edit`
-is now justified; `framework-tools/` is protected scar tissue, so the exact
-change goes to Tue rather than being made unilaterally. Note the keyhole fix
-plausibly changes this dynamic — repairs require READING the broken file, which
-the trap was punishing — so the honest option is also on the table: re-arm the
-trigger for ~3 days to see whether repairs resume now that reading is legal.
-Tue's call.
+**The 08-26 trigger FIRED and was actioned the same night.** The broken-tool
+count sat at 32 for four days with engagement but no repair, so per its own
+terms `tool-edit` now gives write-time startability feedback: a WARNING on
+stderr, never a refusal — the file is saved exactly as given, exit stays 0, and
+stderr names the line and the invariant. I first sent this to Tue as a choice;
+his answer became the §6 decision rule above, and the change shipped under it.
+Because the tool runs inside the container where `volume/tools.py` does not
+exist, it carries a **verbatim mirror** of the four canonical startability
+functions, and a suite test fails on one character of drift — the §4 rule held
+by test where import is impossible. The keyhole fix and this land together, so
+the next window measures their JOINT effect on the count; that attribution
+blur is accepted and noted. Watch: does 32 finally fall, and does the WARNING
+line appear in exec stderr when it writes a broken file.
 
 **Ladder:** mistral returns 08-31, cerebras holds to 09-01, gemma carrying ~90%.
 `exec/think` watch unchanged, waiting on mistral. Keys still pending rotation.
