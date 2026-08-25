@@ -241,6 +241,34 @@ MEANINGFUL_KINDS = {"think_end", "exec_end", "error", "exec_timeout",
                     "respawn", "death", "birth"}
 
 
+# The creature's ENTIRE view of a command's result is what survives these caps.
+# Until 2026-08-25 they cut silently, at both layers -- stdout[:300] at write,
+# content[:300] at render -- so a 4KB `cat` looked complete at ~286 chars and
+# nothing said otherwise. A 14-day census found 127 repeat-streaks of the shape
+# the loop warning fires on; 102 of them had capped output. The creature was not
+# spinning: it re-ran commands because it could never see their result, and it
+# tried `base64 FILE`, `python3 -c "print(open(...).read())"` and
+# `cat $(which ...)` to widen a pipe that does not widen. SWE-agent's ACI paper
+# reached the same conclusion from the other side: agents fail with raw cat
+# under output limits, and need explicit windowed access instead of a ban.
+# Invariant: TRUNCATION MUST ANNOUNCE ITSELF WHEREVER IT CUTS. One definition of
+# the caps and one marker; writer, render and the loop warning all use these, so
+# a checker can never again assert completeness the producer did not deliver.
+EXEC_CMD_JOURNAL_CHARS = 200      # exec_start: command head kept in the journal
+EXEC_STDOUT_JOURNAL_CHARS = 300   # exec_end: stdout head
+EXEC_STDERR_JOURNAL_CHARS = 200   # exec_end: stderr head
+JOURNAL_RENDER_CHARS = 300        # per-entry cap in the wake-context render
+_TRUNC_MARK_RE = re.compile(r"\u2026\[\+\d+ chars cut\]")
+
+
+def _capped(text, cap: int) -> str:
+    """Cut text at cap with an explicit marker naming exactly what was lost."""
+    text = text or ""
+    if len(text) <= cap:
+        return text
+    return text[:cap] + "\u2026[+%d chars cut]" % (len(text) - cap)
+
+
 def _load_workspace_map() -> str:
     """Read /workspace/README.md from the container if it exists."""
     try:
@@ -3005,38 +3033,101 @@ async def _maybe_retrospective(keychain, advance=True):
 
 
 def _build_loop_warning() -> str:
-    """Detect cross-cycle repetition of one command and nudge — softly.
+    """Cross-cycle repetition of one command: name it, and tell the TRUTH about it.
 
-    Parser dedup means a command runs at most once per response, so repetition
-    now only shows up ACROSS cycles. If a single command dominates the recent
-    journal the creature is stuck observing without acting; inject a one-line
-    nudge that names it. This is a nudge, never a block: the creature can ignore
-    it, but it cannot fail to see it. Suppressed once the project is done.
+    Rewritten 2026-08-25. The old text asserted "you already have this
+    information" and banned "any reworded form of it" -- but it never looked at
+    the results at all, and a 14-day census (127 streaks) found 102 with output
+    the creature could never fully see, 44 whose results actually DIFFERED, and
+    23 distinct long commands collapsed into false repeats by the 200-char
+    journal cap -- among them tool-edit heredocs, so four different edits of one
+    tool read as "the same command 4 times" and the warning told it to stop
+    editing the tool it was upgrading. It called the ban "a trap" in its own
+    reasoning and spent three cycles hunting a legal way to read a file.
+
+    Three truths replace one falsehood:
+      identical + complete -> repetition returns the same bytes; act on them.
+      truncated            -> repetition can never show more; extract a part, or
+                              transform the file inside one bash block where a
+                              script sees ALL of it. No ban -- an information-
+                              starved read is not a spin.
+      results differ       -> the old "same result" was simply false; decide
+                              what the changing answer is for.
+
+    Never bans rewording: the detector sees exact strings only, and banning a
+    space it cannot observe is how the trap was built. Commands whose journalled
+    form was itself cut are NOT counted -- their identity was destroyed, and a
+    detector must not count what truncation destroyed.
     """
     try:
         phase = mem.retrieve(VOLUME_MOUNT, "current-phase")
         if phase and phase["value"].strip().lower() == "done":
             return ""
         entries = journal.recent(VOLUME_MOUNT, n=25)
-        cmds = []
+        # Chronological, whatever order recent() returns: the exec_start ->
+        # exec_end pairing below is directional, and a reversed list would
+        # attach results to the wrong commands.
+        entries = sorted(entries, key=lambda e: e.get("ts") or 0)
+        pairs = []                     # [command, its visible result]
         for e in entries:
             if e["kind"] == "exec_start":
                 m = re.match(r"Block \d+:\s*(.*)", e["content"], re.DOTALL)
-                cmds.append((m.group(1) if m else e["content"]).strip())
-        if not cmds:
+                pairs.append([(m.group(1) if m else e["content"]).strip(), ""])
+            elif e["kind"] == "exec_end" and pairs and not pairs[-1][1]:
+                pairs[-1][1] = e["content"]
+        if not pairs:
             return ""
-        recent = cmds[-10:]
-        cmd, n = Counter(recent).most_common(1)[0]
-        if n >= 4:
-            return ("## Attention\n"
-                    f"You have run `{cmd[:80]}` (or trivial variants of it) {n} "
-                    "times recently with the same result. You already have this "
-                    "information. Do NOT run this command, or any reworded form "
-                    "of it, again this cycle -- ACT on what you already know. If "
-                    "your tool now demonstrably works, mark the project done.\n\n")
+        recent = pairs[-10:]
+        countable = [c for c, _ in recent
+                     if not _TRUNC_MARK_RE.search(c)
+                     and len(c) < EXEC_CMD_JOURNAL_CHARS]
+        if not countable:
+            return ""
+        cmd, n = Counter(countable).most_common(1)[0]
+        if n < 4:
+            return ""
+        outs = [o for c, o in recent if c == cmd and o]
+
+        def _stdout_capped(out: str) -> bool:
+            if _TRUNC_MARK_RE.search(out):
+                return True
+            m = re.search(r"stdout=(.*?)(?: stderr=|$)", out, re.DOTALL)
+            return bool(m) and len(m.group(1)) >= EXEC_STDOUT_JOURNAL_CHARS
+
+        head = (f"## Attention\nYou have run `{cmd[:80]}` {n} times in your "
+                f"last {len(recent)} commands.")
+        if outs and any(_stdout_capped(o) for o in outs):
+            body = (
+                f" Its output is longer than the ~{JOURNAL_RENDER_CHARS} "
+                "characters that reach your next thought (the cut is marked "
+                "with \u2026[+N chars cut]), so running it again will only ever "
+                "show you the same first part -- repetition cannot widen that "
+                "window. To work with the FULL content, do the work inside one "
+                "bash block: a script that opens the file sees all of it. To "
+                "inspect a specific part, ask for exactly that part -- "
+                "`sed -n '40,80p' FILE` or `grep -n PATTERN FILE`. Asking for "
+                "less at a time is how you see more.")
+        elif outs and len(set(outs)) == 1:
+            body = (
+                " Each run returned the same complete result, and it is in "
+                "your recent activity above. Running it again returns the same "
+                "bytes and spends a cycle for nothing -- act on what it already "
+                "told you. A command that extracts DIFFERENT information is "
+                "fine. If your tool now demonstrably works, mark the project "
+                "done.")
+        elif outs:
+            body = (
+                " Its result was DIFFERENT on different runs. If you are "
+                "watching for a change, decide now what you will do with the "
+                "answer once you have it; otherwise act on the most recent "
+                "result instead of sampling it again.")
+        else:
+            body = (" Its results are not visible in your recent activity. "
+                    "Run it once more only if you will act on the answer this "
+                    "cycle.")
+        return head + body + "\n\n"
     except Exception:
         return ""
-    return ""
 
 
 DATA_WARNING_STATE_PATH = os.path.join(VOLUME_MOUNT, "state", "data_warning.json")
@@ -3688,7 +3779,8 @@ def _build_context(recent_journal: list, tue_message: str = None) -> str:
         lines = []
         for e in meaningful[-8:]:
             ts = time.strftime("%H:%M", time.localtime(e["ts"]))
-            lines.append(f"[{ts}] {e['kind']}: {e['content'][:300]}")
+            lines.append(f"[{ts}] {e['kind']}: "
+                         f"{_capped(e['content'], JOURNAL_RENDER_CHARS)}")
         if lines:
             journal_text = "\n\nRecent activity (your thoughts and their results):\n" + "\n".join(lines)
 
@@ -3809,7 +3901,8 @@ async def run_cycle(keychain: Keychain, dockerfile_dir: str):
             aborted = "respawn-failed"
             break        # NOT return: blocks already run must still be accounted
 
-        journal.append(VOLUME_MOUNT, "exec_start", f"Block {i+1}: {cmd[:200]}")
+        journal.append(VOLUME_MOUNT, "exec_start",
+                       f"Block {i+1}: {_capped(cmd, EXEC_CMD_JOURNAL_CHARS)}")
         try:
             stdout, stderr, code = await managed_exec(
                 cmd, VOLUME_MOUNT, SAVEGAME_ROOT, sandbox.CONTAINER_NAME)
@@ -3818,7 +3911,9 @@ async def run_cycle(keychain: Keychain, dockerfile_dir: str):
                            f"exec raised {type(_xe).__name__}: {_xe}")
             aborted = f"exec-raised:{type(_xe).__name__}"
             break        # same: fall through to the bookkeeping below
-        result_summary = f"exit={code} stdout={stdout[:300]} stderr={stderr[:200]}"
+        result_summary = (f"exit={code} "
+                          f"stdout={_capped(stdout, EXEC_STDOUT_JOURNAL_CHARS)} "
+                          f"stderr={_capped(stderr, EXEC_STDERR_JOURNAL_CHARS)}")
         journal.append(VOLUME_MOUNT, "exec_end", result_summary,
                        {"exit_code": code})
         executed.append((cmd, code))

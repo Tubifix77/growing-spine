@@ -182,9 +182,110 @@ async def main():
     check("B7 junk lines removed + real kept (fallback path)",
           "Provides the foo" not in cat and "Archives notes" in cat)
 
-    # B4: loop warning uses intent-based language
-    check("B4 warning mentions reworded variants",
-          "reworded form" in inspect.getsource(loop._build_loop_warning))
+    # ---- the observation keyhole and the loop warning (2026-08-25) ----------
+    # The old B4 test stood exactly here and asserted the MECHANISM -- that the
+    # source contained the phrase "reworded form". That phrase WAS the trap: the
+    # detector saw only exact strings, the ban covered every rewording, and the
+    # creature spent three cycles hunting a legal way to read a file it was
+    # upgrading. A 14-day census: 127 streaks, 102 with silently-capped output,
+    # 44 where "the same result" was false, 23 distinct commands collapsed into
+    # false repeats by the 200-char journal cap. Contract tests replace it.
+
+    # Truncation announces itself, with the exact loss named.
+    _cap310 = loop._capped("x" * 310, 300)
+    check("keyhole: a cut names exactly what was lost",
+          _cap310.endswith("[+10 chars cut]") and chr(8230) in _cap310)
+    check("keyhole: text within the cap is untouched",
+          loop._capped("short", 300) == "short"
+          and loop._capped("", 300) == "")
+    check("keyhole: writer and render share the one helper and constants",
+          "_capped(cmd, EXEC_CMD_JOURNAL_CHARS)" in inspect.getsource(loop.run_cycle)
+          and "_capped(stdout, EXEC_STDOUT_JOURNAL_CHARS)" in inspect.getsource(loop.run_cycle)
+          and "JOURNAL_RENDER_CHARS" in inspect.getsource(loop._build_context))
+
+    # The warning, on checked facts. Built against the TMP journal.
+    # The suite preamble stubs journal.append to a no-op, so these write the
+    # journal FILE directly -- the same pattern the throughput tests use.
+    from executive.journal import _host_journal_path as _jpath_of
+    _jpath = _jpath_of(TMP)
+    mem.store(TMP, "current-phase", "code")
+    check("loop-warning tests write to the TMP journal, not the real one",
+          loop.VOLUME_MOUNT == TMP and _jpath.startswith(TMP))
+
+    def _japp(kind, content):
+        with open(_jpath, "a", encoding="utf-8") as _jf:
+            _jf.write(json.dumps({"ts": time.time(), "kind": kind,
+                                  "content": content}, ensure_ascii=False) + chr(10))
+
+    def _pad(tag, k=10):
+        for i in range(k):
+            _japp("exec_start", "Block 1: echo pad-%s-%d" % (tag, i))
+            _japp("exec_end", "exit=0 stdout=pad-%s-%d stderr=" % (tag, i))
+
+    def _repeat(cmd, out, k=4):
+        for _ in range(k):
+            _japp("exec_start", "Block 1: " + cmd)
+            _japp("exec_end", out)
+
+    # Case 1: identical AND complete -> act, and no ban on different extraction.
+    _pad("c1")
+    _repeat("step-planner-tracker list", "exit=0 stdout=goal-1 pending stderr=")
+    _w1 = loop._build_loop_warning()
+    check("complete+identical: says the result is complete and says act",
+          "same complete result" in _w1 and "act on what it already told you" in _w1)
+    check("complete+identical: explicitly allows extracting different information",
+          "DIFFERENT information is fine" in _w1)
+
+    # Case 2: output was CAPPED -> the truth is starvation, and the ramp is
+    # extraction or in-block transformation. Legacy shape: exactly-at-cap stdout
+    # with no marker, as every pre-fix journal record has it.
+    _pad("c2")
+    _repeat("cat /mind/tools/own/big_tool", "exit=0 stdout=" + "y" * 300 + " stderr=")
+    _w2 = loop._build_loop_warning()
+    check("truncated: names the window and that repetition cannot widen it",
+          str(loop.JOURNAL_RENDER_CHARS) in _w2
+          and "repetition cannot widen" in _w2)
+    check("truncated: gives the in-block ramp and the extraction ramp",
+          "inside one bash block" in _w2 and "sed -n" in _w2)
+    check("truncated: never claims it already has the information",
+          "already have this information" not in _w2)
+
+    # Marker shape (new writer) is recognised too.
+    _pad("c2b")
+    _repeat("cat /mind/tools/own/big2",
+            "exit=0 stdout=" + "z" * 60 + chr(8230) + "[+3121 chars cut] stderr=")
+    check("truncated: the explicit marker is recognised as truncation",
+          "repetition cannot widen" in loop._build_loop_warning())
+
+    # Case 3: results DIFFERED -> the old "same result" claim must not appear.
+    _pad("c3")
+    for i in range(4):
+        _japp("exec_start", "Block 1: date +%s")
+        _japp("exec_end", "exit=0 stdout=17240%d stderr=" % i)
+    _w3 = loop._build_loop_warning()
+    check("differing: says the results differ instead of asserting sameness",
+          "DIFFERENT on different runs" in _w3)
+
+    # Case 4: identity destroyed by the cmd cap -> not counted at all. Four
+    # IDENTICAL capped commands (the tool-edit heredoc class) stay silent.
+    _pad("c4")
+    _capped_cmd = ("tool-edit big_tool <<'EOF' #!/usr/bin/env python3 # tool: "
+                   + "b" * 160)[:200]
+    _repeat(_capped_cmd, "exit=0 stdout=Rewrote big_tool stderr=")
+    check("identity destroyed: a capped command is never counted as a repeat",
+          loop._build_loop_warning() == "")
+
+    # Case 5: below threshold -> silence.
+    _pad("c5")
+    _repeat("echo once", "exit=0 stdout=once stderr=", k=3)
+    check("below threshold: three repeats say nothing",
+          loop._build_loop_warning() == "")
+
+    # The contract that replaces old B4: the ban is GONE from every message.
+    for _w in (_w1, _w2, _w3):
+        pass
+    check("no message bans rewording, in any case",
+          all("reworded" not in w for w in (_w1, _w2, _w3)))
 
     # dependency depth: digest-builder calls fetch-news -> 1 dependency edge
     owndir = os.path.join(TMP, "tools", "own")
