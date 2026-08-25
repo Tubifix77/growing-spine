@@ -178,6 +178,33 @@ or a path literal that already exists elsewhere, stop.
   blocks**). Worse, that file keys on **epoch `ts`, not a date string**, so
   `grep '2026-08-18' journal.jsonl` returns 3 coincidental hits and reads exactly
   like a quiet day. Parse `ts` with `time.localtime`; never date-grep it.
+- **An observation channel that truncates silently manufactures rational-looking
+  repetition — and a repeat-suppressor stacked on it punishes information-seeking.**
+  The creature's entire view of any command's result was ~286 chars: exec results
+  journalled `stdout[:300]`, commands `cmd[:200]`, and the wake render cut
+  `content[:300]` again — all with NO marker, so a 4KB `cat` looked complete.
+  14-day census, 2026-08-25: **127 streaks** of the shape the loop warning fires
+  on; **102 with capped output**; 89 raw `cat`s of its own tools; **44 where the
+  warning's "same result" was false**; 23 distinct long commands collapsed into
+  false repeats by the 200-char cap (tool-edit heredocs — four different edits of
+  one tool read as one command four times, and it was told to stop editing the
+  tool it was upgrading). It tried `base64 FILE`, `python3 -c
+  "print(open(...).read())"` and `cat $(which ...)` to widen a pipe that does not
+  widen, then called the ban "a trap" in its own reasoning and stalled three
+  cycles. Fixed `c733adc`: **truncation must announce itself wherever it cuts**
+  (`_capped`, one marker, named constants shared by writer, render and warning);
+  **a detector must not count what truncation destroyed** (capped commands are
+  identity-unknown and never counted); and the warning now **checks the results
+  it makes claims about**, saying one of three true things — complete-identical
+  (act; extracting different information is fine), truncated (repetition cannot
+  widen the window; transform in-block or extract a range), differed (decide what
+  the changing answer is for). The "any reworded form" ban is gone: the detector
+  sees exact strings only, and banning a space it cannot observe is how the trap
+  was built. Prior art both ways: SWE-agent's ACI (arXiv:2405.15793) replaced raw
+  `cat` with windowed viewing under explicit limits; ProcCtrlBench
+  (arXiv:2605.20251) names the class — duplicate steps arise when the agent lacks
+  evidence that a call resolved its uncertainty. The old B4 test asserted the trap
+  phrase AS A REQUIREMENT — a mechanism test defending the fault.
 - **A status field is not liveness. Prove it by doing.** `ensure_body` returned
   True on `docker inspect .State.Running`, which reads `true` for a container
   whose PID namespace is full and which cannot fork a single process. The body sat
@@ -445,7 +472,46 @@ journalctl --user -u growing-spine --since "2 hours ago"
 
 ---
 
-## 8. State — 2026-08-22 09:05
+## 8. State — 2026-08-26 00:35
+
+**The observation keyhole, found and fixed (`c733adc`; the §5 scar has the full
+anatomy).** Tue set the session to Fable and ordered a best-fix for the loop
+warning trapping reads; the census turned up the real fault — the creature sees
+~286 silently-truncated chars of ANY command's output, at two layers, and the
+warning asserted completeness on top of it. Markers now announce every cut;
+capped commands are never counted as repeats; the warning says only what it
+checked. Verified live 00:30: fires correctly on synthetic streaks (14 contract
+tests), silent on the live tail. **On trial for the next gs-bug-daily:** streak
+count (census method, was 127/14d), rounds-per-tool (was 4.2–6.3), done-marks
+accepted (was 1 of 5), think-records calling a warning a trap (was 3).
+
+**gs-bug-daily 2026-08-25 20:21 (28h):** 999 thinks at 35.7/h, 947 exec, 6
+errors — 4 done-gate (right reason), **2 provider: `google_gemma` HTTP 499
+reached the keychain's `unknown` path, which routed around it, carried the text,
+and lost nothing** — the c1b93a5 fail-open design doing exactly its job, twice.
+Fixed up front under the new rule: 499/client-closed/cancelled -> `flaky`
+(`d196a94`, real journal string as fixture). Truncation 5.1%. Funnel: 17 actions
+over 4 tools, done 5 attempted / 4 refused / 1 accepted — the collapse that led
+to the keyhole. `plan_from_question` took 13 edit rounds and IS green.
+
+**The 08-26 trigger (broken-tool count must fall) comes due today and will
+FAIL** — 32 since 08-22, engagement without repair (4 cycles quoting the warning,
+0 repairs). Under the standing terms a write-time stderr warning in `tool-edit`
+is now justified; `framework-tools/` is protected scar tissue, so the exact
+change goes to Tue rather than being made unilaterally. Note the keyhole fix
+plausibly changes this dynamic — repairs require READING the broken file, which
+the trap was punishing — so the honest option is also on the table: re-arm the
+trigger for ~3 days to see whether repairs resume now that reading is legal.
+Tue's call.
+
+**Ladder:** mistral returns 08-31, cerebras holds to 09-01, gemma carrying ~90%.
+`exec/think` watch unchanged, waiting on mistral. Keys still pending rotation.
+
+Gates: **laptop 379 PASS, PC 373 PASS**, each ending `ALL TESTS PASS`.
+
+---
+
+### Previous state — 2026-08-22 09:05
 
 **Overnight run 08-21 19:00 -> 08-22 08:55, 13.9 h continuous** (records in every
 hour, no gap; the box was off 17:00-19:00 on 08-21). **550 thinks at 39/h, 532
