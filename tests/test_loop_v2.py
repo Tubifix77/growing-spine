@@ -583,6 +583,18 @@ async def main():
              'https://admin.mistral.ai/subscription"}')
     check("classify: a 402 spent-allowance is quota, so the rung gets walled",
           classify_error(_m402) == "quota")
+    # Found by gs-bug-daily on 2026-08-25 via the `unknown` path: google_gemma
+    # returned HTTP 499 twice and nothing recognised it. 499 is "client closed
+    # request" -- transport-level and transient, the same family as a timeout, so
+    # it routes onward and must never wall the account. REAL string from the
+    # journal, not authored.
+    _NL499 = chr(10)
+    _g499 = ('HTTP 499: [{' + _NL499 + '  "error": {' + _NL499 + '    "code": 499,' + _NL499
+             + '    "message": "The request was cancelled."' + _NL499 + '  }' + _NL499 + '}]')
+    check("classify: a 499 cancelled request is flaky, not unknown",
+          classify_error(_g499) == "flaky")
+    check("classify: a 499 never walls the account",
+          classify_error(_g499) not in ("quota", "too_large"))
     check("classify: payment/insufficient wording is also quota",
           classify_error("HTTP 402 payment required") == "quota"
           and classify_error("insufficient balance for this request") == "quota")

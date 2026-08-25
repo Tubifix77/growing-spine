@@ -86,7 +86,15 @@ def classify_error(err: str) -> str:
         return "retryable"
     if ("empty completion" in err_l or "timed out" in err_l or "timeout" in err_l
             or "connection refused" in err_l or "connection reset" in err_l
-            or "temporary failure" in err_l):
+            or "temporary failure" in err_l
+            # 499 is "client closed request" -- a cancelled or timed-out call,
+            # transport-level and transient. Surfaced 2026-08-25 by the `unknown`
+            # path doing its job: google_gemma returned HTTP 499 twice, nothing
+            # recognised it, and the raise carried the text so it could be
+            # classified. Same family as "timed out", so the same class: route to
+            # the next rung, never wall the account for a cancelled request.
+            or "499" in err or "client closed request" in err_l
+            or "request was cancelled" in err_l):
         return "flaky"
     # UNRECOGNISED, and that is a class of its own rather than a reason to stop.
     #
