@@ -546,7 +546,61 @@ journalctl --user -u growing-spine --since "2 hours ago"
 
 ---
 
-## 8. State — 2026-08-26 16:30
+## 8. State — 2026-08-27
+
+**A sixth rung: `cloudflare`, and its exhaustion signature is KNOWN before it
+carries traffic** -- the first time a rung has been added that way. Tue created
+the account; the rung is `@cf/meta/llama-3.3-70b-instruct-fp8-fast` on Workers
+AI, placed **below `google_gemma`** (the 14,400/day workhorse) and above mistral
+and the OR pool, so it is reached when gemma walls. No code was needed: the
+config already carries a per-rung `endpoint`, and Cloudflare's OpenAI-compatible
+URL embeds the account id.
+
+**Model choice was measured, not assumed.** Of the five models the Workers FREE
+plan will actually serve, `llama-3.3-70b-instruct-fp8-fast` is the only one that
+finished a real 10k-token prompt with `finish=stop` (278 tokens). `gpt-oss-120b`
+and `nemotron-3-120b-a12b` are reasoning models: both returned `finish=length`
+at `max_tokens=600`. Four catalogued frontier models -- `kimi-k2.6`, `glm-5.2`,
+`glm-5.3-flash`, `deepseek-v4-pro-0813` -- answer **HTTP 403 code 5035, "not
+available on the Workers Free plan"**, while the model-search API lists them
+regardless. That shape now classifies as `gone` (`ec2b410`), because the id has
+left OUR shelf while the account is fine, and a single-model rung must be walled
+WITH a log line.
+
+**Capacity, and the number that is NOT the published one.** One wake-sized call
+(10,295 in / 556 out, measured) costs ~388 neurons, so 10,000/day is **~26
+calls/day** -- a FLOOR rung at ~3.4% of the creature's 770 thinks/day, not a fix
+for gemma's 90.9%. **But the cap is enforced with LAG:** a deliberate probe spent
+**15,455 neurons across 28 consecutive HTTP 200s** and enforcement only arrived
+afterwards. So "it still serves" is not evidence of headroom.
+
+**The exhaustion signature, earned the useful way.** Because the probe overran,
+the next `provider.call` returned it for free: **HTTP 429, "you have used up your
+daily free allocation of 10,000 neurons"**. `classify_error` already maps that to
+`quota` with no change -- it walls the rung and the ladder falls through -- and
+the running brain proved it in production, writing `cloudflare:{exhausted_at}`
+into `quota_state.json` by itself. **Today's allowance is spent by my probe; the
+rung returns on the daily reset.** First thing to check tomorrow: does
+`cloudflare` show a `last_success_at`.
+
+**Cloudflare returns NO `x-ratelimit-*` headers** -- only `cf-ai-neurons`, the
+actual cost of that call, which matched the published price table to four
+decimal places. So this project's canonical "read the limits from headers"
+method does not work here; the per-call cost is the instrument instead.
+
+**Open, and it is a real fragility found on the way:** `classify_error` matches
+substrings against whole error bodies, and Cloudflare puts a **UUID in every
+error**. A UUID containing "402" or "429" would misclassify a transient failure
+as `quota` and wall a healthy rung. Rough odds ~0.7% per error. Not fixed today
+-- it needs status-vs-body separation, which is bigger than an obvious fix.
+**Named trigger: the first walled rung nobody can explain, or 2026-09-10,
+whichever comes first.**
+
+Gates: **laptop 404 PASS, PC 398 PASS**, each ending `ALL TESTS PASS`.
+
+---
+
+### Previous state — 2026-08-26 16:30
 
 **The keyhole fix had a sequel, and it was worse than the original: the marker
 lied.** gs-bug-daily one day later found that truncation NESTS -- writer caps
