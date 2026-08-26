@@ -486,15 +486,22 @@ journalctl --user -u growing-spine --since "2 hours ago"
   through the session is NOT byte-safe: a 6,576-char blob came back with the right
   LENGTH, the right PNG header and the right `IEND` footer, and a different md5 —
   characters had been substituted in the middle (2026-08-11). Every cheap check
-  passed; only the hash caught it. A 2,548-char blob once transferred clean, but
-  **size is not a guard**: on 2026-08-26 a 1,876-byte / ~2,500-char PNG came back
-  with the right length and a different md5. Two corruptions now, at ~6,600 and
-  ~2,500 chars, one clean transfer at ~2,550. **The only thing that establishes
-  integrity is the hash**, and the practical conclusion is that images do not
-  travel this way at all — text does not compress, so a legible crop of a
-  dashboard is always big enough to be at risk. To verify a GUI change, ask Tue
-  to glance at the screen in front of him; it is his display, it costs him two
-  seconds, and it is the only reading that cannot be corrupted in transit. Symptom of the corrupt file: PIL reads the header
+  passed; only the hash caught it. **the corrupting step is TRANSCRIPTION, not the wire.**
+  Diagnosed 2026-08-26: a whole-blob transfer failed, then a 4-chunk transfer of
+  the same bytes came through with all four hashes clean and rendered correctly,
+  then a 10-chunk transfer failed on exactly ONE chunk. The channel is fine; what
+  breaks is the session copying base64 out of a tool result into a decoder, at
+  roughly one chunk in ten. That is why size looked like the variable — a bigger
+  blob is simply more characters to mis-copy, with no way to localise the damage.
+  **Method that works:** `split -b 470`, print `md5sum` per chunk plus the
+  whole-file hash, verify EVERY chunk on arrival, assemble, and check the
+  whole-file hash again. A bad chunk is then named and re-requested on its own
+  instead of poisoning the image. Keep the chunk count low — each one is a
+  transcription risk — and never trust a length, a PNG header or an `IEND`
+  footer; two corrupt files have now passed all three.
+  For a GUI change specifically, the cheapest verification is still to ask Tue to
+  glance at the screen in front of him: it costs him two seconds and it is the one
+  reading with no transcription step in it. Symptom of the corrupt file: PIL reads the header
   then dies with `unrecognized data stream contents`, and the image API rejects it.
   `-colors 8` PNG8 was also rejected outright; **grayscale plain PNG** worked
   (`-colorspace Gray -strip`, 660x46 → 1,910 b). `certutil -decode` is not the
