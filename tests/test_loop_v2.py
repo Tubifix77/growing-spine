@@ -756,6 +756,23 @@ async def main():
           classify_error(_g499) == "flaky")
     check("classify: a 499 never walls the account",
           classify_error(_g499) not in ("quota", "too_large"))
+
+    # Cloudflare edge codes. Real journal string, 2026-08-26 00:08: the whole
+    # chain failed and the raise carried "mistral: HTTP 520: error code: 520" --
+    # the `unknown` path doing its job again, and the second time in two days
+    # that it handed us a shape to classify. 520-527 are edge/origin failures,
+    # transient, and say nothing about the account.
+    _cf520 = "HTTP 520: error code: 520"
+    check("classify: a Cloudflare 520 is retryable, not unknown",
+          classify_error(_cf520) == "retryable")
+    for _code in ("521", "522", "523", "524", "525", "526", "527"):
+        check("classify: Cloudflare " + _code + " is retryable",
+              classify_error("HTTP " + _code + ": error code: " + _code)
+              == "retryable")
+    check("classify: no Cloudflare edge code ever walls the account",
+          all(classify_error("HTTP %s: error code: %s" % (c, c))
+              not in ("quota", "too_large", "gone")
+              for c in ("520", "521", "522", "523", "524", "525", "526", "527")))
     check("classify: payment/insufficient wording is also quota",
           classify_error("HTTP 402 payment required") == "quota"
           and classify_error("insufficient balance for this request") == "quota")

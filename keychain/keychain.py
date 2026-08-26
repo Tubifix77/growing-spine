@@ -82,6 +82,16 @@ def classify_error(err: str) -> str:
             or "subscription" in err_l or "insufficient" in err_l):
         return "quota"
     if ("500" in err or "502" in err or "503" in err or "504" in err
+            # Cloudflare's own edge codes, 520-527. A provider fronted by
+            # Cloudflare answers an origin failure with one of these rather than
+            # a bare 502, and none of them contains any string this function
+            # matched: on 2026-08-26 00:08 mistral returned
+            # "HTTP 520: error code: 520" and it reached the `unknown` path,
+            # which routed around it correctly but cost the cycle its chain.
+            # Invariant: an edge or origin transport failure is transient and
+            # never evidence about the account, so it retries and never walls.
+            or "520" in err or "521" in err or "522" in err or "523" in err
+            or "524" in err or "525" in err or "526" in err or "527" in err
             or "high traffic" in err_l):
         return "retryable"
     if ("empty completion" in err_l or "timed out" in err_l or "timeout" in err_l
