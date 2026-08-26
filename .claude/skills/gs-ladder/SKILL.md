@@ -92,6 +92,11 @@ Keys: `ts`, `run`, `rungs{key:{state,last_success_h,share_pct,trunc_pct}}`,
 
 ## Standing decisions (Tue's — do not re-litigate)
 
+- **Free tier only, permanently. Depth is an outcome, not a target.** A rung
+  behind a paywall is DEFUNCT FOR US and is retired without asking — the money
+  question is settled forever. Do not report concentration (one rung at 90%+) as
+  a fault to be fixed by acquiring accounts; report it as a fact. More large
+  models would be nice and may become impossible.
 - **Quality floor over capacity.** No weak model in the ladder; `openrouter/free`
   auto-routing stays rejected.
 - **A defunct model is removed the moment it is detected**, then **replaced

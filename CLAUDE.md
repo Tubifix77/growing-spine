@@ -1,4 +1,11 @@
-# CLAUDE.md — working on Growing Spine
+So the block is
+the missing payment method — and since this ladder is free-tier-only and always
+will be, that makes cerebras **defunct for us**, not merely dark. **Retired
+2026-08-26** (`enabled: false`, dated comment naming the migration): the rung
+entry is kept rather than deleted, `CEREBRAS_API_KEY` is now withheld from the
+container (verified 0 tools reference it), and the walled-rung probe and its
+permanent `SERIOUS` both stop. I first put this to Tue as a money decision; it
+never was one, and his standing free-tier constraint had already answered it.# CLAUDE.md — working on Growing Spine
 
 You are working on a live autonomous creature, not a codebase at rest. It runs
 24/7 on the Debian laptop, writes its own tools, and cannot be paused politely.
@@ -401,6 +408,15 @@ or a path literal that already exists elsewhere, stop.
 
 ## 6. Standing decisions (Tue's)
 
+- **Free tier only, permanently — and depth is not a goal** (stated 2026-08-26).
+  "We get what is available without paying anything ever. If the nice models all
+  die we have to run on what we can get." So a rung behind a paywall is DEFUNCT
+  FOR US by definition, and removing it needs no decision from Tue — the money
+  question was settled once, forever, and re-opening it as an option is a mistake
+  I made twice. It also means **rung count and concentration are outcomes, not
+  targets**: a 93%-on-one-rung ladder is what free tiers give, not a fault to fix.
+  More large models would be nice and may become impossible; do not treat that as
+  a problem to solve with accounts.
 - **Quality floor over capacity.** No weak model in the ladder: under a shared
   cap, weak calls starve smart rungs and a weak author's buggy tools are lasting
   pollution. `openrouter/free` auto-routing stays rejected.
