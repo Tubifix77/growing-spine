@@ -212,6 +212,43 @@ or a path literal that already exists elsewhere, stop.
   (arXiv:2605.20251) names the class — duplicate steps arise when the agent lacks
   evidence that a call resolved its uncertainty. The old B4 test asserted the trap
   phrase AS A REQUIREMENT — a mechanism test defending the fault.
+- **When truncation NESTS, the outer cut reports the loss of the WRAPPER and
+  silently replaces the inner cut's honest number.** This is the keyhole fix's
+  own sequel, found by gs-bug-daily one day after it shipped. The writer capped
+  exec stdout at 300 and appended `…[+3305 chars cut]`; the render then capped
+  the whole journal record at 300 and appended its own marker measuring *the
+  record*, so the creature was shown **`+40 chars cut` when 3,319 characters
+  were withheld** (measured against the live 08-26 00:35 record). That is worse
+  than shipping no marker, because a small number reads as reassurance. Its
+  behaviour matched exactly: in the 15.6 h after the marker went live it asked
+  for `sed -n '1,100p'` **97 times** and `1,50p` **56 times**, every request an
+  order of magnitude too large to fit, and **82.3%** of its exec results were
+  capped (median loss 3,305 chars, 2.0 million characters cut in one window).
+  Worse still, it began doubting its own tools rather than the channel -- three
+  think records reason "if the file is actually that short, it's a broken tool",
+  which poisons the broken-tool warning with an artifact of our own truncation.
+  Fixed `5427b72`. Invariant: **a marker always reports the TOTAL characters not
+  shown; a later cut may only increase that number, never replace it with its
+  own.** Two general lessons. First, **a marker is a measurement and inherits
+  every rule a measurement has** -- it can be precisely wrong, and nothing in
+  the first fix checked the number against reality. Second, the half-marker
+  sweep across caps 290-325 found a real bug on its first run (a cut landing one
+  character in left a lone ellipsis, because the remnant detector keyed on two
+  characters instead of one): **when a cut can land anywhere, sweep the range
+  rather than picking cases by hand.**
+- **An event that exists only on stdout cannot be counted by a metric that
+  reads `journal.jsonl`** -- the journald scar, arriving inside one of our own
+  instruments. The effort funnel's early-rejection stage read exactly zero on
+  three consecutive runs and looked idle. Both halves of its definition were
+  uncountable: the gate-choice line "a near-duplicate will not be built" is
+  advisory text in the wake context rather than an event (32 `think_end`
+  records in one window, 785 all-time -- counting it measures how often the
+  creature was TOLD the rule), and the oracle's rest decision only ever
+  `print`ed. Fixed `b2d1b61` by journalling it as kind `oracle_rest`,
+  deliberately outside `MEANINGFUL_KINDS` so it reaches the funnel and never
+  the creature. The doc's own "if it is still zero on the third run, go and
+  check" rule is what caught it -- **write that rule for every stage that can
+  read zero.**
 - **A status field is not liveness. Prove it by doing.** `ensure_body` returned
   True on `docker inspect .State.Running`, which reads `true` for a container
   whose PID namespace is full and which cannot fork a single process. The body sat
@@ -509,7 +546,58 @@ journalctl --user -u growing-spine --since "2 hours ago"
 
 ---
 
-## 8. State — 2026-08-26 00:35
+## 8. State — 2026-08-26 16:30
+
+**The keyhole fix had a sequel, and it was worse than the original: the marker
+lied.** gs-bug-daily one day later found that truncation NESTS -- writer caps
+stdout at 300 and marks it, render caps the whole record at 300 and marks it
+again, overwriting the honest number with its own. The creature was shown
+**`+40 chars cut` where 3,319 characters were withheld**. Fixed `5427b72`; the
+full anatomy and the two general lessons are in the new §5 scar. Verified live:
+the same record now reports `+3328` against 3,320 truly withheld (8 chars over,
+because the record's own ` stderr=` framing counts as content -- conservative
+direction, 0.24%). **The watch for tomorrow is behavioural, not numeric:** it
+asked for `sed -n '1,100p'` 97 times and `1,50p` 56 times in 15.6 h, every one
+too large to fit. Does an honest number change how it sizes reads?
+
+**gs-bug-daily 2026-08-26 16:25 (19.8h, no gaps).** 770 thinks at 38.9/h, 759
+exec, 63 skips, **4 errors** -- 3 done-gate (right reason), 1 provider. Library
+494. Truncation of thinks 3.1% (5.1% yesterday) but **82.3% of exec RESULTS were
+capped**, which is the number that mattered and no previous run had measured.
+`exec/think` 0.99.
+
+**Three framework faults fixed up front, each with a test that fails without
+it.** (1) `9c27900` Cloudflare **520-527 -> retryable**: mistral returned
+`HTTP 520: error code: 520` at 00:08 and reached the `unknown` path, which
+routed around it and carried the text -- the c1b93a5 fail-open design working
+for the **third** time, and the third unenumerated error shape it has handed us.
+(2) `5427b72` the nested-truncation marker, above. (3) `b2d1b61` the funnel's
+early-rejection stage, which had read zero three runs running because it counted
+an event that only ever existed on stdout.
+
+**`tool-edit`'s write-time WARNING fired on its first day and the repair
+followed in 79 minutes.** 13:39 `ContradictionWatcher` was saved with no `#!`
+and a body that is neither Python nor shell; stderr said so; by 14:58 it starts.
+**It never entered the 32.** That reframes the 08-26 trigger: `cannot_start` is
+a **stock**, the new check governs the **flow**, and the flow reading for this
+window is **zero new broken tools**. Nothing in the 32 is newer than 08-22;
+oldest is 06-22. Trigger re-armed for **08-29** against the stock, but the
+honest measure is now the flow.
+
+**Ladder is thin and this one is Tue's.** 5 enabled rungs, all momentarily
+walled at read time (normal daily recycling -- it was serving again minutes
+later), but `google_gemma` carries **90.9%**, `openrouter_super` has been dark
+**13h**, mistral returns **08-31**, cerebras retired today. FLATLINE confirmed
+the retirement by dropping cerebras from SERIOUS at 16:07. Effective depth: two.
+
+**Builder trigger is advancing: `UNMET:329n/7842d+7 streak 2/7`.** Second
+consecutive day of growth. Fires at 7.
+
+Gates: **laptop 402 PASS, PC 396 PASS**, each ending `ALL TESTS PASS`.
+
+---
+
+### Previous state — 2026-08-26 00:35
 
 **The observation keyhole, found and fixed (`c733adc`; the §5 scar has the full
 anatomy).** Tue set the session to Fable and ordered a best-fix for the loop
