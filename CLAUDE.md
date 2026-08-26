@@ -669,13 +669,23 @@ overnight is not a collapse. Reads `journal.jsonl` by epoch `ts`, 32 MB of tail
 584 ms, hourly. For **us and Tue**; nothing enters the wake context.
 
 **Ladder state 2026-08-19.** `mistral` allowance is **MONTHLY, resets 2026-08-31**
-— left ENABLED so it returns on its own. `cerebras` probed directly through
-`provider.call`: `HTTP 402 "Payment required ... Visit your billing tab"` with
-`"param":"quota"`, dark 37h — that body DOES contain "quota" so it has been walled
-correctly all along. Not defunct (model exists, account out of credit), so no
-config change. **Named triggers: serves again by 08-20 -> short cycle, keep; else
-hold to 09-01 (month boundary, the hypothesis mistral just proved); still 402 after
-that -> retire and replace.** Checked in advance because retiring `groq` taught it:
+— left ENABLED so it returns on its own. `cerebras` — **the 09-01 hold is WRONG and is
+withdrawn (2026-08-26).** It was built on mistral's monthly-reset hypothesis, and
+that does not transfer. Cerebras's dashboard, read by Tue: **"Your personal account
+has been migrated to a PayGo account"** — that is the "free tier changes" note of
+08-17, and cerebras last served 08-18 04:46, the day after. The key itself is
+**ACTIVE** (three keys on the account: APEX, Default Key, Growing-Spine — one
+shared budget, the groq/groq_oss120 scar). Probed through `provider.call`:
+`HTTP 402 {"message":"Payment required to access this resource. Visit your billing
+tab.","type":"payment_required_error","param":"quota"}`. **It cannot self-heal on
+any date**: the ladder has re-probed it roughly 1,200 times over 8.4 days, across
+every hour, and not one landed — a resetting daily quota would have let one
+through, and a spent quota answers 429, not 402 `payment_required`. So the block is
+the missing payment method, and the only things that change it are **Tue adding one
+(a one-time $5 credit, expiring 30 days) or retiring the rung and replacing the
+account.** Money decision, his alone; leaving it walled is the third option and
+costs a probe per 10 min plus a permanent `SERIOUS` that trains us to ignore the
+alarm. Checked in advance because retiring `groq` taught it:
 `cerebras` IS a `LEGACY_KEY_ALIAS`, so disabling deletes `CEREBRAS_API_KEY` from
 the container — but **no tool in `tools/own/` references it**, so retirement is
 safe. Carrying load until month-end: `google_gemma`, `gemini_flash`,
