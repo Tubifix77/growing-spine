@@ -233,6 +233,31 @@ async def main():
           int(loop._TRUNC_MARK_RE.findall(
               loop._capped(loop._capped(loop._capped("z" * 9000, 3000),
                                         1000), 400))[-1]) >= 8500)
+
+    # oracle_rest: the effort funnel's early-rejection stage. Added 2026-08-26
+    # after that stage read exactly zero on three consecutive runs -- the stub
+    # janitor's "aged-out 0" disease inside one of our own instruments. The
+    # decision existed only on stdout, so it landed in journald while the metric
+    # reads journal.jsonl. Two contracts, and they pull in opposite directions:
+    # the funnel must be able to COUNT it, and the creature must never SEE it.
+    check("oracle_rest never reaches the creature's wake context",
+          "oracle_rest" not in loop.MEANINGFUL_KINDS)
+    # The suite preamble stubs journal.append to a no-op, so write the FILE
+    # directly -- the same pattern the loop-warning and throughput tests use.
+    from executive import journal as _jr
+    _orpath = _jr._host_journal_path(TMP)
+    with open(_orpath, "a", encoding="utf-8") as _orf:
+        _orf.write(json.dumps({"ts": time.time(), "kind": "oracle_rest",
+                               "content": "category=archive already built; "
+                                          "only a rebuild fallback -- rested"},
+                              ensure_ascii=False) + chr(10))
+    _back = _jr.last_of_kind(TMP, "oracle_rest")
+    check("oracle_rest is readable back from the journal the funnel reads",
+          _back is not None and "rested" in _back["content"])
+    _rendered = "".join(_e["content"] for _e in _jr.recent(TMP, 60)
+                        if _e["kind"] in loop.MEANINGFUL_KINDS)
+    check("oracle_rest text is absent from everything rendered to the creature",
+          "category=archive already built" not in _rendered)
     check("keyhole: writer and render share the one helper and constants",
           "_capped(cmd, EXEC_CMD_JOURNAL_CHARS)" in inspect.getsource(loop.run_cycle)
           and "_capped(stdout, EXEC_STDOUT_JOURNAL_CHARS)" in inspect.getsource(loop.run_cycle)

@@ -1711,6 +1711,17 @@ async def _oracle_next_spec_raw(keychain) -> dict:
     if already_built and used_fallback:
         print(f"[oracle] category={category} already built and only a rebuild "
               f"fallback is available -- resting this cycle instead of rebuilding")
+        # Journalled as well as printed. The effort funnel counts this as its
+        # early-rejection stage and reads journal.jsonl, while this decision
+        # existed only on stdout -- so the stage read exactly zero on three
+        # consecutive runs and looked idle rather than blind. That is the
+        # journald scar (CLAUDE.md 5) landing inside one of our own
+        # instruments. Invariant: a decision a metric counts must exist where
+        # that metric reads. Kind is deliberately outside MEANINGFUL_KINDS, so
+        # this reaches the funnel and never the creature.
+        journal.append(VOLUME_MOUNT, "oracle_rest",
+                       f"category={category} already built; only a rebuild "
+                       f"fallback available -- rested instead of rebuilding")
         return dict(_REST_SENTINEL)
     spec.setdefault("category", category)
     return spec

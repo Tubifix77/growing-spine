@@ -14,7 +14,7 @@ what fraction of intent becomes a working tool.** Both are needed.
 | distinct tools worked on | union of names across all three doors |
 | authoring actions | `tool-new` + `tool-edit` + redirect/`tee` invocations |
 | **rounds per tool** | actions ÷ distinct tools |
-| early rejected | gate-choice "a near-duplicate will not be built"; oracle `_REST_SENTINEL` |
+| early rejected | `oracle_rest` journal records (the oracle declining to rebuild) |
 | done-marks attempted | `remember current-phase done` in the window |
 | **late rejected** | done-gate blocks by kind: false-completion / hollow / upgrade-no-change / cannot-start |
 | done accepted | attempted − refused |
@@ -37,11 +37,21 @@ is the finding.
 
 ## The stage to distrust
 
-**Early rejection read zero on its first reading.** A stage that always reads
-exactly zero is broken rather than idle — the stub janitor logged `aged-out 0`
-twenty-eight times with 25 stubs in front of it. If it is still zero on the third
-run, go and check that the gate-choice branch and the rest sentinel can fire at
-all.
+**Early rejection read zero on its first three readings, and it was blind, not
+idle** -- exactly what this section was written to catch. Diagnosed 2026-08-26:
+the stage was defined as two things, and NEITHER was countable. The gate-choice
+line "a near-duplicate will not be built" is advisory text in the wake context,
+not a rejection event -- it appears in 32 `think_end` records in a single window
+and 785 all-time, so counting it measures how often the creature was TOLD the
+rule. And the oracle's rest decision only ever `print`ed to stdout, which lands
+in journald while this metric reads `journal.jsonl`. A stage that always reads
+exactly zero is broken rather than idle -- the stub janitor logged `aged-out 0`
+twenty-eight times with 25 stubs in front of it.
+
+Fixed by journalling the rest decision as kind `oracle_rest`, deliberately
+outside `MEANINGFUL_KINDS` so it reaches this metric and never the creature.
+**The stage is therefore newly instrumented from 2026-08-26: treat its first
+non-zero reading as a baseline, not as a change.**
 
 ## History keys
 
