@@ -59,7 +59,19 @@ def classify_error(err: str) -> str:
                  or "per_minute" in err_l or "rpm" in err_l)):
         return "retryable"
     if ("404" in err or "not found" in err_l or "no endpoints" in err_l
-            or "model_not_found" in err_l):
+            or "model_not_found" in err_l
+            # Cloudflare Workers AI answers a model our PLAN cannot reach with
+            # HTTP 403 code 5035: "AiError: Model @cf/... is not available on
+            # the Workers Free plan. Upgrade to access this model". Measured
+            # 2026-08-26 on four catalogued models (kimi-k2.6, glm-5.2,
+            # glm-5.3-flash, deepseek-v4-pro) -- the model-search API lists them
+            # and the free plan refuses them. That is precisely `gone`: the id
+            # has left OUR shelf, the account is fine, and a single-model rung
+            # must be walled WITH a log line saying why (the 2026-08-17 silent
+            # groq retirement). It matched nothing before this, so it reached
+            # the fail-open default and retired mutely.
+            or "not available on the workers free plan" in err_l
+            or "5035" in err):
         # The model left the shelf (the 2026-07-19 openrouter purge, ling on
         # 2026-08-07). This is NOT the account being out of budget: a rung with
         # other models declared should fall to the next one. Returned as its own

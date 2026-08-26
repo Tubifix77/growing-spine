@@ -833,6 +833,24 @@ async def main():
           all(classify_error("HTTP %s: error code: %s" % (c, c))
               not in ("quota", "too_large", "gone")
               for c in ("520", "521", "522", "523", "524", "525", "526", "527")))
+
+    # Cloudflare Workers AI plan restriction. Real body, measured 2026-08-26:
+    # the model-search API lists kimi-k2.6, glm-5.2, glm-5.3-flash and
+    # deepseek-v4-pro, and the Workers FREE plan refuses all four. The id has
+    # left OUR shelf while the account is perfectly fine, which is exactly what
+    # `gone` means -- and a single-model rung must be walled WITH a log line,
+    # per the 2026-08-17 scar where groq retired in total silence.
+    _cf5035 = ('{"errors":[{"message":"AiError: Model @cf/moonshotai/kimi-k2.6 '
+               'is not available on the Workers Free plan: Model '
+               '@cf/moonshotai/kimi-k2.6 is not available on the Workers Free '
+               'plan. Upgrade to access this model: '
+               'https://dash.cloudflare.com/?to=/:account/workers/plans '
+               '(155b925f-e633-4cd0-b73b-29736dbafe25)","code":5035}],'
+               '"success":false,"result":{},"messages":[]}')
+    check("classify: a Cloudflare plan restriction is gone, not unknown",
+          classify_error(_cf5035) == "gone")
+    check("classify: a plan restriction never walls the ACCOUNT as quota",
+          classify_error(_cf5035) not in ("quota", "too_large"))
     check("classify: payment/insufficient wording is also quota",
           classify_error("HTTP 402 payment required") == "quota"
           and classify_error("insufficient balance for this request") == "quota")
