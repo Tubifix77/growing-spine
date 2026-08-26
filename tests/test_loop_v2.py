@@ -198,6 +198,41 @@ async def main():
     check("keyhole: text within the cap is untouched",
           loop._capped("short", 300) == "short"
           and loop._capped("", 300) == "")
+
+    # Nested truncation. Found 2026-08-26 by gs-bug-daily: the writer caps exec
+    # stdout at 300 and appends a marker, then the render caps the whole journal
+    # record at 300 again -- and the second cut replaced the first cut's honest
+    # number with its own. Against the live 00:35 record, 3,319 characters were
+    # withheld and the creature was shown "+40 chars cut". It then asked for
+    # 100-line ranges 97 times in 15.6 h. A marker that under-reports by two
+    # orders of magnitude reads as reassurance, which is worse than no marker at
+    # all; these tests are the contract that it cannot.
+    _big = "#!/usr/bin/env python3" + chr(10) + ("X" * 3583)
+    _rec = ("exit=0 stdout=%s stderr=%s"
+            % (loop._capped(_big, loop.EXEC_STDOUT_JOURNAL_CHARS),
+               loop._capped("", loop.EXEC_STDERR_JOURNAL_CHARS)))
+    _seen = loop._capped(_rec, loop.JOURNAL_RENDER_CHARS)
+    _n = int(loop._TRUNC_MARK_RE.findall(_seen)[-1])
+    check("nested truncation: the marker reports thousands, not tens", _n > 3000)
+    check("nested truncation: the number is within 1% of what is withheld",
+          abs(_n - (len(_big) - 286)) <= max(40, len(_big) // 100))
+    check("nested truncation: a second cut never shrinks the reported loss",
+          _n >= int(loop._TRUNC_MARK_RE.findall(_rec)[-1]))
+    check("nested truncation: exactly one marker survives, at the end",
+          len(loop._TRUNC_MARK_RE.findall(_seen)) == 1
+          and _seen.endswith("chars cut]"))
+    # A marker sliced in half by the outer cut is noise and must not survive.
+    # Swept across every cap that can land inside it, because the one that
+    # breaks is the one nobody would have picked by hand.
+    _straddle = loop._capped("y" * 500, 300)
+    _half = [_c for _c in range(290, 326)
+             if any(_s in loop._TRUNC_MARK_RE.sub("", loop._capped(_straddle, _c))
+                    for _s in (chr(8230), "[+", "chars cut"))]
+    check("nested truncation: no half-marker survives at any cap", _half == [])
+    check("nested truncation: three cuts still sum to the original loss",
+          int(loop._TRUNC_MARK_RE.findall(
+              loop._capped(loop._capped(loop._capped("z" * 9000, 3000),
+                                        1000), 400))[-1]) >= 8500)
     check("keyhole: writer and render share the one helper and constants",
           "_capped(cmd, EXEC_CMD_JOURNAL_CHARS)" in inspect.getsource(loop.run_cycle)
           and "_capped(stdout, EXEC_STDOUT_JOURNAL_CHARS)" in inspect.getsource(loop.run_cycle)

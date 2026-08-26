@@ -258,15 +258,49 @@ EXEC_CMD_JOURNAL_CHARS = 200      # exec_start: command head kept in the journal
 EXEC_STDOUT_JOURNAL_CHARS = 300   # exec_end: stdout head
 EXEC_STDERR_JOURNAL_CHARS = 200   # exec_end: stderr head
 JOURNAL_RENDER_CHARS = 300        # per-entry cap in the wake-context render
-_TRUNC_MARK_RE = re.compile(r"\u2026\[\+\d+ chars cut\]")
+_TRUNC_MARK_RE = re.compile(r"\u2026\[\+(\d+) chars cut\]")
+_MARK_REMNANT_CHARS = 32   # longest a marker can be; a straddled one is noise
 
 
 def _capped(text, cap: int) -> str:
-    """Cut text at cap with an explicit marker naming exactly what was lost."""
+    """Cut text at cap with a marker naming the TOTAL characters not shown.
+
+    Truncation here NESTS: the writer caps exec stdout at 300 and appends a
+    marker, then the render caps the whole journal record at 300 again -- and
+    the second cut used to overwrite the first cut's honest number with its
+    own. Measured 2026-08-26 against the live record from 00:35: 3,319
+    characters were withheld from the creature and the marker it actually saw
+    said "+40 chars cut". That is worse than no marker at all, because it
+    reads as reassurance: in the 15.6 h after the marker shipped it asked for
+    `sed -n '1,100p'` 97 times and `1,50p` 56 times, every one of them far
+    too large to fit, while its own think records said the output "seems
+    truncated or I'm just not seeing the whole thing".
+
+    Invariant: A MARKER ALWAYS REPORTS THE TOTAL CHARACTERS NOT SHOWN. A
+    later cut may only increase that number; it may never replace it with
+    its own.
+    """
     text = text or ""
     if len(text) <= cap:
         return text
-    return text[:cap] + "\u2026[+%d chars cut]" % (len(text) - cap)
+    kept = text[:cap]
+    # A marker sliced in half by this cut carries no information -- drop the
+    # remnant. Keyed on the ellipsis rather than on "…[", because a cut can
+    # land one character in and leave a lone "…" that then sits in front of
+    # this cut's own marker (cap 301 of the sweep). Trimming a genuine
+    # trailing ellipsis from real output costs one character and is counted
+    # as cut, so the number stays true either way.
+    edge = kept.rfind("\u2026")
+    if (edge != -1 and len(kept) - edge <= _MARK_REMNANT_CHARS
+            and not _TRUNC_MARK_RE.fullmatch(kept[edge:])):
+        kept = kept[:edge]
+
+    def _content(chunk):
+        return len(_TRUNC_MARK_RE.sub("", chunk))
+
+    existed = _content(text) + sum(int(n)
+                                   for n in _TRUNC_MARK_RE.findall(text))
+    return kept + "\u2026[+%d chars cut]" % (existed - _content(kept))
 
 
 def _load_workspace_map() -> str:
