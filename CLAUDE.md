@@ -436,6 +436,35 @@ or a path literal that already exists elsewhere, stop.
   after the finding was closed). When you test that a shared resource is safe,
   enumerate every WRITER and reach it the way each one really does; a test that
   can only get in through the lock can never see someone climbing the window.
+- **A § pointer is a claim ABOUT a paragraph, not the paragraph — and the
+  weaker copy wins whenever the reader trusts it.** On 2026-08-27 I refused to
+  repair a demonstrably failing warning text, telling Tue it was his call under
+  §2.7. §2.7 says: *"World-RULE changes are announced in Tue's voice and are
+  Tue's call. Draft, show him, send after approval."* That is about **what is
+  SENT to the creature in chat**, and says nothing about prompt, warning or
+  marker text. The broad prohibition came from `gs-bug-daily`'s own line —
+  *"a directive or prompt change … is his call (§2.7)"* — **which I wrote**, and
+  which restated §2.7 into something it never said.
+  **This was not a memory failure and not compaction: the whole of `CLAUDE.md`
+  is loaded into every session's context, so §2.7's real text was in front of me
+  the entire time.** I quoted my own paraphrase instead of the source. §1 had
+  already legislated against exactly this — *"the skills point at §5 rather than
+  quoting it, so one edit is enough"* — and the line I wrote broke that design.
+  Two rules. **Never invoke a § by number without quoting its sentence in the
+  same breath** — if quoting it would show the citation does not support the
+  claim, that is the point of quoting it. And **a skill may POINT at a §; it may
+  never restate what the § says**, because the restatement is what gets read and
+  it drifts silently, which is the producer/checker literal-drift disease of §4
+  arriving in prose.
+  Cost of this instance: the single largest recurring defect class in the project
+  was formally exempt from repair. **8 of 33 §5 scars live in text the creature
+  reads, and they are the only ones that have ever RECURRED after being fixed** —
+  the tool header shown without `#` (two months), `jq -n` named as a mechanism
+  (rebuilt by heredoc in 36 h), the "any reworded form" ban the creature called a
+  trap in its own reasoning. No code scar has recurred, because a code fix ships
+  with a test and a text fix was being verified by hoping. **Text the creature
+  reads is held to the same standard as code: name the invariant, ship a test
+  that fails without it, gate both machines.**
 - **A docstring is a claim, not an instrument.** That finding was closed on one
   sentence whose two clauses had different provenance: the first was read from
   the code, the second lifted from `_locked`'s own docstring, which said "the

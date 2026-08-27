@@ -193,8 +193,13 @@ async def main():
 
     # Truncation announces itself, with the exact loss named.
     _cap310 = loop._capped("x" * 310, 300)
+    # Contract, not format: the marker must name the exact loss and carry the
+    # ellipsis. It gained a "; window N" suffix on 2026-08-27, and asserting the
+    # literal old tail here is what went red -- the mechanism test this file
+    # warns about, in this file.
     check("keyhole: a cut names exactly what was lost",
-          _cap310.endswith("[+10 chars cut]") and chr(8230) in _cap310)
+          loop._TRUNC_MARK_RE.findall(_cap310) == ["10"]
+          and chr(8230) in _cap310)
     check("keyhole: text within the cap is untouched",
           loop._capped("short", 300) == "short"
           and loop._capped("", 300) == "")
@@ -220,15 +225,38 @@ async def main():
           _n >= int(loop._TRUNC_MARK_RE.findall(_rec)[-1]))
     check("nested truncation: exactly one marker survives, at the end",
           len(loop._TRUNC_MARK_RE.findall(_seen)) == 1
-          and _seen.endswith("chars cut]"))
+          and loop._TRUNC_MARK_RE.search(_seen).end() == len(_seen))
     # A marker sliced in half by the outer cut is noise and must not survive.
     # Swept across every cap that can land inside it, because the one that
     # breaks is the one nobody would have picked by hand.
     _straddle = loop._capped("y" * 500, 300)
-    _half = [_c for _c in range(290, 326)
+    _half = [_c for _c in range(290, 340)
              if any(_s in loop._TRUNC_MARK_RE.sub("", loop._capped(_straddle, _c))
                     for _s in (chr(8230), "[+", "chars cut"))]
     check("nested truncation: no half-marker survives at any cap", _half == [])
+
+    # The marker names the WINDOW as well as the loss. Added 2026-08-27 after
+    # the 08-26 window measured what invariant 1 alone achieved: the creature
+    # was told the loss 724 times and the ceiling 6 times, and responded by
+    # abandoning ranged reads instead of sizing them -- sed ranges 143 -> 5 (all
+    # five still asking for 100 lines) while raw cat rose 349 -> 387 and capped
+    # results rose 67.4% -> 73.8%. A measurement its reader cannot interpret is
+    # not yet a measurement: the loss alone never says how much to ask for next.
+    _wmark = loop._capped("q" * 5000, 300)
+    check("marker names the window it applied", "window 300" in _wmark)
+    check("marker still names the loss, and first",
+          _wmark.index("chars cut") < _wmark.index("window"))
+    for _cap in (200, 300, 1000):
+        check("marker's window equals the cap actually applied (%d)" % _cap,
+              ("window %d]" % _cap) in loop._capped("q" * 9000, _cap))
+    check("the loss capture group is unaffected by the window suffix",
+          loop._TRUNC_MARK_RE.findall(_wmark) == ["4700"])
+    check("window naming survives nesting, reporting the OUTER window",
+          loop._capped(loop._capped("q" * 9000, 1000), 300)
+          .endswith("window 300]"))
+    check("a nested marker still sums the total loss, not the outer cut alone",
+          int(loop._TRUNC_MARK_RE.findall(
+              loop._capped(loop._capped("q" * 9000, 1000), 300))[-1]) >= 8600)
     check("nested truncation: three cuts still sum to the original loss",
           int(loop._TRUNC_MARK_RE.findall(
               loop._capped(loop._capped(loop._capped("z" * 9000, 3000),

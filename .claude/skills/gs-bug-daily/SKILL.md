@@ -141,8 +141,23 @@ Obvious means **all** of these:
 
 Never "obvious", regardless of how clear it looks:
 
-- a **directive or prompt change** — that is announced in Tue's voice and is his
-  call (`CLAUDE.md` §2.7);
+- a **chat message to the creature**, or a change to a **world RULE** it must
+  obey — `CLAUDE.md` §2.7. That paragraph covers what is *sent* to the creature
+  in Tue's voice, and adding or removing an obligation. **It does not cover
+  prompt, warning or marker TEXT, and this line used to claim it did** —
+  corrected 2026-08-27 after Tue pointed out that the exemption protected the
+  one thing that most needs repairing.
+  The test: **does the change add a constraint, or make an existing fact
+  legible?** Adding a constraint is design — show him. Making a fact legible is
+  repair — it is yours, and §6 requires it: "a known-failing behaviour in OUR
+  framework is fixed without asking".
+  Text the creature reads is held to the **same** standard as code, not a
+  weaker one and not an exempt one: name the invariant, ship a test that fails
+  without it, gate both machines. That is the standard it was missing, and why
+  three text scars have recurred after being "fixed" while no code scar has —
+  the tool header shown without `#` (two months), `jq -n` named as a mechanism
+  (rebuilt by heredoc in 36 h), and the "reworded form" ban the creature called
+  a trap;
 - a **config or provider change** — that follows the ladder discipline, code
   before config, and a rung's exhaustion signature must be known first;
 - anything in `framework-tools/` — protected scar tissue;

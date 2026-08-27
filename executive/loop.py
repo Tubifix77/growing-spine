@@ -258,8 +258,9 @@ EXEC_CMD_JOURNAL_CHARS = 200      # exec_start: command head kept in the journal
 EXEC_STDOUT_JOURNAL_CHARS = 300   # exec_end: stdout head
 EXEC_STDERR_JOURNAL_CHARS = 200   # exec_end: stderr head
 JOURNAL_RENDER_CHARS = 300        # per-entry cap in the wake-context render
-_TRUNC_MARK_RE = re.compile(r"\u2026\[\+(\d+) chars cut\]")
-_MARK_REMNANT_CHARS = 32   # longest a marker can be; a straddled one is noise
+_TRUNC_MARK_RE = re.compile(
+    r"\u2026\[\+(\d+) chars cut(?:; window \d+)?\]")
+_MARK_REMNANT_CHARS = 48   # longest a marker can be; a straddled one is noise
 
 
 def _capped(text, cap: int) -> str:
@@ -276,9 +277,20 @@ def _capped(text, cap: int) -> str:
     too large to fit, while its own think records said the output "seems
     truncated or I'm just not seeing the whole thing".
 
-    Invariant: A MARKER ALWAYS REPORTS THE TOTAL CHARACTERS NOT SHOWN. A
+    Invariant 1: A MARKER ALWAYS REPORTS THE TOTAL CHARACTERS NOT SHOWN. A
     later cut may only increase that number; it may never replace it with
     its own.
+
+    Invariant 2, added 2026-08-27: A MARKER ALSO NAMES THE WINDOW IT APPLIED,
+    because the loss ALONE is not actionable. Knowing 3,163 characters are
+    missing does not tell the reader how many to ask for next; only the ceiling
+    does. Measured over the 24.7 h after invariant 1 shipped: the creature was
+    told the loss 724 times and the ceiling 6 times (the ceiling appeared only
+    in _build_loop_warning, which fires on a repeat streak). It responded by
+    ABANDONING ranged reads rather than sizing them -- `sed -n` ranges fell
+    143 -> 5, all five still asking for 100 lines, while raw `cat` of its own
+    tools rose 349 -> 387 and capped results rose 67.4% -> 73.8%. A measurement
+    its reader cannot interpret is not yet a measurement.
     """
     text = text or ""
     if len(text) <= cap:
@@ -300,7 +312,8 @@ def _capped(text, cap: int) -> str:
 
     existed = _content(text) + sum(int(n)
                                    for n in _TRUNC_MARK_RE.findall(text))
-    return kept + "\u2026[+%d chars cut]" % (existed - _content(kept))
+    return kept + "\u2026[+%d chars cut; window %d]" % (
+        existed - _content(kept), cap)
 
 
 def _load_workspace_map() -> str:
