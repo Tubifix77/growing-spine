@@ -249,6 +249,26 @@ or a path literal that already exists elsewhere, stop.
   the creature. The doc's own "if it is still zero on the third run, go and
   check" rule is what caught it -- **write that rule for every stage that can
   read zero.**
+- **Searching for a STRING and concluding an event is uncountable, when the
+  event is journalled under a KIND you never enumerated.** 2026-08-26 I declared
+  the effort funnel's early-rejection stage uncountable because I grepped for the
+  advisory text "a near-duplicate will not be built" and found only `think_end`
+  records. I then instrumented a third path (`oracle_rest`), which has fired
+  **0 times all-time**. Two countable kinds were already there and I never
+  looked: `journal.append(..., "idea_gate", ...)` at `loop.py:1789` with **157
+  records all-time**, and four `novelty_block` appends at 1977-2050 with **52**.
+  Invariant: **for any event you suspect is uncountable, enumerate journal
+  `kind` values FIRST and grep strings second** -- one `Counter` over every
+  `kind` in the file costs a single pass. Second half of the lesson: `idea_gate`
+  is a SHARED kind that also carries batch-judge failures, so counting a kind
+  still requires reading the content.
+- **A census keyed on `kind == "error"` cannot see a provider failure that was
+  journalled as something else.** This run reported **0 provider errors** while
+  two live provider failures sat in the journal as kind `idea_gate`: *"batch
+  judge parsed 0/4 -- band left UNJUDGED. cause=EMPTY-REPLY (provider returned
+  nothing); reply 0 chars vs 1040 tok budget"*. An HTTP 200 with an empty body
+  is not an error to `classify_error` and never becomes one, so it is structurally
+  invisible to that census. Now mandated as `gs-bug-daily` item 13.
 - **A status field is not liveness. Prove it by doing.** `ensure_body` returned
   True on `docker inspect .State.Running`, which reads `true` for a container
   whose PID namespace is full and which cannot fork a single process. The body sat
@@ -546,7 +566,63 @@ journalctl --user -u growing-spine --since "2 hours ago"
 
 ---
 
-## 8. State — 2026-08-27
+## 8. State — 2026-08-27 17:10
+
+**The Cloudflare rung has NEVER served, and yesterday's entry here was wrong
+about why it would.** It said "the rung returns on the daily reset". Seventeen
+hours later `provider.call` still returns **HTTP 429, daily free allocation**,
+and `quota_state.json` shows `last_success_at: NEVER`. My probe spent **15,455
+of 10,000 neurons**, and the overspend appears to carry past the reset rather
+than being forgiven at it. **So the cost of learning the exhaustion signature
+was not one day's allowance -- it is at least two, and the reset rule is still
+unknown.** FLATLINE names it correctly: `cloudflare(never)` in SERIOUS since it
+was added. Check tomorrow: does `last_success_at` ever appear.
+
+**The honest truncation marker did NOT teach it to size reads. It stopped
+ranging and went back to `cat`.** This was the stated behavioural watch and the
+answer is no. `sed -n` ranges fell **143 -> 5** (all 5 still asking for 100
+lines), while raw `cat` of its own tools ROSE **349 -> 387**. Capped exec
+results went **67.4% -> 73.8%**, median loss 3,163 chars, max **86,742**. Its
+think records still say the output "is being truncated" and still reach for
+"a script or `sed` to read it in chunks" (08-26 20:47, 23:47).
+**The diagnosis, and it is our defect:** the marker states the LOSS and never
+the CEILING. The ceiling (~286 chars) is named only in `_build_loop_warning`,
+which fired **6 times** this window, while the marker fired **724 times**. It
+is being told how much it is missing 724 times and how much it can see 6 times,
+so every range it picks is 6-12x too large and it eventually gives up.
+**Proposal for Tue, not done unilaterally because it is a prompt change:** state
+the window where the loss is stated. Naming the ceiling costs ~10 characters per
+marker; the current arrangement costs the creature most of its reads.
+
+**gs-bug-daily 2026-08-27 (24.7h, one explained gap).** 859 thinks at 34.8/h,
+980 exec, 68 skips, **26 errors -- every single one a guard rail firing
+correctly** (23 done-gate false-completion, 2 spin traps, 1 upgrade-no-change).
+Errors rose 4 -> 26, but done-marks rose **5 -> 35** and the refusal RATE is
+flat (**60% -> 69%**): that is 4.4x the volume of work, not a regression.
+Library **501** (+7). Zero provider errors in the `error` kind; two hiding
+under `idea_gate` (new §5 scar). Box rebooted 08-26 19:01, which accounts for
+the 17:00-19:00 gap exactly.
+
+**`cannot_start` is flat at 32 for the third reading, and the FLOW is zero for
+the second window running.** Nothing in the 32 is newer than **08-22**, zero
+broken tools were created in 24.7 hours, and `tool-edit`'s write-time WARNING
+fired **0 times** because it had nothing to fire on. The 08-29 trigger stands
+against the stock, but the stock is legacy and the flow is the live measure.
+
+**Two instruments answered the always-zero question honestly.** `JANITOR:aged-out
+0` has now appeared **54 runs** running -- and a live census says **0 hollow
+stubs exist**, so it is genuinely idle rather than blind. `UNMET` **broke its
+streak**: `329n/7842d+0`, back to 0/7 from 2/7, so the builder trigger receded.
+
+**New watch: `exec/think` is climbing** -- 1.12, 1.19, 1.22, **1.35** across the
+last four hourly readings, against 0.99 yesterday. No hypothesis yet; recorded
+as a measurement.
+
+Gates unchanged since `ede86c0`: **laptop 404 PASS, PC 398 PASS**.
+
+---
+
+### Previous state — 2026-08-27 (Cloudflare added)
 
 **A sixth rung: `cloudflare`, and its exhaustion signature is KNOWN before it
 carries traffic** -- the first time a rung has been added that way. Tue created
