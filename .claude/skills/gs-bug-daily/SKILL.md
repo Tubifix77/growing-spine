@@ -57,12 +57,30 @@ Full scar list: `CLAUDE.md` §5. Do not restate it here — point at it.
     Added 2026-08-24 by the blank pass: on this run it engaged in four
     separate cycles and the count stayed at 32, and no item above asks that.
     A count is a lagging indicator; engagement is the leading one.
-13. **The effort funnel for this window**, as defined in `../effort-funnel.md`.
+13. **Provider failures journalled under a kind OTHER than `error`.** Added
+    2026-08-27 by the blank pass. The error census reads `kind == "error"` and
+    on this run reported **0 provider errors** while two live provider failures
+    sat in the journal as kind `idea_gate`: *"batch judge parsed 0/4 -- band
+    left UNJUDGED. cause=EMPTY-REPLY (provider returned nothing); reply 0 chars
+    vs 1040 tok budget"* at 03:58 and 04:00. A 200 with an empty body is not an
+    `error` to `classify_error` and never becomes one, so it is invisible to a
+    census keyed on that kind. Sweep every kind for provider-shaped failures:
+    `EMPTY-REPLY`, `provider returned nothing`, `UNJUDGED`, `0 chars`, HTTP
+    codes. Report them beside the four buckets, not inside them.
+14. **The early-rejection stage: count journal KINDS, not advisory text.** Added
+    2026-08-27, correcting my own 2026-08-26 conclusion. I searched for the
+    gate-choice string *"a near-duplicate will not be built"*, found only
+    `think_end` records, declared the stage uncountable and instrumented a third
+    path (`oracle_rest`) that has fired **0 times all-time**. Two countable
+    kinds already existed and I never looked: **`idea_gate` (157 all-time)** and
+    **`novelty_block` (52 all-time)**. Search by `kind`, then by string --
+    never the reverse.
+15. **The effort funnel for this window**, as defined in `../effort-funnel.md`.
     The error buckets say what went wrong; the funnel says what fraction of what
     it set out to build became a working tool. Report every stage including the
     zeroes, and keep rounds-to-green separate from rounds-then-abandoned — a tool
     that took fifteen attempts and works is a success story, not a fault.
-14. **Deltas against the previous run of this skill**, from the history file.
+16. **Deltas against the previous run of this skill**, from the history file.
 
 ## Tier 2 — pointed open inspection. Prose, and it cannot be skipped.
 

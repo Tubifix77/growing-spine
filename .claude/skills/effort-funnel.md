@@ -14,7 +14,7 @@ what fraction of intent becomes a working tool.** Both are needed.
 | distinct tools worked on | union of names across all three doors |
 | authoring actions | `tool-new` + `tool-edit` + redirect/`tee` invocations |
 | **rounds per tool** | actions ÷ distinct tools |
-| early rejected | `oracle_rest` journal records (the oracle declining to rebuild) |
+| early rejected | journal kinds `idea_gate` + `novelty_block` + `oracle_rest` |
 | done-marks attempted | `remember current-phase done` in the window |
 | **late rejected** | done-gate blocks by kind: false-completion / hollow / upgrade-no-change / cannot-start |
 | done accepted | attempted − refused |
@@ -52,6 +52,21 @@ Fixed by journalling the rest decision as kind `oracle_rest`, deliberately
 outside `MEANINGFUL_KINDS` so it reaches this metric and never the creature.
 **The stage is therefore newly instrumented from 2026-08-26: treat its first
 non-zero reading as a baseline, not as a change.**
+
+**Corrected 2026-08-27, and the correction is the more useful lesson.** The
+2026-08-26 diagnosis was half wrong. The gate-choice half was right -- that
+string really is advisory text. But the claim that the stage had NO countable
+event was false: `journal.append(..., "idea_gate", ...)` at `loop.py:1789` and
+four `novelty_block` appends at 1977-2050 were already there, **157 and 52
+records all-time**. I found nothing because I searched for the advisory STRING
+instead of enumerating journal KINDS, then added a third path (`oracle_rest`)
+which has since fired **0 times all-time**. Method rule: **for any event you
+suspect is uncountable, enumerate `kind` values first and grep strings second.**
+A `collections.Counter` over every `kind` in the file costs one pass and would
+have answered it immediately.
+
+Note also that `idea_gate` is a SHARED kind -- it also carries batch-judge
+failures -- so counting it requires reading the content, not just the kind.
 
 ## History keys
 
