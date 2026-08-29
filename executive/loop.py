@@ -276,10 +276,10 @@ MEANINGFUL_KINDS = {"think_end", "exec_end", "error", "exec_timeout",
 # 27.3% to 45.6% for +7,200 chars of wake context (~+17.5%). 1800 buys
 # only 50.3% for +29%. Declared, not learned -- and re-derive it from a
 # fresh census rather than nudging it.
-EXEC_CMD_JOURNAL_CHARS = 200      # exec_start: command head kept in the journal
-EXEC_STDOUT_JOURNAL_CHARS = 300  # exec_end: stdout head
-EXEC_STDERR_JOURNAL_CHARS = 200   # exec_end: stderr head
-JOURNAL_RENDER_CHARS = 300       # per-entry cap in the wake-context render
+EXEC_CMD_JOURNAL_CHARS = 600      # exec_start: command head kept in the journal
+EXEC_STDOUT_JOURNAL_CHARS = 1200  # exec_end: stdout head
+EXEC_STDERR_JOURNAL_CHARS = 600   # exec_end: stderr head
+JOURNAL_RENDER_CHARS = 1200       # per-entry cap in the wake-context render
 
 # The writer cap must never be SMALLER than the render cap. If it is, the
 # render cap is decorative: the characters are already gone from
