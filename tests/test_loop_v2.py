@@ -212,15 +212,19 @@ async def main():
     # 100-line ranges 97 times in 15.6 h. A marker that under-reports by two
     # orders of magnitude reads as reassurance, which is worse than no marker at
     # all; these tests are the contract that it cannot.
-    _big = "#!/usr/bin/env python3" + chr(10) + ("X" * 3583)
+    _big = ("#!/usr/bin/env python3" + chr(10)
+            + ("X" * (loop.EXEC_STDOUT_JOURNAL_CHARS * 3)))
     _rec = ("exit=0 stdout=%s stderr=%s"
             % (loop._capped(_big, loop.EXEC_STDOUT_JOURNAL_CHARS),
                loop._capped("", loop.EXEC_STDERR_JOURNAL_CHARS)))
     _seen = loop._capped(_rec, loop.JOURNAL_RENDER_CHARS)
     _n = int(loop._TRUNC_MARK_RE.findall(_seen)[-1])
-    check("nested truncation: the marker reports thousands, not tens", _n > 3000)
+    check("nested truncation: the marker reports the real loss, not the "
+          "outer cut's own",
+          _n > len(_big) - loop.JOURNAL_RENDER_CHARS * 2)
+    _shown = len(loop._TRUNC_MARK_RE.sub("", _seen))
     check("nested truncation: the number is within 1% of what is withheld",
-          abs(_n - (len(_big) - 286)) <= max(40, len(_big) // 100))
+          abs(_n - (len(_big) - _shown)) <= max(40, len(_big) // 100))
     check("nested truncation: a second cut never shrinks the reported loss",
           _n >= int(loop._TRUNC_MARK_RE.findall(_rec)[-1]))
     check("nested truncation: exactly one marker survives, at the end",
@@ -242,15 +246,28 @@ async def main():
     # five still asking for 100 lines) while raw cat rose 349 -> 387 and capped
     # results rose 67.4% -> 73.8%. A measurement its reader cannot interpret is
     # not yet a measurement: the loss alone never says how much to ask for next.
-    _wmark = loop._capped("q" * 5000, 300)
-    check("marker names the window it applied", "window 300" in _wmark)
+    _wmark = loop._capped("q" * 5000, loop.JOURNAL_RENDER_CHARS)
+    check("marker names the window it applied",
+          ("window %d" % loop.JOURNAL_RENDER_CHARS) in _wmark)
+    # The render cap can never show what the writer already threw away. These
+    # two constants are a producer and a checker sharing a quantity, which is
+    # exactly the drift this file exists to catch -- raising one alone is a
+    # silent no-op, and that is how the 2026-08-29 raise could have shipped
+    # buying nothing.
+    check("writer cap is never smaller than the render cap",
+          loop.EXEC_STDOUT_JOURNAL_CHARS >= loop.JOURNAL_RENDER_CHARS)
+    _round = loop._capped(loop._capped("w" * 9000, loop.EXEC_STDOUT_JOURNAL_CHARS),
+                          loop.JOURNAL_RENDER_CHARS)
+    check("a full-size result survives the writer to reach the render intact",
+          len(loop._TRUNC_MARK_RE.sub("", _round)) == loop.JOURNAL_RENDER_CHARS)
     check("marker still names the loss, and first",
           _wmark.index("chars cut") < _wmark.index("window"))
     for _cap in (200, 300, 1000):
         check("marker's window equals the cap actually applied (%d)" % _cap,
               ("window %d]" % _cap) in loop._capped("q" * 9000, _cap))
     check("the loss capture group is unaffected by the window suffix",
-          loop._TRUNC_MARK_RE.findall(_wmark) == ["4700"])
+          loop._TRUNC_MARK_RE.findall(_wmark)
+          == [str(5000 - loop.JOURNAL_RENDER_CHARS)])
     check("window naming survives nesting, reporting the OUTER window",
           loop._capped(loop._capped("q" * 9000, 1000), 300)
           .endswith("window 300]"))
@@ -328,7 +345,9 @@ async def main():
     # extraction or in-block transformation. Legacy shape: exactly-at-cap stdout
     # with no marker, as every pre-fix journal record has it.
     _pad("c2")
-    _repeat("cat /mind/tools/own/big_tool", "exit=0 stdout=" + "y" * 300 + " stderr=")
+    _repeat("cat /mind/tools/own/big_tool",
+            "exit=0 stdout=" + "y" * loop.EXEC_STDOUT_JOURNAL_CHARS
+            + " stderr=")
     _w2 = loop._build_loop_warning()
     check("truncated: names the window and that repetition cannot widen it",
           str(loop.JOURNAL_RENDER_CHARS) in _w2
@@ -358,7 +377,8 @@ async def main():
     # IDENTICAL capped commands (the tool-edit heredoc class) stay silent.
     _pad("c4")
     _capped_cmd = ("tool-edit big_tool <<'EOF' #!/usr/bin/env python3 # tool: "
-                   + "b" * 160)[:200]
+                   + "b" * (loop.EXEC_CMD_JOURNAL_CHARS * 2)
+                   )[:loop.EXEC_CMD_JOURNAL_CHARS]
     _repeat(_capped_cmd, "exit=0 stdout=Rewrote big_tool stderr=")
     check("identity destroyed: a capped command is never counted as a repeat",
           loop._build_loop_warning() == "")

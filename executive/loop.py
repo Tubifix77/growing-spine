@@ -254,10 +254,43 @@ MEANINGFUL_KINDS = {"think_end", "exec_end", "error", "exec_timeout",
 # Invariant: TRUNCATION MUST ANNOUNCE ITSELF WHEREVER IT CUTS. One definition of
 # the caps and one marker; writer, render and the loop warning all use these, so
 # a checker can never again assert completeness the producer did not deliver.
-EXEC_CMD_JOURNAL_CHARS = 200      # exec_start: command head kept in the journal
-EXEC_STDOUT_JOURNAL_CHARS = 300   # exec_end: stdout head
-EXEC_STDERR_JOURNAL_CHARS = 200   # exec_end: stderr head
-JOURNAL_RENDER_CHARS = 300        # per-entry cap in the wake-context render
+# Raised 2026-08-29 from 200/300/200/300. Those numbers were never chosen:
+# `git log -S` traces them to c98f69b, the v0.4 SKELETON commit, and they
+# have been the creature's entire view of its world ever since. c733adc
+# named them as constants and kept the values.
+#
+# The evidence for raising them, measured over 1,387 exec results in the
+# 32.9 h to 2026-08-29 01:59: median full result 1,776 chars, p90 5,090,
+# and at a 300-char cap only 27.3% of results fit whole. 71.7% were cut,
+# median loss 2,939 characters.
+#
+# Three iterations of the MESSAGE were tried first and none changed the
+# behaviour: an honest number (5427b72), then the window named alongside
+# it (66ff79d). After the second, ranged reads resumed -- 5 -> 69 -- but
+# 63 of the 69 still asked for 100 lines, because the ceiling is stated in
+# CHARACTERS and it asks in LINES, and nothing bridges the units. Three
+# message revisions with no behavioural movement is evidence that the
+# message was never the lever; the window was.
+#
+# 1200 is the knee of the measured curve: it takes whole-result fit from
+# 27.3% to 45.6% for +7,200 chars of wake context (~+17.5%). 1800 buys
+# only 50.3% for +29%. Declared, not learned -- and re-derive it from a
+# fresh census rather than nudging it.
+EXEC_CMD_JOURNAL_CHARS = 600      # exec_start: command head kept in the journal
+EXEC_STDOUT_JOURNAL_CHARS = 1200  # exec_end: stdout head
+EXEC_STDERR_JOURNAL_CHARS = 600   # exec_end: stderr head
+JOURNAL_RENDER_CHARS = 1200       # per-entry cap in the wake-context render
+
+# The writer cap must never be SMALLER than the render cap. If it is, the
+# render cap is decorative: the characters are already gone from
+# journal.jsonl by the time anything renders it, and raising the render
+# cap alone buys exactly nothing. A producer and a checker sharing a
+# quantity, which is the drift disease of section 4 -- so it is asserted
+# here and tested, not left to whoever edits these next.
+assert EXEC_STDOUT_JOURNAL_CHARS >= JOURNAL_RENDER_CHARS, (
+    "writer cap %d < render cap %d: the render cap cannot show what the "
+    "writer already discarded" % (EXEC_STDOUT_JOURNAL_CHARS,
+                                  JOURNAL_RENDER_CHARS))
 _TRUNC_MARK_RE = re.compile(
     r"\u2026\[\+(\d+) chars cut(?:; window \d+)?\]")
 _MARK_REMNANT_CHARS = 48   # longest a marker can be; a straddled one is noise
