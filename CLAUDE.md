@@ -436,6 +436,31 @@ or a path literal that already exists elsewhere, stop.
   after the finding was closed). When you test that a shared resource is safe,
   enumerate every WRITER and reach it the way each one really does; a test that
   can only get in through the lock can never see someone climbing the window.
+- **A constant nobody chose is not a decision, and three revisions of a MESSAGE
+  are evidence the message was never the lever.** The creature's entire view of
+  any command result was 300 characters, and `git log -S` traces that number to
+  **`c98f69b`, the v0.4 SKELETON commit** — scaffold, never weighed against any
+  context budget, and the creature's whole world for the life of the project.
+  `c733adc` named the caps as constants and kept their values, which is how a
+  never-chosen number survives a review that was specifically about it. Three
+  fixes to the WORDING were shipped first and none moved behaviour: an honest
+  loss number, then the window named beside it. After the second the creature
+  read it correctly — *"the activity log shows `[+3046 chars cut; window 300]`.
+  This means the summary of the execution is truncated"* (08-27 20:10) — resumed
+  ranged reads (5 → 69), and **still asked for 100 lines in 63 of 69 cases**,
+  because the ceiling is stated in CHARACTERS and it asks in LINES. Raised to
+  1200 on `e495773` against a census of 1,387 results (median 1,776 chars, p90
+  5,090; whole-result fit 27.3% → 45.6% for +17.5% context). Two lessons.
+  **When a message has been revised three times and the number has not moved,
+  stop editing the message.** And **`git log -S` the constant before defending
+  it** — if it arrives from a skeleton commit, there is no decision to respect.
+- **Two caps in series are a producer and a checker, and raising only one is a
+  silent no-op.** The writer capped exec stdout before the render ever saw it,
+  so lifting `JOURNAL_RENDER_CHARS` alone would have bought exactly nothing —
+  the characters were already gone from `journal.jsonl`. Now asserted at import
+  (`EXEC_STDOUT_JOURNAL_CHARS >= JOURNAL_RENDER_CHARS`) with the assert verified
+  to fire on simulated drift, because §4's literal-drift disease applies to
+  numbers in series exactly as it does to regexes.
 - **A § pointer is a claim ABOUT a paragraph, not the paragraph — and the
   weaker copy wins whenever the reader trusts it.** On 2026-08-27 I refused to
   repair a demonstrably failing warning text, telling Tue it was his call under
@@ -595,7 +620,55 @@ journalctl --user -u growing-spine --since "2 hours ago"
 
 ---
 
-## 8. State — 2026-08-27 17:10
+## 8. State — 2026-08-29 02:10
+
+**The 300-character window is gone, and it was never a decision.** `git log -S`
+traces it to `c98f69b`, the **v0.4 skeleton commit**. Raised to 1200 on
+`e495773` against a census of 1,387 results: median full result **1,776 chars**,
+p90 5,090, whole-result fit **27.3% → 45.6%** for +17.5% wake context. The
+creature now sees **1,200 characters where it saw 286** — 4.2x. Both caps had to
+move together and that is now an asserted invariant, verified to fire on drift.
+**Next run's measurement, and the only thing that settles it:** do `sed` request
+sizes fall off 100 lines, does capped share fall off 71.7%, does `cat` fall off
+600.
+
+**Three revisions of the MESSAGE moved nothing, which is what justified moving
+the window.** After the ceiling was named, it read the marker correctly — *"the
+activity log shows `[+3046 chars cut; window 300]`. This means the summary of
+the execution is truncated"* (08-27 20:10) — resumed ranged reads **5 → 69**,
+and still asked for 100 lines in **63 of 69**, because we state the ceiling in
+CHARACTERS and it asks in LINES. New §5 scar.
+
+**The startability done-gate fired for the FIRST time, nine days after it was
+built, and all three tools were repaired.** 5 firings on `memory_archive_research`,
+`catchup_memory_archiver`, `memory_archive_search_planner` — every one a true
+positive, none entered the 32, all three start now. That closes the longest-open
+"no false positives and no true ones either" item in the project.
+
+**The 08-29 `cannot_start` trigger is RETIRED rather than re-armed.** The stock
+is 32 for the fourth reading and nothing in it is newer than **08-22**; the flow
+has been **zero for three consecutive windows**. The trigger was written against
+a stock that nothing touches, while the two guards that govern the flow —
+`tool-edit`'s write-time WARNING and the done-gate — are both now demonstrably
+firing and converting. Measure the flow; the stock is archaeology.
+
+**gs-bug-daily 2026-08-29 (32.9h, no gaps).** 1,309 thinks at **39.8/h** (best
+rate in a week), 1,403 exec, 69 skips, **27 errors — every one a guard rail**
+(20 false-completion, 5 startability, 2 upgrade-no-change). Zero provider errors
+in the `error` kind; **one** under `idea_gate`, caught by the new item 13.
+Library **508**. Truncation of thinks down to **3.6%**. `exec/think` **1.07** —
+the climb to 1.35 reversed on its own.
+
+**`cloudflare` is carrying real traffic: 88 thinks, 6.7%, and 0% truncation.**
+FLATLINE dropped it from SERIOUS at 01:07. `google_gemma` is down to **87.4%**
+from 90.8% and effective depth is **three** for the first time since mistral
+went. mistral returns 08-31.
+
+Gates: **laptop 414 PASS, PC 408 PASS**.
+
+---
+
+### Previous state — 2026-08-27 17:10
 
 **The Cloudflare rung has NEVER served, and yesterday's entry here was wrong
 about why it would.** It said "the rung returns on the daily reset". Seventeen
