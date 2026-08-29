@@ -75,12 +75,34 @@ Full scar list: `CLAUDE.md` §5. Do not restate it here — point at it.
     kinds already existed and I never looked: **`idea_gate` (157 all-time)** and
     **`novelty_block` (52 all-time)**. Search by `kind`, then by string --
     never the reverse.
-15. **The effort funnel for this window**, as defined in `../effort-funnel.md`.
+15. **`exec_skip` rate BY RUNG — not just the total.** Added 2026-08-29 by the
+    blank pass, and it is the single most valuable number this skill has ever
+    produced. The aggregate skip count looked fine all week (69 in 32.9 h).
+    Split by the rung that served the cycle it reads:
+
+    | rung | served | skips | skip rate |
+    |---|---|---|---|
+    | `google_gemma` | 1144 | 6 | **0.5%** |
+    | `cloudflare` | 88 | 0 | **0.0%** |
+    | `gemini_flash` | 26 | 14 | **53.8%** |
+    | `openrouter_super` | 75 | 73 | **97.3%** |
+
+    A rung that answers but whose answers cannot be used is worse than a dark
+    one: it consumes the cycle and reports success, so `record_success` keeps
+    it open forever and nothing below it is ever reached. Without this split
+    the whole loss hides inside a healthy-looking total.
+    **It is also the control you need for any context-size change.** On this
+    run I raised the journal caps, saw a 100% skip burst six minutes later, and
+    reverted my own change — the burst was six minutes of the 97.3% hole with
+    the workhorse walled, and I could not tell the difference because no
+    per-rung baseline existed. Measure this BEFORE changing anything that
+    touches prompt size.
+16. **The effort funnel for this window**, as defined in `../effort-funnel.md`.
     The error buckets say what went wrong; the funnel says what fraction of what
     it set out to build became a working tool. Report every stage including the
     zeroes, and keep rounds-to-green separate from rounds-then-abandoned — a tool
     that took fifteen attempts and works is a success story, not a fault.
-16. **Deltas against the previous run of this skill**, from the history file.
+17. **Deltas against the previous run of this skill**, from the history file.
 
 ## Tier 2 — pointed open inspection. Prose, and it cannot be skipped.
 

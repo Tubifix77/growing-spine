@@ -436,6 +436,25 @@ or a path literal that already exists elsewhere, stop.
   after the finding was closed). When you test that a shared resource is safe,
   enumerate every WRITER and reach it the way each one really does; a test that
   can only get in through the lock can never see someone climbing the window.
+- **A rung that ANSWERS but whose answers cannot be used is worse than a dark
+  one, and the aggregate skip count hides it completely.** Measured 2026-08-29,
+  splitting `exec_skip` by the rung that served the cycle: `google_gemma`
+  **0.5%**, `cloudflare` **0.0%**, `gemini_flash` **53.8%**, `openrouter_super`
+  **97.3%** (75 served, 73 skipped). The pool yields a usable cycle 2.7% of the
+  time and is exactly what the ladder falls into whenever the workhorse walls.
+  The total looked healthy all week — 69 skips in 32.9 h — because 1,144 clean
+  gemma cycles drown it. Mechanism: those pool models are REASONING models that
+  spend the whole 3,072-token budget before emitting a bash block, so the reply
+  comes back `finish=length`, `record_success` fires, the rung is never walled,
+  and nothing below it is ever reached by escalation. §8 has warned about that
+  design gap since 08-18; **97.3% is what it costs.**
+  The second half of the lesson is about attribution. I raised the journal caps,
+  saw a 100% skip burst six minutes later, and reverted my own change on the
+  timing correlation — then found the burst was six minutes of this hole with
+  gemma quota-walled, and my caps were exonerated by a rate that had held all
+  window. **Without a per-rung baseline you cannot tell your own change from the
+  ground it landed on.** Take the baseline before touching prompt size, never
+  after.
 - **A constant nobody chose is not a decision, and three revisions of a MESSAGE
   are evidence the message was never the lever.** The creature's entire view of
   any command result was 300 characters, and `git log -S` traces that number to
@@ -663,6 +682,29 @@ the climb to 1.35 reversed on its own.
 FLATLINE dropped it from SERIOUS at 01:07. `google_gemma` is down to **87.4%**
 from 90.8% and effective depth is **three** for the first time since mistral
 went. mistral returns 08-31.
+
+**The biggest finding of the run came last, and it is not about the window.**
+`exec_skip` split by the rung that served the cycle: `google_gemma` **0.5%**,
+`cloudflare` **0.0%**, `gemini_flash` **53.8%**, **`openrouter_super` 97.3%**
+(75 served, 73 skipped). The pool yields a usable cycle **2.7%** of the time and
+is what the ladder falls into every time gemma walls. Its models are reasoning
+models that spend the whole 3,072-token budget before emitting a bash block, so
+the reply returns `finish=length`, `record_success` fires, the rung is never
+walled, and the rungs below are never reached. §8 has named that design gap
+since 08-18 without a number; **the number is 97.3%.**
+**Named trigger: fix or retire `openrouter_super` by 2026-09-02.** The options
+are a larger `max_tokens` for that rung, dropping the reasoning models from the
+pool, or retiring it — all config, so ladder discipline applies and the
+exhaustion signature is already known. `gemini_flash` at 53.8% is the same
+disease and rides along with whatever is decided.
+
+**I also mis-attributed a regression to myself and want that on the record.** I
+raised the caps at 02:05, saw a 100% skip burst six minutes later, reverted my
+own change on the timing correlation, then found the burst was six minutes of
+the hole above with gemma quota-walled. Caps restored (`9c84414`). No
+`too_large` anywhere, and gemma's quota is counted in daily CALLS so prompt size
+cannot touch it. **Without a per-rung baseline you cannot tell your own change
+from the ground it landed on** — now mandated as `gs-bug-daily` item 15.
 
 Gates: **laptop 414 PASS, PC 408 PASS**.
 
