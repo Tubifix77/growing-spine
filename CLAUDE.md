@@ -443,11 +443,22 @@ or a path literal that already exists elsewhere, stop.
   **97.3%** (75 served, 73 skipped). The pool yields a usable cycle 2.7% of the
   time and is exactly what the ladder falls into whenever the workhorse walls.
   The total looked healthy all week — 69 skips in 32.9 h — because 1,144 clean
-  gemma cycles drown it. Mechanism: those pool models are REASONING models that
-  spend the whole 3,072-token budget before emitting a bash block, so the reply
-  comes back `finish=length`, `record_success` fires, the rung is never walled,
-  and nothing below it is ever reached by escalation. §8 has warned about that
-  design gap since 08-18; **97.3% is what it costs.**
+  gemma cycles drown it. **My first explanation of the mechanism was wrong.** I
+  wrote that the pool models are reasoning models spending the whole 3,072-token
+  budget before emitting a bash block. Re-measured over 164 h on 2026-09-04,
+  `finish` is **248 `stop` against 53 `length`**, and the skip split is **189
+  no-bash-block, 44 truncation, 27 unclosed fence**. The dominant fault is
+  **format non-compliance** — clean, complete replies containing no command at
+  all — not truncation. `gemini_flash` is the opposite disease: 41 skips, all 41
+  truncation. Either way `record_success` fires, the rung is never walled, and
+  nothing below it is ever reached by escalation. §8 has warned about that
+  design gap since 08-18; **97.3%, then 86.7%, is what it costs.**
+  **The action was blocked by an instrument gap, not by the decision.** A rung is
+  one account with an ORDERED MODEL LIST, and `served_by` recorded only the rung
+  — so 189 failures could not be pinned on any of three models and no reorder or
+  retirement could be justified by evidence. `keychain.last_model` was already
+  tracked and simply never written down; fixed `201c362`. Invariant: **a rung
+  with more than one model must record WHICH one served.**
   The second half of the lesson is about attribution. I raised the journal caps,
   saw a 100% skip burst six minutes later, and reverted my own change on the
   timing correlation — then found the burst was six minutes of this hole with
@@ -639,7 +650,70 @@ journalctl --user -u growing-spine --since "2 hours ago"
 
 ---
 
-## 8. State — 2026-08-29 02:10
+## 8. State — 2026-09-04 22:10
+
+**The window raise WORKED, and it is the clearest fix-verification this project
+has produced.** Over 82 productive hours on the 1200-char window: capped exec
+results **71.8% → 38.0%**, and the read sizes moved from *63 of 69 requests at
+100 lines* to **11, 17, 20 and 30 lines**. 81 think records reason about the
+marker and quote it correctly — *"the `cat` output is still being truncated by
+the system's display limit (the `[+4452 chars cut; window 1200]` message)"*
+(08-29 08:43). It learned to size reads once the window was wide enough to be
+worth sizing for. Three revisions of the message had achieved nothing; the
+number was the lever.
+
+**Best throughput ever recorded: 43.6 thinks/hour** over 82 productive hours
+(3,579 thinks, 4,898 exec). **The window was 164 h with only 82 productive** —
+Tue's laptop, confirmed by him; 08-30 has zero records and the user session is
+torn down around 00:54 and restored around 20:00. Not investigated further at
+his instruction.
+
+**Enormous production burst.** Library **508 → 643** (+135 tools), 1,200
+authoring actions across **255 distinct tools** at 4.7 rounds each, 439
+done-marks with 241 accepted. **`cannot_start` fell 32 → 23 — the first fall
+that stock has ever shown.** Note the counter-signal: the newest broken tool is
+now **09-02**, so new ones are entering again after three clean windows.
+
+**202 errors, 199 of them guard rails** (139 false-completion, 40
+upgrade-no-change, 11 startability, 8 empty-placeholder, 1 spin trap). Zero
+provider errors, zero unclassified. The 3 real ones are `docker exec`
+TimeoutExpired — one decoded to the creature deliberately sleeping 500 s
+against the 300 s `run_command` bound, which is the limiter working.
+
+**mistral returned on 08-31 exactly as predicted, and it is the cleanest rung
+on the ladder: 131 served, 0 skips.** Effective depth is now five.
+
+**`openrouter_super` is the one bad rung and my explanation of WHY was wrong.**
+86.7% of the cycles it serves are wasted (261 of 301). I had written that its
+reasoning models burn the token budget; the numbers say **248 `finish=stop`
+against 53 `length`**, and the skips split **189 no-bash-block / 44 truncation /
+27 unclosed**. It is format non-compliance — clean, complete replies with no
+command in them. `gemini_flash` is the opposite: 41 skips, all truncation.
+**The action was blocked by an instrument gap:** `served_by` recorded the rung
+but never the model, so 189 failures could not be pinned on any of three
+models. Fixed `201c362`; `nemotron-3-nano-30b-a3b:free` also removed after a
+direct probe returned 404. **Named trigger: reorder or retire by 2026-09-06,
+once one window of model-attributed data exists.**
+
+**Disk is at 91% / 9.5 G free and it is NOT the creature.** The whole spine
+accounts for ~1 GB: 282 MB mind, 40 MB workspace, 339 MB body image, 757 MB of
+saves that the savegame pruner demonstrably bounds (it saved
+`20260904-210519` and pruned `20260901-021923` in the same breath). The 15 GB
+is unused non-spine Docker images — `ollama` 8.27 GB, `home-assistant` 3.03 GB,
+the wyoming voice stack 3.58 GB — plus 2.6 GB of journald. Tue's applications,
+his call, not mine to delete.
+
+**New watch: `WAKE:p50` 1854 → 2824 ms** as the library grew 26%. Budget is
+5,000 ms, so there is headroom, but the dependency scan is linear in library
+size and the library is growing fast. `UNMET` **+0, streak 0/7**.
+`JANITOR:aged-out 0` for 62 runs, verified honest against a live census of 0
+hollow stubs.
+
+Gates: **laptop 417 PASS, PC 411 PASS**.
+
+---
+
+### Previous state — 2026-08-29 02:10
 
 **The 300-character window is gone, and it was never a decision.** `git log -S`
 traces it to `c98f69b`, the **v0.4 skeleton commit**. Raised to 1200 on
