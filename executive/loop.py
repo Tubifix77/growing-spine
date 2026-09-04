@@ -3950,8 +3950,18 @@ async def run_cycle(keychain: Keychain, dockerfile_dir: str):
     # Which rung answered this think. Nothing recorded this before 2026-08-05,
     # so "who served the architect at 00:52" was unanswerable during the outage
     # post-mortem. One journal line per think closes that permanently.
+    #
+    # The MODEL was added 2026-09-04. A rung is one account with an ORDERED
+    # MODEL LIST, and until now only the rung was recorded -- so when
+    # `openrouter_super` returned 189 clean replies containing no bash block at
+    # all across 299 cycles, there was no way to tell which of its three models
+    # did it, and therefore no evidence-based way to reorder or retire one.
+    # `keychain.last_model` was already tracked and simply never written down.
+    # Invariant: a rung with more than one model must record WHICH one served,
+    # or its behaviour cannot be attributed to anything you can act on.
     journal.append(VOLUME_MOUNT, "served_by",
                    f"{getattr(keychain, 'last_used', None) or 'unknown'}"
+                   f" model={getattr(keychain, 'last_model', '') or '?'}"
                    f" finish={getattr(keychain, 'last_finish_reason', '') or '?'}")
 
     bash_blocks = parser.parse_bash_blocks(response)

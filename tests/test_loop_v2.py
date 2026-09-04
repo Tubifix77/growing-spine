@@ -2816,6 +2816,31 @@ async def main():
             check("a healthy rate does not raise the throughput alarm",
                   "THROUGHPUT:!!" not in _t and "exec/think" in _t)
 
+            # served_by carries the MODEL as well as the rung from 2026-09-04.
+            # A rung is one account with an ordered model list, and recording
+            # only the rung meant that when openrouter_super returned 189 clean
+            # replies with no bash block across 299 cycles, nothing could say
+            # WHICH of its three models did it -- so no reorder or retirement
+            # could be justified by evidence. The contract this defends: the
+            # throughput instrument filters on kind and must never start
+            # parsing content, or the next field added here breaks it silently.
+            _sbm = ("openrouter_super model=nvidia/nemotron-3-super-120b-a12b"
+                    ":free finish=stop")
+            _write_journal(
+                [{"ts": _now - 3600 + i * 90, "kind": "served_by",
+                  "content": _sbm} for i in range(40)]
+                + [{"ts": _now - 3600 + i * 90, "kind": "exec_start",
+                    "content": "b"} for i in range(35)])
+            _tm = _sh.check_throughput(now=_now)
+            check("throughput survives served_by carrying a model= field",
+                  "THROUGHPUT:!!" not in _tm and "exec/think" in _tm
+                  and "NONE" not in _tm)
+            check("the rung stays the first token so every census keeps working",
+                  _sbm.split()[0] == "openrouter_super")
+            check("the model is recoverable from a served_by record",
+                  _sbm.split("model=")[1].split()[0]
+                  == "nvidia/nemotron-3-super-120b-a12b:free")
+
             # The 08-19 fault shape: 6 thinks/hour sustained.
             _write_journal([{"ts": _now - 3600 + i * 600, "kind": "served_by",
                              "content": "x finish=stop"} for i in range(6)])
