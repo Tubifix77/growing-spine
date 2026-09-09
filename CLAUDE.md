@@ -466,6 +466,39 @@ or a path literal that already exists elsewhere, stop.
   window. **Without a per-rung baseline you cannot tell your own change from the
   ground it landed on.** Take the baseline before touching prompt size, never
   after.
+- **"Don't fix what has no symptom" does not apply when the failure mode IS a
+  plausible wrong number.** §4's disease was found live in `loop.py` on
+  2026-09-10 by an outside review Tue commissioned: **seven producers and one
+  consumer sharing three string literals** — `"Done-gate blocked"`,
+  `"Spin trap"`, `"Retrospective verdict: STUCK"` — with **zero tests binding
+  any pair** across 400 lines. I verified it before acting: all seven matched,
+  nothing had drifted. **That is why it was worth fixing, not why it wasn't.**
+  `_window_journal_stats` feeds `_build_digest` and therefore the retro judge,
+  so one drifted literal makes the count read **zero** and tells the judge the
+  creature had no done-gate blocks in a window that had **139**. §6's rule earns
+  its keep against speculative work on failures you would *notice*; a silent
+  wrong number is the one class it blinds you to, because the symptom is
+  invisible by construction. **Distinguishing test: would the failure announce
+  itself? If yes, wait for it. If it produces a plausible number instead, the
+  absence of a symptom is not evidence of health.**
+  Checking the review against live data also produced a near-miss worth keeping.
+  STUCK verdicts appear in the journal as `kind="retro"` with the text
+  `"Verdict: STUCK"`, not the literal the consumer hunts — which looked exactly
+  like a live drift. It was not: there are two branches, a first strike at 3099
+  that watches without resetting and a forced clear at 3110, and `forced_clears`
+  is meant to count only the second. **Correct, and entirely implicit in a
+  string, one reasonable edit away from silently counting watch-only strikes as
+  clears.** I nearly reported the code broken; the fix was to make the
+  distinction a named value instead.
+  Fix shape, which is the general one: **journal the class as a FIELD, and make
+  the field authoritative** — the consumer falls back to prose ONLY when the
+  field is absent, so a tagged record can never be re-classified by wording that
+  happens to contain another guard's name, and pre-existing records keep
+  working. Mutation-tested both directions: removing a producer's field **fails
+  the gate**, and drifting a producer's prose **no longer breaks anything** —
+  the second mutation was silent before. A **third** copy of the same literal
+  lived in `gs-bug-daily` item 4, across a repo boundary, so the disease had
+  already reached the inspection skill; that reads the field now too.
 - **A constant nobody chose is not a decision, and three revisions of a MESSAGE
   are evidence the message was never the lever.** The creature's entire view of
   any command result was 300 characters, and `git log -S` traces that number to
