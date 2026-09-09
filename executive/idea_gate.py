@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""idea_gate.py -- conception-stage duplicate/extend gate. STANDALONE (not wired into loop.py yet).
+"""idea_gate.py -- conception-stage duplicate/extend gate. WIRED into loop.py
+at 1320, 1747 and 1799 (the "not wired yet" note stood here until 2026-09-10;
+a docstring is a claim, not an instrument).
 
 Before a conceived idea becomes a tool to build, compare its short intent-
 description against existing tools' descriptions and route it:

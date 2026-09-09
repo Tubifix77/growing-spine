@@ -303,6 +303,87 @@ async def main():
                         if _e["kind"] in loop.MEANINGFUL_KINDS)
     check("oracle_rest text is absent from everything rendered to the creature",
           "category=archive already built" not in _rendered)
+
+    # Guard classification is a FIELD, not prose (2026-09-10). Seven producers
+    # and one consumer shared three string literals -- "Done-gate blocked",
+    # "Spin trap", "Retrospective verdict: STUCK" -- with NO test binding any
+    # pair, across 400 lines. Nothing had drifted when an outside review found
+    # it, and that is exactly why it mattered: _window_journal_stats feeds
+    # _build_digest and therefore the retro judge, so a drifted literal reads
+    # zero and tells the judge there were no done-gate blocks in a window that
+    # had 139. Section 4's named disease, in the one shape "no symptom" cannot
+    # protect against, because a plausible wrong number raises nothing.
+    _gj = os.path.join(TMP, "guardfield_journal.jsonl")
+    _gprev_vm = loop.VOLUME_MOUNT
+    loop.VOLUME_MOUNT = TMP
+    try:
+        def _grow(kind, content, meta=None):
+            rec = {"ts": time.time(), "kind": kind, "content": content}
+            if meta:
+                rec.update(meta)
+            return json.dumps(rec, ensure_ascii=False) + chr(10)
+
+        # Tagged records classify on the field even when the prose says nothing.
+        with open(os.path.join(TMP, "journal.jsonl"), "w", encoding="utf-8") as _f:
+            _f.write(_grow("error", "wording nobody predicted",
+                           {"guard": "done_gate", "block": "false_completion"}))
+            _f.write(_grow("error", "totally reworded",
+                           {"guard": "done_gate", "block": "cannot_start"}))
+            _f.write(_grow("error", "no recognisable phrase",
+                           {"guard": "spin_trap"}))
+            _f.write(_grow("error", "renamed entirely",
+                           {"guard": "retro_forced_clear"}))
+        _st = loop._window_journal_stats(0)
+        check("guard field: a drifted MESSAGE no longer breaks the count",
+              _st["blocks"] == 2 and _st["spin_fires"] == 1
+              and _st["forced_clears"] == 1)
+
+        # Legacy records carry no field and must still classify by prose.
+        with open(os.path.join(TMP, "journal.jsonl"), "w", encoding="utf-8") as _f:
+            _f.write(_grow("error", "Done-gate blocked a false completion: x"))
+            _f.write(_grow("error", "Spin trap: abandoned project after 5x `y`"))
+            _f.write(_grow("error",
+                           "Retrospective verdict: STUCK -- project cleared"))
+        _sl = loop._window_journal_stats(0)
+        check("guard field: pre-2026-09-10 records still classify by prose",
+              _sl["blocks"] == 1 and _sl["spin_fires"] == 1
+              and _sl["forced_clears"] == 1)
+
+        # The field is AUTHORITATIVE: a tagged record must never be
+        # re-classified by wording that happens to contain another literal.
+        with open(os.path.join(TMP, "journal.jsonl"), "w", encoding="utf-8") as _f:
+            _f.write(_grow("error", "Spin trap: mentioned inside the reason",
+                           {"guard": "done_gate", "block": "false_completion"}))
+        _sa = loop._window_journal_stats(0)
+        check("guard field: the field wins over prose that names another guard",
+              _sa["blocks"] == 1 and _sa["spin_fires"] == 0)
+
+        # forced_clears counts FORCED CLEARS ONLY. The first-strike retro branch
+        # journals kind="retro" and must never be counted -- that was correct and
+        # entirely implicit in a string before today.
+        with open(os.path.join(TMP, "journal.jsonl"), "w", encoding="utf-8") as _f:
+            _f.write(_grow("retro",
+                           "Verdict: STUCK (first strike -- watching, no reset)"))
+        check("guard field: a first-strike STUCK verdict is not a forced clear",
+              loop._window_journal_stats(0)["forced_clears"] == 0)
+    finally:
+        loop.VOLUME_MOUNT = _gprev_vm
+
+    # And the producer half of the pair: EVERY error the guards journal must
+    # carry a guard field. This is what catches a new guard added later without
+    # one -- the drift that the string version could never have caught.
+    import re as _re_g
+    _gsrc = inspect.getsource(loop)
+    _untagged = []
+    for _m in _re_g.finditer(r'journal\.append\(VOLUME_MOUNT,\s*"error",(.{0,400}?)\)\n',
+                          _gsrc, _re_g.DOTALL):
+        _body = _m.group(1)
+        if ("Done-gate blocked" in _body or "Spin trap" in _body
+                or "Retrospective verdict: STUCK" in _body):
+            if '"guard"' not in _body:
+                _untagged.append(_body.strip()[:60])
+    check("every guard-block producer tags its record with a guard field",
+          _untagged == [])
     check("keyhole: writer and render share the one helper and constants",
           "_capped(cmd, EXEC_CMD_JOURNAL_CHARS)" in inspect.getsource(loop.run_cycle)
           and "_capped(stdout, EXEC_STDOUT_JOURNAL_CHARS)" in inspect.getsource(loop.run_cycle)

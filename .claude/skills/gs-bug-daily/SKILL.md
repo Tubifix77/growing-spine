@@ -31,9 +31,16 @@ Full scar list: `CLAUDE.md` §5. Do not restate it here — point at it.
    **over the span that produced records**, not wall clock.
 3. Every distinct error string with a count. No sampling.
 4. Classify every error into four buckets and report them **separately**:
-   guard-rail-fired (done-gate false-completion / hollow / upgrade / backlog,
-   spin trap, startability block), provider error, **unclassified**
-   (`UNEXPECTED:` prefix from the generic handler), other.
+   guard-rail-fired, provider error, **unclassified** (`UNEXPECTED:` prefix
+   from the generic handler), other.
+   **Read the `guard` FIELD on the record, not its prose** — since 2026-09-10
+   every guard block journals `guard` (`done_gate` / `spin_trap` /
+   `retro_forced_clear`) and done-gate blocks also carry `block`
+   (`false_completion` / `cannot_start` / `upgrade_no_change` /
+   `empty_placeholder` / `hollow_backlog`). Classifying by substring here was a
+   **third** copy of a literal shared with seven producers and `loop.py`'s own
+   counter, across a repo boundary — §4's disease reaching into the inspection
+   skill. Fall back to prose only for records written before that date.
 5. Provider errors: any that reached the keychain's `unknown` path ("does not
    recognise"), and any hard-raise. Either is a rung whose failure mode we had
    not enumerated.

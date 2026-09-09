@@ -709,7 +709,8 @@ def _abandon_project(bad_cmd: str, count: int):
             f.write(reason)
         journal.append(VOLUME_MOUNT, "error",
                        f"Spin trap: abandoned project after {count}x "
-                       f"`{bad_cmd[:80]}`")
+                       f"`{bad_cmd[:80]}`",
+                       {"guard": "spin_trap"})
     except Exception:
         pass
 
@@ -2550,7 +2551,9 @@ def _enforce_done_gate(executed):
             with open(DONE_BLOCK_PATH, "w", encoding="utf-8") as f:
                 f.write(reason)
             journal.append(VOLUME_MOUNT, "error",
-                           "Done-gate blocked an empty (placeholder) completion: " + reason)
+                           "Done-gate blocked an empty (placeholder) completion: " + reason,
+                           {"guard": "done_gate",
+                            "block": "empty_placeholder"})
             return False
 
         # A 'done' on a tool that cannot START is a greenlight on something that
@@ -2572,7 +2575,9 @@ def _enforce_done_gate(executed):
             with open(DONE_BLOCK_PATH, "w", encoding="utf-8") as f:
                 f.write(reason)
             journal.append(VOLUME_MOUNT, "error",
-                           "Done-gate blocked a tool that cannot start: " + reason)
+                           "Done-gate blocked a tool that cannot start: " + reason,
+                           {"guard": "done_gate",
+                            "block": "cannot_start"})
             return False
 
         # Gate-choice UPGRADE enforcement (2026-08-01): "a near-duplicate will
@@ -2608,7 +2613,9 @@ def _enforce_done_gate(executed):
                     f.write(reason)
                 journal.append(VOLUME_MOUNT, "error",
                                "Done-gate blocked an upgrade that changed "
-                               "nothing: " + reason)
+                               "nothing: " + reason,
+                               {"guard": "done_gate",
+                                "block": "upgrade_no_change"})
                 return False
             try:
                 os.remove(GATE_CHOICE_STATE_PATH)
@@ -2642,7 +2649,9 @@ def _enforce_done_gate(executed):
                 f.write(reason)
             journal.append(VOLUME_MOUNT, "error",
                            f"Done-gate blocked: {len(library_hollow)} hollow tools "
-                           f"in library backlog -- creature directed to finish them.")
+                           f"in library backlog -- creature directed to finish them.",
+                           {"guard": "done_gate",
+                            "block": "hollow_backlog"})
             print(f"[done-gate] blocked completion -- {len(library_hollow)} hollow "
                   f"tools in backlog, directing creature to finish them")
             return False
@@ -2684,7 +2693,10 @@ def _enforce_done_gate(executed):
                   f"check until it exits 0, and only then mark done.")
         with open(DONE_BLOCK_PATH, "w", encoding="utf-8") as f:
             f.write(reason)
-        journal.append(VOLUME_MOUNT, "error", "Done-gate blocked a false completion: " + reason)
+        journal.append(VOLUME_MOUNT, "error",
+                       "Done-gate blocked a false completion: " + reason,
+                       {"guard": "done_gate",
+                        "block": "false_completion"})
     except Exception:
         pass
     return False
@@ -2864,11 +2876,40 @@ def _window_journal_stats(since_line: int) -> dict:
                     if own_re and "tool-new" not in content and own_re.search(content):
                         reuse += 1
                 elif kind == "error":
-                    if "Done-gate blocked" in content:
+                    # Classify by the FIELD the producer writes, not by its
+                    # prose. Seven producers and this one consumer shared
+                    # three string literals with no test binding any pair --
+                    # section 4's named disease, found 2026-09-10 by an
+                    # outside review. Nothing had drifted, and that is
+                    # exactly why it was worth fixing: this counter feeds
+                    # _build_digest and therefore the retro judge, so a
+                    # drifted literal reads ZERO and tells the judge the
+                    # creature had no done-gate blocks in a window where it
+                    # had 139. A plausible wrong number with no error is
+                    # invisible by construction, which is the one class
+                    # "don't fix what has no symptom" cannot protect.
+                    #
+                    # `forced` counts FORCED CLEARS, not stuck verdicts:
+                    # the first-strike branch journals kind="retro" and is
+                    # deliberately excluded. That was correct and entirely
+                    # implicit in a string, one edit away from silently
+                    # counting watch-only strikes as clears. Now it is a
+                    # named value.
+                    #
+                    # Records written before this carry no field, so the
+                    # prose match stays as a fallback -- but ONLY when the
+                    # field is absent, so a tagged record can never be
+                    # re-classified by its own wording.
+                    guard = e.get("guard")
+                    if guard == "done_gate" or (
+                            guard is None and "Done-gate blocked" in content):
                         blocks += 1
-                    elif "Spin trap" in content:
+                    elif guard == "spin_trap" or (
+                            guard is None and "Spin trap" in content):
                         fires += 1
-                    elif "Retrospective verdict: STUCK" in content:
+                    elif guard == "retro_forced_clear" or (
+                            guard is None
+                            and "Retrospective verdict: STUCK" in content):
                         forced += 1
     except Exception:
         pass
@@ -3109,7 +3150,8 @@ async def _maybe_retrospective(keychain, advance=True):
             suffix = _apply_reviewer_directive(state, directive, DIRECTIVE_WINDOW)
             journal.append(VOLUME_MOUNT, "error",
                            "Retrospective verdict: STUCK -- project cleared"
-                           + suffix + "\n" + digest)
+                           + suffix + "\n" + digest,
+                           {"guard": "retro_forced_clear"})
             print(f"[retro] verdict: STUCK{suffix}")
     else:
         _raw = (response or "").strip()
