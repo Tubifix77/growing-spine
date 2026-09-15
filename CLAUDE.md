@@ -466,6 +466,51 @@ or a path literal that already exists elsewhere, stop.
   window. **Without a per-rung baseline you cannot tell your own change from the
   ground it landed on.** Take the baseline before touching prompt size, never
   after.
+- **An exception raised INSIDE an `except` clause has no sibling — it escapes
+  the whole function, past every handler you thought you had written.**
+  `keychain/provider.py` read the HTTP error body with a bare
+  `body = e.read()` inside `except urllib.error.HTTPError`. Reading that body is
+  itself a network operation, so when the socket had already timed out the
+  `socket.timeout` was raised from within the except clause — and Python never
+  offers it to the `except Exception` two lines below. It escaped `prov.call`,
+  escaped the keychain (no `classify_error`, no `record_exhaustion`, no
+  fall-through to the next rung) and reached the loop's generic handler as
+  **`UNEXPECTED: The read operation timed out`** plus a 30 s sleep. Four cycles
+  died that way on 09-12 and 09-13; the timing confirms it (think_start
+  16:49:30, error 16:51:36, against the 120 s `urlopen` timeout). **The fail-
+  closed shape of the 651-cycle ladder scar in a new place**, and the bitter
+  detail is that the string would have classified perfectly — `timed out` is
+  already a `flaky` branch. It simply never arrived. Fixed `dc51e8b`.
+  Invariant: **`prov.call` NEVER RAISES** — every failure leaves by the return
+  path carrying text the classifier can read, and the STATUS CODE is reported
+  even when the body cannot be read, because the code is what `classify_error`
+  needs most. Without the fix the suite does not fail, it **crashes** with the
+  escaping traceback. General rule: **any I/O inside an exception handler needs
+  its own handler**, and `except Exception` at the end of a function is not the
+  safety net it looks like.
+  Second half, and it is a Tier 4 consequence rather than a framework one: the
+  creature **read our infrastructure error out of its own activity log and
+  blamed its own tool** — *"the `crossclusterdigestscheduler` tool failed during
+  canonicalization with an UNEXPECTED..."* (09-12 16:52). Same class as the
+  2026-08-18 OCI errors arriving on stdout shaped like its own command's output.
+  Nothing marks a record in `journal.jsonl` as OURS rather than its; the escape
+  is closed, the class is not.
+- **A fix that buys one measurement can cost another, and "no symptom" will not
+  find it — you have to go back and look.** Raising the journal caps on 08-29
+  (`e495773`) did what it promised: capped exec results fell 71.8% → 43%, and
+  the creature learned to size its reads. It also **tripled reply truncation**.
+  Per-day `finish=length`, measured 2026-09-16: **8.2 / 4.9 / 4.4 / 3.5 / 4.3%**
+  across 08-24..08-28, then **10.1%** on the raise day itself, then 15.9 / 10.3 /
+  13.2 / 23.7 / 7.7 / 10.6 / 6.5 / 17.6 / 14.0 / 12.2 / 9.1 / 10.9 / **13.8%** —
+  eighteen days at roughly three times the old level. Mechanism: a 17.5% bigger
+  wake context produces longer replies, which hit the 3,072-token output ceiling
+  more often, and each one becomes an `exec_skip`. The traffic-mix confound is
+  ruled out: `google_gemma`'s SHARE fell 87.4% → 77.5% while its truncation
+  ROSE. **`gs-bug-daily` item 15 says to baseline before changing anything that
+  touches prompt size — I baselined the skip rate by rung and never thought to
+  baseline the reply ceiling.** The lesson is not "don't raise caps"; the read
+  fix was right. It is that **a context-size change has two edges, and the one
+  you are not watching is the one that moves.**
 - **"Don't fix what has no symptom" does not apply when the failure mode IS a
   plausible wrong number.** §4's disease was found live in `loop.py` on
   2026-09-10 by an outside review Tue commissioned: **seven producers and one
@@ -683,7 +728,74 @@ journalctl --user -u growing-spine --since "2 hours ago"
 
 ---
 
-## 8. State — 2026-09-04 22:10
+## 8. State — 2026-09-16 00:10
+
+**`THROUGHPUT:!!` is firing, and it is the first time that instrument has ever
+fired since it was built on 2026-08-19.** 12–13 thinks/hour against its declared
+15/h floor. **It is not resources:** the box is idle — load **0.40** on 4 cores,
+61 °C, container at **0.00%** CPU, and `cousin-engine.service` runs alongside
+costing nothing visible. It is **ladder exhaustion**. Gap between thinks: median
+**195 s**, p90 671 s, max 1,606 s, with **29 quota-exhausted pauses and 28
+"window REOPENED" in three hours** — the loop sleeps about a third of wall time
+waiting for quota. Effective depth right now is **ONE**: `cloudflare` dark 17 h
+(26 calls/day spent), `mistral` dark **311 h** (monthly allowance spent 09-02 —
+it is effectively a two-day-per-month rung), `openrouter_super` dark 20 h having
+burned its whole 50/day producing nothing usable, `groq_oss120` served **zero**
+in 265 hours. Per §6 this is what free tiers give and rung count is an outcome,
+not a target — but the one *recoverable* loss is fixed below.
+
+**The model field settled the openrouter_super question in its first window.**
+`served_by` began recording `model=` on `201c362`, and the reading is decisive:
+**`nvidia/nemotron-3-super-120b-a12b:free` served 407 of 407 cycles on that rung
+and 356 were wasted** (87.5% skip, of which **277 no-bash-block** — clean
+`finish=stop` replies containing no command at all). `cohere/north-mini-code`
+never got a turn. The 09-06 trigger, nine days overdue, was finally actionable:
+**pool reordered** to put the agentic-code model first, nemotron kept as
+fallback. Not probed live — the 50/day was spent at reorder time — so **the test
+is next window's `model=` split; if north also skips, retire the rung.**
+
+**A framework fault that had never appeared in this census before: 4
+UNCLASSIFIED errors.** `prov.call` could RAISE. `body = e.read()` sat bare
+inside `except HTTPError`, and an exception raised inside an except clause has no
+sibling — a socket timeout reading the error body escaped `prov.call` AND the
+keychain, skipping `classify_error` and the fall-through entirely. Fixed
+`dc51e8b`; new §5 scar, and without the fix the suite **crashes** rather than
+fails. The creature then read our error out of its own log and blamed its own
+tool — Tier 4 recorded.
+
+**My 08-29 cap raise had a second edge I never measured: reply truncation
+tripled.** ~5% before, ~12% for the eighteen days since, stepping on the raise
+day itself. Full per-day series in the new §5 scar; the mix confound is ruled
+out. The read fix was still right — capped reads 71.8% → 43% and the creature
+now states the ceiling correctly and calls it *"frustrating but manageable"*
+(09-05 03:00) — but the trade was real and unmeasured. Candidate action is to
+raise the 3,072 think ceiling in proportion; that is a second context-size
+change and gets its own baseline first. **Trigger 2026-09-20.**
+
+**The guard field shipped and works — this was the stated first check.** 89
+records carry `guard`/`block`; 43 older ones fall back to prose exactly as
+designed. Breakdown: 67 false-completion, 12 cannot-start, 9 upgrade-no-change,
+1 empty-placeholder.
+
+**gs-bug-daily 2026-09-16 (265 h window, 135 productive).** 3,374 thinks at
+25.0/h over productive time, 4,122 exec, 493 skips, **138 errors — 132 guard
+rails**, 0 provider in `kind=error`, 4 unclassified, 2 exec timeouts. 09-07,
+09-08 and 09-14 have zero records (Tue's laptop and the cousin project;
+confirmed in advance).
+
+**`cannot_start` fell again, 23 → 20, and the flow stayed zero.** Library
+**643 → 694** (+51), 733 authoring actions over 157 tools at 4.7 rounds, 300
+done-marks with 168 accepted. Nothing in the broken set is newer than **09-02**
+and nothing was touched in the window. Disk recovered to **76% / 27 G**.
+
+**New watch:** `WAKE:p50` **2824 → 3271 ms** as the library grew to 694; budget
+5,000. `UNMET` jumped **7842 → 9498 (+1668)** in one day then +0, streak 0/7.
+
+Gates: **laptop 429 PASS, PC 423 PASS**.
+
+---
+
+### Previous state — 2026-09-04 22:10
 
 **The window raise WORKED, and it is the clearest fix-verification this project
 has produced.** Over 82 productive hours on the 1200-char window: capped exec
