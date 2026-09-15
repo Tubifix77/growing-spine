@@ -102,7 +102,29 @@ async def call(cfg: dict, messages: list, max_tokens: int = 2048,
                         error="empty completion (reasoning-only, answer truncated)")
         return dict(base, text=text, error=None)
     except urllib.error.HTTPError as e:
-        body = e.read().decode(errors="replace")
+        # Reading the error BODY is itself a network operation and can
+        # fail. Until 2026-09-15 this line was bare, and an exception
+        # raised INSIDE an except clause is never offered to the sibling
+        # `except Exception` below it -- so a socket timeout here escaped
+        # prov.call entirely, escaped the keychain (no classify_error, no
+        # record_exhaustion, no fall-through to the next rung) and landed
+        # in the loop's generic handler as "UNEXPECTED: The read
+        # operation timed out" plus a 30 s sleep. Four cycles lost that
+        # way on 09-12 and 09-13, and the creature then read our
+        # infrastructure error out of its own activity log and blamed its
+        # own tool for it ("crossclusterdigestscheduler tool failed
+        # during canonicalization with an UNEXPECTED...", 09-12 16:52).
+        #
+        # Invariant: PROV.CALL NEVER RAISES. Every failure leaves by the
+        # return path carrying text the classifier can read, because the
+        # ladder's whole fail-open design (c1b93a5) depends on the error
+        # reaching classify_error at all. The STATUS CODE matters more
+        # than the body and is available even when the body is not, so it
+        # is always reported.
+        try:
+            body = e.read().decode(errors="replace")
+        except Exception as body_err:
+            body = "<error body unreadable: %s>" % body_err
         return {"text": "", "tokens_used": 0, "finish_reason": "", "truncated": False,
                 "error": f"HTTP {e.code}: {body[:200]}"}
     except Exception as e:

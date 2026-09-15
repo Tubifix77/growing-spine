@@ -963,6 +963,82 @@ async def main():
               not in ("quota", "too_large", "gone")
               for c in ("520", "521", "522", "523", "524", "525", "526", "527")))
 
+    # ---- prov.call NEVER RAISES (2026-09-15) --------------------------------
+    # `body = e.read()` sat bare inside `except urllib.error.HTTPError`. An
+    # exception raised INSIDE an except clause is never offered to the sibling
+    # `except Exception` below it, so a socket timeout while reading the error
+    # BODY escaped prov.call, escaped the keychain -- no classify_error, no
+    # record_exhaustion, no fall-through to the next rung -- and reached the
+    # loop's generic handler as "UNEXPECTED: The read operation timed out" with
+    # a 30 s sleep. Four cycles died that way on 09-12 and 09-13, and the
+    # creature then read our infrastructure error out of its own activity log
+    # and blamed its own tool: "the crossclusterdigestscheduler tool failed
+    # during canonicalization with an UNEXPECTED..." (09-12 16:52).
+    #
+    # The fail-closed shape of the 651-cycle ladder scar in a new place, so the
+    # CONTRACT is asserted rather than the mechanism: for any exception out of
+    # urlopen AND for any exception out of e.read(), prov.call returns an error
+    # dict. The status code is reported even when the body cannot be read,
+    # because the code is what classify_error needs most.
+    import socket as _sock_pc
+    import urllib.error as _uerr_pc
+    from keychain import provider as _pc
+
+    _PC_CFG = {"endpoint": "http://x", "api_key": "k", "model_id": "m"}
+    _PC_MSG = [{"role": "user", "content": "hi"}]
+
+    # main() is already a coroutine, so AWAIT -- asyncio.run cannot nest inside
+    # the suite's own asyncio.run(main()) and raises before reaching prov.call.
+    async def _pc_call():
+        return await _pc.call(_PC_CFG, _PC_MSG, max_tokens=8)
+
+    class _BodyTimeout(_uerr_pc.HTTPError):
+        def __init__(self):
+            self.code = 503
+            self.hdrs = None
+
+        def read(self):
+            raise _sock_pc.timeout("The read operation timed out")
+
+    class _BodyValueError(_uerr_pc.HTTPError):
+        def __init__(self):
+            self.code = 429
+            self.hdrs = None
+
+        def read(self):
+            raise ValueError("not bytes")
+
+    _pc_real = _pc.urllib.request.urlopen
+    try:
+        _pc.urllib.request.urlopen = lambda *a, **k: (_ for _ in ()).throw(
+            _BodyTimeout())
+        _r1 = await _pc_call()
+        check("prov.call does not raise when the error BODY read times out",
+              isinstance(_r1, dict) and bool(_r1.get("error")))
+        check("prov.call reports the STATUS CODE even when the body is "
+              "unreadable", "503" in str(_r1.get("error")))
+        check("and classify_error can act on what comes back",
+              classify_error(str(_r1.get("error"))) != "unknown")
+
+        _pc.urllib.request.urlopen = lambda *a, **k: (_ for _ in ()).throw(
+            _BodyValueError())
+        _r2 = await _pc_call()
+        check("prov.call does not raise for any body-read failure",
+              isinstance(_r2, dict) and "429" in str(_r2.get("error")))
+        check("a 429 whose body is unreadable still classifies as quota",
+              classify_error(str(_r2.get("error"))) == "quota")
+
+        _pc.urllib.request.urlopen = lambda *a, **k: (_ for _ in ()).throw(
+            _sock_pc.timeout("The read operation timed out"))
+        _r3 = await _pc_call()
+        check("prov.call does not raise when urlopen itself times out",
+              isinstance(_r3, dict)
+              and "timed out" in str(_r3.get("error")).lower())
+        check("and that one is flaky, so the ladder hops rungs",
+              classify_error(str(_r3.get("error"))) == "flaky")
+    finally:
+        _pc.urllib.request.urlopen = _pc_real
+
     # Cloudflare Workers AI plan restriction. Real body, measured 2026-08-26:
     # the model-search API lists kimi-k2.6, glm-5.2, glm-5.3-flash and
     # deepseek-v4-pro, and the Workers FREE plan refuses all four. The id has
