@@ -1242,6 +1242,100 @@ async def main():
               os.path.isfile(_qsmod.STATE_FILE)
               and TMP in _qsmod.STATE_FILE
               and "quota_state_probe" in _qsmod.STATE_FILE)
+
+        # ---- truncation ESCALATES instead of being recorded as a success ----
+        # A reply that hit the token ceiling is not a usable answer: the loop
+        # finds no closed bash block and skips the cycle. Before 2026-09-16 it
+        # was recorded as a plain success and returned, so the cycle was lost and
+        # the rungs below were never reached -- the design gap section 8 has
+        # named since 2026-08-18. Measured over 265 h: 405 truncations, with
+        # gemini_flash truncating 41.3% of everything it served.
+        def _two_rungs():
+            k = _kcmod.Keychain.__new__(_kcmod.Keychain)
+            k.providers = [
+                {"key": "thin", "endpoint": "e", "api_key": "k",
+                 "model_id": ["thin-m"]},
+                {"key": "fat", "endpoint": "e", "api_key": "k",
+                 "model_id": ["fat-m"]},
+            ]
+            k.state, k.last_used, k.last_model = {}, None, None
+            k.last_finish_reason, k.last_truncated = "", False
+            k.last_escalations = 0
+            return k
+
+        def _reply(text, finish):
+            return {"text": text, "tokens_used": 1, "finish_reason": finish,
+                    "truncated": finish == "length", "error": None}
+
+        # 1. thin truncates, fat completes -> the COMPLETE reply is returned.
+        async def _thin_then_fat(cfg, messages, max_tokens=2048, model=None):
+            if cfg["key"] == "thin":
+                return _reply("half an ans", "length")
+            return _reply("the whole answer", "stop")
+        _provmod.call = _thin_then_fat
+        _ke = _two_rungs()
+        _out = await _ke.complete("hi", max_tokens=100)
+        check("truncation escalates: the COMPLETE reply is what comes back",
+              _out == "the whole answer")
+        check("truncation escalates: and it is attributed to the rung that "
+              "finished, not the one that truncated",
+              _ke.last_used == "fat" and _ke.last_finish_reason == "stop"
+              and _ke.last_truncated is False)
+        check("truncation escalates: last_escalations counts the rungs that "
+              "truncated first -- the number that decides the think ceiling",
+              _ke.last_escalations == 1)
+        check("truncation escalates: the truncating rung is NOT walled -- it "
+              "serves short replies perfectly and the ACCOUNT is healthy",
+              "exhausted_at" not in _ke.state.get("thin", {})
+              and _ke.state.get("thin", {}).get("last_success_at"))
+
+        # 2. every rung truncates -> DEGRADE to the longest, never raise.
+        async def _all_truncate(cfg, messages, max_tokens=2048, model=None):
+            return _reply("short" if cfg["key"] == "thin"
+                          else "a considerably longer partial answer", "length")
+        _provmod.call = _all_truncate
+        _ka = _two_rungs()
+        _raised = None
+        try:
+            _outa = await _ka.complete("hi", max_tokens=100)
+        except Exception as _e:
+            _raised, _outa = _e, None
+        check("all rungs truncate: it DEGRADES to the pre-2026-09-16 behaviour "
+              "rather than raising and losing a cycle that has text",
+              _raised is None)
+        check("all rungs truncate: the LONGEST partial is the one returned",
+              _outa == "a considerably longer partial answer")
+        check("all rungs truncate: and it is honestly reported as truncated",
+              _ka.last_truncated is True
+              and _ka.last_finish_reason == "length")
+
+        # 3. the escalation is BOUNDED -- throughput is the binding problem, so
+        #    it must never walk an unlimited number of rungs per cycle.
+        _calls = []
+
+        async def _count(cfg, messages, max_tokens=2048, model=None):
+            _calls.append(cfg["key"])
+            return _reply("x" * len(_calls), "length")
+        _provmod.call = _count
+        _kb = _kcmod.Keychain.__new__(_kcmod.Keychain)
+        _kb.providers = [{"key": "r%d" % i, "endpoint": "e", "api_key": "k",
+                          "model_id": ["m"]} for i in range(6)]
+        _kb.state, _kb.last_used, _kb.last_model = {}, None, None
+        _kb.last_finish_reason, _kb.last_truncated = "", False
+        _kb.last_escalations = 0
+        await _kb.complete("hi", max_tokens=100)
+        check("escalation is bounded by TRUNCATION_ESCALATE_MAX, not by the "
+              "rung count (%d rungs, %d calls)" % (6, len(_calls)),
+              len(_calls) == _kcmod.TRUNCATION_ESCALATE_MAX + 1)
+
+        # 4. a clean reply on the first rung must not change at all.
+        async def _clean(cfg, messages, max_tokens=2048, model=None):
+            return _reply("fine", "stop")
+        _provmod.call = _clean
+        _kc = _two_rungs()
+        check("a reply that does not truncate is untouched by any of this",
+              await _kc.complete("hi", max_tokens=100) == "fine"
+              and _kc.last_used == "thin" and _kc.last_escalations == 0)
     finally:
         _provmod.call = _real_call
         _qsmod.STATE_FILE = _real_state_file

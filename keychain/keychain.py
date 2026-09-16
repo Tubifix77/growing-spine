@@ -14,6 +14,25 @@ def _load_config() -> list:
 # A saturated upstream usually clears in minutes; 10 min balances "retry
 # the smart rung soon" against burning RPM on probes. Each failed upward
 # probe refreshes exhausted_at, self-throttling to one attempt per window.
+# A reply that hit the token ceiling is NOT a usable answer: the loop finds
+# no closed bash block and skips the cycle. Before 2026-09-16 it was still
+# recorded as a plain success and returned, so the cycle was simply lost
+# and the rungs below were never reached -- the design gap section 8 has
+# named since 2026-08-18. Measured cost over 265 h: 405 truncations, and
+# gemini_flash alone truncated 41.3% of everything it served.
+#
+# So truncation now ESCALATES: the same prompt goes to the next rung. Two
+# properties make this cheap. It pays only on the failures (~12% of
+# cycles) rather than taxing every call the way a bigger ceiling would,
+# and google_gemma has enormous headroom -- 2,619 calls used of 14,400/day
+# -- so absorbing the escalations is nearly free.
+#
+# DECLARED, never learned, and bounded: throughput is the binding problem
+# right now (12-13 thinks/h against a 15/h floor), so at most this many
+# extra rungs are tried before the longest truncated reply is returned
+# anyway. Degrading to the pre-2026-09-16 behaviour always beats raising.
+TRUNCATION_ESCALATE_MAX = 2
+
 UPWARD_REPROBE_SECS = 600
 
 # Distinct unrecognised provider errors already announced in this process. Bounds
@@ -155,6 +174,14 @@ class Keychain:
         self.last_model = None
         self.last_finish_reason = ""
         self.last_truncated = False
+        # How many rungs truncated before the reply that was
+        # finally returned. The loop writes this into served_by,
+        # which makes it the instrument for the question a bigger
+        # think ceiling would be answering: escalated=N with
+        # finish=stop means a later rung FINISHED what this one
+        # could not, and escalated=N with finish=length means
+        # even escalation did not help.
+        self.last_escalations = 0
 
     async def complete(self, prompt: str, system: str = "",
                        max_tokens: int = 2048, **_kwargs) -> str:
@@ -174,6 +201,8 @@ class Keychain:
 
         had_transient = False
         unknown_err = ""
+        truncated_tries = []  # (rung, model, text)
+        self.last_escalations = 0
         for cfg in ordered:
             messages = []
             if system:
@@ -196,6 +225,24 @@ class Keychain:
                             print(f"[keychain] {cfg['key']} window REOPENED "
                                   f"(probe of a believed-exhausted provider "
                                   f"succeeded)")
+                        # The CALL succeeded and the account is healthy, so
+                        # record success before deciding whether the ANSWER
+                        # is usable. Walling a rung that truncates would
+                        # remove a rung that serves short replies perfectly.
+                        qs.record_success(self.state, cfg["key"])
+                        if (result.get("truncated")
+                                and len(truncated_tries)
+                                < TRUNCATION_ESCALATE_MAX):
+                            truncated_tries.append(
+                                (cfg["key"], mid, result["text"] or ""))
+                            print(f"[keychain] {cfg['key']}/{mid} hit the "
+                                  f"{max_tokens}-token ceiling -- "
+                                  f"ESCALATING to the next rung "
+                                  f"({len(truncated_tries)}/"
+                                  f"{TRUNCATION_ESCALATE_MAX})")
+                            stop_rung = True
+                            break  # same prompt, next PROVIDER
+                        self.last_escalations = len(truncated_tries)
                         self.last_used = cfg["key"]
                         self.last_model = mid
                         # Truncation metadata for the caller. complete() still
@@ -209,7 +256,6 @@ class Keychain:
                             print(f"[keychain] {cfg['key']} reply hit the "
                                   f"{max_tokens}-token ceiling "
                                   f"(finish_reason=length)")
-                        qs.record_success(self.state, cfg["key"])
                         return result["text"]
 
                     err = str(result["error"])
@@ -282,6 +328,19 @@ class Keychain:
                 # followed by a flaky one would otherwise wall a healthy account.
                 qs.record_exhaustion(self.state, cfg["key"])
 
+        if truncated_tries:
+            # Every rung we were willing to try truncated. Return the
+            # LONGEST reply rather than losing the cycle: that is exactly
+            # the pre-2026-09-16 behaviour, and degrading to it beats
+            # raising, which would abort a cycle that at least has text.
+            key, mid, text = max(truncated_tries, key=lambda t: len(t[2]))
+            self.last_used, self.last_model = key, mid
+            self.last_finish_reason, self.last_truncated = "length", True
+            self.last_escalations = len(truncated_tries)
+            print(f"[keychain] all {len(truncated_tries)} attempted rungs "
+                  f"truncated -- returning the longest ({len(text)} chars) "
+                  f"from {key}/{mid}")
+            return text
         if unknown_err:
             # Every rung failed AND one failed in a way we cannot name. Carry that
             # text: "all providers exhausted" would throw away the only copy of

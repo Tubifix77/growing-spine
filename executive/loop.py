@@ -4001,10 +4001,16 @@ async def run_cycle(keychain: Keychain, dockerfile_dir: str):
     # `keychain.last_model` was already tracked and simply never written down.
     # Invariant: a rung with more than one model must record WHICH one served,
     # or its behaviour cannot be attributed to anything you can act on.
+    # `escalated=N` appears only when truncation actually escalated, so the
+    # common record stays unchanged. N with finish=stop means a later rung
+    # FINISHED what the first could not -- which is the measurement that decides
+    # whether the 3072-token think ceiling should move at all.
+    _esc = getattr(keychain, "last_escalations", 0) or 0
     journal.append(VOLUME_MOUNT, "served_by",
                    f"{getattr(keychain, 'last_used', None) or 'unknown'}"
                    f" model={getattr(keychain, 'last_model', '') or '?'}"
-                   f" finish={getattr(keychain, 'last_finish_reason', '') or '?'}")
+                   f" finish={getattr(keychain, 'last_finish_reason', '') or '?'}"
+                   + (f" escalated={_esc}" if _esc else ""))
 
     bash_blocks = parser.parse_bash_blocks(response)
     if not bash_blocks:
