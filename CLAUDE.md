@@ -772,6 +772,35 @@ now states the ceiling correctly and calls it *"frustrating but manageable"*
 raise the 3,072 think ceiling in proportion; that is a second context-size
 change and gets its own baseline first. **Trigger 2026-09-20.**
 
+**Truncation now ESCALATES instead of counting as a success (`b27070f`), which
+closes the design gap §8 has named since 08-18.** Tue delegated the choice
+between this and raising the 3,072-token think ceiling, under the standing
+non-intervention principles. **The ceiling raise was rejected on measurement:**
+the reply-length distribution shows the median grew only 25% after the 08-29 cap
+raise while the **p90 more than doubled** (3,818 → 7,950 chars), so the tail
+stretched rather than the distribution shifting — and **a truncated reply tells
+you nothing about how long it wanted to be**, so no ceiling value is derivable
+from the journal at all. Picking 17.5% would have been the voodoo constant §6
+warns about. It would also tax every call on the scarcest resources at the
+moment throughput is the binding problem: cloudflare prices output at
+**204,805 neurons/M against input's 26,668**, and `gemini_flash` is the most
+TPM-constrained rung, so it would pay most and benefit least.
+Escalation instead pays **only on the failures** (~12% of cycles) and
+`google_gemma` has 2,619 calls used of 14,400/day, so absorbing them is nearly
+free. Three properties, all tested: the truncating rung is **not walled** (the
+call succeeded and the account is healthy); if every attempted rung truncates it
+**degrades to the longest partial** rather than raising, which is exactly the old
+behaviour; and it is bounded by a declared `TRUNCATION_ESCALATE_MAX = 2`, never
+by the rung count, because throughput is at 12–13/h.
+**The escalation is also the instrument.** `served_by` now carries `escalated=N`
+only when it happened, so **`escalated=N` with `finish=stop` means a later rung
+FINISHED what the first could not** — the measurement a ceiling decision needs
+and which does not exist today. Four tests fail without it.
+**Not yet observed live:** deployed and gated at 18:45 on 09-16, but every rung
+was walled minutes later ("No providers believed available -- will probe all 6"),
+so there was no serving rung to escalate FROM. First check next run: does any
+`served_by` record carry `escalated=`, and does it end `finish=stop`.
+
 **The guard field shipped and works — this was the stated first check.** 89
 records carry `guard`/`block`; 43 older ones fall back to prose exactly as
 designed. Breakdown: 67 false-completion, 12 cannot-start, 9 upgrade-no-change,
