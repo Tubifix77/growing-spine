@@ -56,7 +56,46 @@ delete its `.bak` or junk files — they are its safety net.
     including the ones that read zero, and rounds-to-green reported separately
     from rounds-then-abandoned. The definition lives there because
     `gs-bug-daily` computes it too, per window, and neither skill owns it.
-14. Deltas against the previous run of this skill.
+14. **DEPENDENCY EDGES PER TOOL — the project's own headline metric, and the
+    one number that answers what this whole thing is for.** Added 2026-09-18
+    after re-reading `README.md`, which says it outright: *"The honest measure
+    of success is not tool count. It is reuse and dependency... A toolkit where
+    tool N is built from tools 1...N-1 is a body that compounds. Twenty
+    independent, never-reused tools are 31 dashboards wearing lab coats."*
+    Report EDGES PER TOOL and the depth histogram, never the library count
+    alone — a growing count with a falling ratio is the failure mode this
+    project was built to detect, and it is invisible in a count.
+
+```bash
+python3 - <<'PY'
+import sys, collections
+sys.path.insert(0, ".")
+from executive import loop
+g = loop._tool_dependencies()          # static scan, no side effects
+assert len(g) > 100, "instrument blind"
+edges = sum(len(v) for v in g.values())
+print("tools %d  edges %d  per tool %.2f  built-out-of-others %.1f%%"
+      % (len(g), edges, edges / len(g),
+         100.0 * sum(1 for v in g.values() if v) / len(g)))
+def depth(t, seen=frozenset()):
+    if t in seen: return 0
+    ds = [depth(d, seen | {t}) for d in g.get(t, [])]
+    return 1 + max(ds) if ds else 0
+print("depth:", dict(sorted(collections.Counter(depth(t) for t in g).items())))
+PY
+```
+
+    Known readings, same instrument: **2026-08-18 433 tools / 1011 edges /
+    2.33** and **2026-09-18 703 / 1100 / 1.56** — the library grew 62% while
+    net edges grew 9%. Per-week out-degree peaked at **2.5-2.8 in July** and
+    has sat at **1.3-1.6 since August**. Caveat to state every time: mtime is
+    *last written*, not born, so per-week buckets are survivorship-biased and
+    only the whole-corpus ratio is clean. The other half of the README's metric
+    — **adoption trend over time** — is NOT yet instrumented: `demand_counts`
+    is cumulative and timestampless, so it needs journal exec-block parsing per
+    month, the way `gs-bug-daily` item 16 does for framework tools.
+
+15. Deltas against the previous run of this skill.
 
 ## Tier 2 — pointed open inspection. Prose, and it cannot be skipped.
 

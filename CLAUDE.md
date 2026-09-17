@@ -934,6 +934,57 @@ by something the creature built itself, which is the system working, or it is
 prompts are re-read every cycle — so nothing here needed the brain bounced.
 Verify on the next wake that `/mind/tools/framework/did-i` exists.
 
+**I re-read `README.md` and the architecture doc to ask what this project is
+FOR, and the answer indicts my own reporting.** The README states the measure
+without hedging: *"The honest measure of success is not tool count. It is reuse
+and dependency: does the creature use its own earlier tools, and — the
+strongest signal — are later tools built out of earlier ones? ... Twenty
+independent, never-reused tools are 31 dashboards wearing lab coats."* The
+central open question in the architecture doc is *"Does it keep compounding, or
+plateau?"* **Every §8 entry I have written reports library COUNT** — 508, 643,
+694, 702, +8, +51, +135 — **plus framework vitals: throughput, skip rate,
+truncation, ladder depth, `cannot_start`, `WAKE:p50`, disk, `UNMET`. Not one of
+them is the metric the project exists to produce.** The last deliberate reading
+of it was **2026-06-26** in the architecture doc; it appeared once since, on
+2026-08-18, as an incidental by-product of a performance fix.
+
+**So I measured it, and the trend has turned.** Same instrument
+(`loop._tool_dependencies`, a static scan with no side effects) at both points:
+
+| date | tools | edges | edges/tool |
+|---|---|---|---|
+| 2026-06-26 (arch doc, possibly a different scan) | 117 | 146 | 1.25 |
+| 2026-08-18 (this instrument) | 433 | 1011 | **2.33** |
+| 2026-09-18 (this instrument) | 703 | 1100 | **1.56** |
+
+**The library grew 62% while net dependency edges grew 9%.** Out-degree per
+week of last-write peaked at **2.5–2.8 across July** and has sat at
+**1.3–1.6 since early August**; the newest 100 tools average **1.34** against
+the oldest 250 at **2.02**, and standalone tools (calling nothing) are **23%**
+of the newest 100 against **15%** of the oldest 250. Composition depth is real
+but shallow: 170 tools at depth 0, 312 at 1, 194 at 2, **only 27 at depth ≥3**,
+one at 4 (`SelfHealingReplanner`). **Honest caveat, stated because the number
+is now doctrine: mtime is LAST WRITTEN, not born**, so the per-week buckets are
+survivorship-biased in an unknown direction and only the whole-corpus ratio is
+clean. The clean claim is the table.
+
+**What that means, carefully.** The creature is producing more than ever and
+compounding less per unit produced. That is precisely the shape §4 of the
+README warns about, and it is the one thing this project was built to detect —
+and it is **invisible in a tool count**, which is the only production number I
+have been reporting. Now mandated as `gs-products` item 14 with the snippet,
+the known readings and the caveat. **The other half of the README's metric,
+adoption over TIME, is still uninstrumented**: `demand_counts` is cumulative
+and timestampless, so it needs per-month journal parsing exactly as
+`gs-bug-daily` item 16 now does for framework tools. That is the next thing to
+build, and it is worth more than any vital on my list.
+
+**Not a claim: that `did-i` fixes this.** Amnesia plausibly limits compounding
+— you cannot build tool N out of tools 1…N-1 if you cannot ask what you
+already tried — but that is a hypothesis, and this project's own ledger is full
+of plausible mechanisms that measured false. The edges/tool ratio is now the
+instrument; let it answer.
+
 **Live re-check at 00:30, six hours of records, and it answers the escalation
 first-check.** `served_by` carries **12 `escalated=` records and every single
 one reads `finish=length escalated=1`** — **zero `finish=stop`**. So the
