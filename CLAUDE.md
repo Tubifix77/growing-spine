@@ -466,6 +466,45 @@ or a path literal that already exists elsewhere, stop.
   window. **Without a per-rung baseline you cannot tell your own change from the
   ground it landed on.** Take the baseline before touching prompt size, never
   after.
+- **A diagnostic that is literally false about the file it describes gets
+  obeyed to the letter, forever.** `recall_and_answer` had `#!/usr/bin/env
+  python3` on **line 3**, under an empty line and a comment it had written. The
+  startability predicate said *"no #! line"* — false: there was one, just not
+  where the kernel looks. So the creature did exactly what it was told: **ten
+  `tool-edit` calls in five minutes on 2026-09-17, 01:24–01:29, each commented
+  "adding a #! line", each adding a shebang below the comment, each drawing the
+  identical false message.** The write-time WARNING fired every time and named
+  the wrong thing every time. `news_plan_tracker.py` sat in the broken stock
+  from **07-18** with its header comment above its shebang and the same message
+  — two months — and §5's 08-19 census had already noted "two of them with the
+  shebang pushed to line 4" without the predicate ever learning to say so.
+  Fixed: when a `#!` exists within the first ten lines but is not line 1, the
+  message names the line and quotes what sits above it, and states the
+  invariant — **a shebang only works as the very first two bytes of the file.**
+  The verdict is unchanged (a displaced shebang on a body bash accepts still
+  runs and is still not a failure); only the truth of the message changed. The
+  mirror in `tool-edit` was regenerated verbatim from the canonical, as the
+  §4 test requires. General rule: **before shipping a message about an
+  artifact, check the message against the artifact.** "No #! line" was one
+  `head -3` away from being known false. Its working 3,626-byte predecessor is
+  gone — `tool-edit` keeps one `.bak` and that is the ninth broken attempt;
+  the savegame snapshots may hold it, and restoring it is its call (§2.1).
+- **`bash -n` on MSYS hangs about half the time on an unterminated quote fed
+  via stdin, and a test asserting FAULTY for that fixture is a coin-flip on the
+  PC.** Measured 2026-09-17: four `_shell_syntax_ok` calls on the
+  `err_as_tool` fixture — three hit the 15 s timeout and returned UNKNOWN, one
+  answered promptly with the syntax error. The 432-PASS gate had won the flip;
+  the next run lost it and reported a change I had made as the cause. The
+  predicate is right — §5 already says an instrument that cannot run must say
+  UNKNOWN, never FAULTY — so the fault was the TEST, which asserted a verdict
+  the instrument cannot reliably produce off POSIX. Now asserts the contract
+  where the instrument can exist (POSIX, the production machine) and claims
+  nothing where it cannot; the laptop gate is authoritative for it. Side
+  effect worth knowing: the PC suite now legitimately exceeds 120 s because of
+  those timeouts — run it in the background, and **when a gate goes red right
+  after a change, diff OLD against NEW on the exact fixture before believing
+  the correlation.** Third time this project has been fooled by "it changed
+  when I changed something".
 - **An exception raised INSIDE an `except` clause has no sibling — it escapes
   the whole function, past every handler you thought you had written.**
   `keychain/provider.py` read the HTTP error body with a bare
@@ -728,7 +767,72 @@ journalctl --user -u growing-spine --since "2 hours ago"
 
 ---
 
-## 8. State — 2026-09-16 00:10
+## 8. State — 2026-09-17 20:30
+
+**The escalation has run 22 productive hours and never once had a rung to
+escalate TO.** 30 `ESCALATING (1/2)`, 30 `all 1 attempted rungs truncated`,
+zero `(2/2)` — and **187 "No providers believed available"** in the same window.
+Every hop found the ladder empty on the other side and fell back to the
+truncated partial, exactly as designed: no raise, and **14 of the 20 escalated
+cycles still executed** off the longest partial. So the mechanics are verified
+in production and the feature is unexercised. That is a fact about the ladder,
+not the change. **First check next run: any `escalated=` record ending
+`finish=stop`.**
+
+**`openrouter_super` is RETIRED under the quality floor.** The reorder gave
+`north-mini-code` its turn: 28 served, **60.7% skipped** — 11 pure prose that
+never reached a command, ~6 **tool-call JSON envelopes** (`{"tool_name":
+"bash", "parameters": {"command": …}}` — the command present, the wrong
+envelope). And `nemotron`'s 277 no-bash skips from the previous window were
+**99.6% pure prose**, so a parser change would have recovered ~6 cycles in
+300; the theory is dead. Two models, ~440 attributed cycles, one verdict: a
+model that emits no command 54–68% of the time is a weak author, and its
+parseable minority is writing tools. Zero own-tools reference an OpenRouter
+key. Entry kept, `enabled: false`, dated. **Candidate on the same bucket:
+`qwen/qwen3-coder:free` — probe through `provider.call` at the 00:00 UTC reset
+before re-enabling anything on that account.** Enabled ladder is now five.
+
+**Throughput is 9–13/h and the cause is quantified: 483 of 780 `think_start`s
+found no rung at all** and fell into a sleep. The loop *tries* at 35/h and
+*succeeds* at 13.5/h. Box idle (load 0.36, zombies 0); the 26 slow gemma calls
+are slow, not timeouts. Depth is one for most of the day. Per §6 this is what
+free tiers give; the one recoverable loss (a rung burning 50/day on nothing)
+is the retirement above.
+
+**The finding of the run is that our own diagnostic was false, and the
+creature obeyed it ten times.** `recall_and_answer` — a working 3,626-byte tool
+on 08-26 — is now 1,284 bytes and unstartable, overwritten through `tool-edit`
+at 01:24–01:29 in **ten edits in five minutes**, every one commented "adding a
+#! line", every one drawing *"no #! line"* from the write-time WARNING. The file
+has a shebang. **On line 3.** Full anatomy in the new §5 scar; the predicate
+now names the line and what sits above it, the `tool-edit` mirror is
+regenerated verbatim, and the verdict logic is untouched. `news_plan_tracker.py`
+has carried the same false message since 07-18.
+
+**A second scar from the same hour, about the PC gate:** the `err_as_tool` test
+turned red right after that change and I nearly blamed the change. Old-vs-new
+on the exact fixture showed `bash -n` on MSYS hangs about half the time on an
+unterminated quote and the 15 s timeout returns UNKNOWN — the predicate right,
+the test a coin-flip off POSIX. Test made POSIX-honest; the laptop gate is
+authoritative for it; the PC suite now legitimately exceeds 120 s.
+
+**Steady numbers.** 296 thinks / 2,578 records over 22 productive hours since
+the 18:45 deploy; skip rate by rung `google_gemma` 1.4%, `cloudflare` 0.0%,
+`gemini_flash` 8.3% (was 38.7% — its truncations now travel the escalation path
+and are attributed to the final rung), `openrouter_super` 60.7%. Reply
+truncation **6.8%** on 09-17 (was ~12%; short window, not yet a trend). Library
+**702** (+8), `cannot_start` **20** (flat; `recall_and_answer` is the one
+touched and it is the finding above). `WAKE:p50` **3,272 ms**, flat against
+3,271 with 8 more tools. Disk 76% / 26 G. Zero `UNEXPECTED` errors since
+`dc51e8b`. **Watch: `UNMET` +2,902 in one day** on top of +1,668 two days
+earlier — demand 7,842 → 12,400 in three days, streak 1/7 — reaching for ~10
+unbuilt names per think is a shape worth a look at the next `gs-products`.
+
+Gates: **laptop 446 PASS, PC 440 PASS**.
+
+---
+
+### Previous state — 2026-09-16 00:10
 
 **`THROUGHPUT:!!` is firing, and it is the first time that instrument has ever
 fired since it was built on 2026-08-19.** 12–13 thinks/hour against its declared
