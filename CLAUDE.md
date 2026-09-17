@@ -18,6 +18,11 @@ no other reviewer to defer to. Maintain it: when a measurement contradicts §8,
 correct §8 and commit. When you learn a rule the hard way, add it to §5. Date
 what you write and name the instrument behind every number — the most expensive
 errors in this project's history are numbers nobody could source.
+**Report the creature's production as a RATIO, never as a count.** "Library 702
+(+8)" is the number I led with for a month while `README.md`'s actual measure —
+edges per tool — fell from 2.33 to 1.56 with nothing anywhere saying so. A
+count cannot fall while the thing it stands for does; that is the whole reason
+it reads as reassurance.
 
 ---
 
@@ -933,6 +938,60 @@ by something the creature built itself, which is the system working, or it is
 `framework-tools/` from the checkout on every wake and chmods 0755, and the
 prompts are re-read every cycle — so nothing here needed the brain bounced.
 Verify on the next wake that `/mind/tools/framework/did-i` exists.
+
+**The metric now has an instrument, and the adoption half — never measured in
+this project's life — says something the dependency half does not.**
+`spine_health.check_compounding` (`b6025ea`), wired into the 06:30 daily line,
+reports tools, edges, edges/tool, tools at composition depth ≥3, and the
+CARRY-FORWARD of old tools. First live line:
+`COMPOUND:703t/1101e 1.57/t deep3:27 carry:52%/503pd`.
+
+**Share of tool invocations going to tools more than 30 days old, by month:**
+
+| month | share | per active day |
+|---|---|---|
+| 2026-06 | 0% | 0 |
+| 2026-07 | 6% | 23 |
+| 2026-08 | 33% | 419 |
+| 2026-09 | 56% | **525** |
+
+June and July are inflated by the library merely aging into eligibility, so
+the honest comparison is **August against September** — and it rises on both
+numbers. The share is confounded by authoring volume (a heavy building month
+fills the denominator with the creature testing what it just wrote: total
+invocations per active day fell **1,264 → 945** while old-tool invocations rose
+**419 → 525**), which is why the instrument reports the rate too. **So the
+README's two signals have separated: the creature RUNS its old body more than
+ever and BUILDS on it less.** A drawer, not a substrate. The README names them
+as two distinct signals and calls dependency the stronger one; this is the
+first time they have been read together, and they disagree.
+
+**The alarm is threshold-free, deliberately.** It compares the marginal edges
+per new tool against the corpus average — when new work brings fewer edges than
+the standing average, the average must fall, which is arithmetic rather than a
+level anyone picked, and §6 forbids tuning a constant with no evidence. The one
+declared constant is a **sample floor of 25 new tools**, because a marginal over
+three tools is noise. Missing calendar days break the streak (the UNMET rule).
+15 tests. Receiver stated in the code: **us and Tue, never the creature** —
+Built/Adopted/Depends-on already reach it each cycle and the architecture doc
+rejected a fourth fuzzy visible metric as gameable; a ratio over its whole
+library is the most gameable shape there is. Cost **11.5 s** on the live 201 MB
+journal, linear in journal size (~23 s at twice the size); the offset cache is
+the fix if that ever stops being acceptable.
+
+**Checked and deliberately NOT concluded: is the v0.8 composition mechanism
+still working?** It is alive — **708 `[composition]` assignments all time**, 939
+`ideation` records in September, and the newest assignments carry the tag. Of
+those, **451 are traceable to a built tool and average 1.65 edges against the
+library's 1.57**, with 18% standalone against 24% — so the brief fires and
+lands, weakly. **The per-mode comparison beyond that is untrustworthy and I am
+not reporting it as a finding:** five breadth categories read *exactly* 0.00
+edges with 100% standalone, which is this file's own signature for a broken
+instrument rather than five identical results (likely a name-matching or
+deleted-dependency artifact). **Next step, with a method rather than a
+conclusion:** compare out-degree of composition-briefed against
+non-composition-briefed tools BORN IN THE SAME WEEK, matching on the file the
+cycle actually wrote rather than on the assigned name.
 
 **I re-read `README.md` and the architecture doc to ask what this project is
 FOR, and the answer indicts my own reporting.** The README states the measure
