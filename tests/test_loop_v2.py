@@ -538,6 +538,178 @@ async def main():
     check("a #! past line 10 is not reported as displaced",
           "line 13" not in (_tools.tool_start_failure("w", _deep, None) or ""))
 
+    # ---- did-i: the creature can ask a question of its own history ----------
+    # The fault this closes was measured, not theorised: 394,489 records sat on
+    # the volume, readable from the body, and NOT ONE of 75,805 exec blocks
+    # ever touched them, because nothing could query them. So the same tool
+    # was edited thirteen times in 6.9 minutes and at the thirteenth attempt
+    # the eight-record window held 2 of the 12 failures already on file.
+    # Read as TEXT and exec'd from memory, never imported: an import writes
+    # __pycache__ into framework-tools, which once emptied the creature's
+    # toolset for four days (section 2.2).
+    import io as _io_di
+    _di_path = os.path.join(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__))), "framework-tools", "did-i")
+    with _io_di.open(_di_path, encoding="utf-8") as _df:
+        _di_src = _df.read()
+
+    # A tool the creature is never told about is not a capability. This is the
+    # measurement that made it a rule: of the framework tools, `tools` is named
+    # 14 times in the files it reads, `ask` 11, `tool-find` 5 -- and `log-read`
+    # ZERO, which is why a journal reader that existed for three months was
+    # used 0 times in 75,805 exec blocks. The catalogue does not list framework
+    # tools, so the prompt is the only door.
+    _pp_path = os.path.join(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__))), "protected-prompt.md")
+    with _io_di.open(_pp_path, encoding="utf-8") as _pf:
+        _pp_src = _pf.read()
+    check("did-i is NAMED in the prompt the creature reads (an unnamed tool "
+          "is not a capability -- log-read was named nowhere and used 0 times)",
+          "did-i" in _pp_src)
+
+    # Section 4, held by test where import is impossible: did-i runs inside the
+    # body and cannot import the repo, so it carries the channel width as a
+    # literal. A literal shared by a producer and a consumer WILL drift.
+    _m_ch = _re_g.search(r"(?m)^CHANNEL_CHARS = (\d+)", _di_src)
+    check("did-i's CHANNEL_CHARS mirrors loop.EXEC_STDOUT_JOURNAL_CHARS",
+          bool(_m_ch)
+          and int(_m_ch.group(1)) == loop.EXEC_STDOUT_JOURNAL_CHARS)
+
+    # Fixture shapes are the live journal's, sampled 2026-09-17 -- from the
+    # corpus, never authored.
+    _di_dir = os.path.join(TMP, "didi")
+    os.makedirs(_di_dir, exist_ok=True)
+    _di_log = os.path.join(_di_dir, "journal.jsonl")
+    _t0 = 1789600000.0
+    _long_paste = ("Block 1: tool-edit widget_maker <<'EOF' #!/usr/bin/env "
+                   "python3 # tool: widget_maker # call: widget_maker <name> "
+                   "# does: builds a widget from the archive and records it "
+                   + ("x" * 700))
+    _di_records = [
+        {"ts": _t0 + 0, "kind": "exec_start", "content": _long_paste},
+        {"ts": _t0 + 1, "kind": "exec_end", "exit_code": 0,
+         "content": "exit=0 stdout=Rewrote /mind/tools/own/widget_maker "
+                    "(7 -> 12 lines)"},
+        {"ts": _t0 + 2, "kind": "think_end",
+         "content": "<thought>The widget_maker tool still will not start. "
+                    "I will add a shebang line to it."},
+        {"ts": _t0 + 3, "kind": "exec_start", "content": "Block 1: widget_maker"},
+        {"ts": _t0 + 4, "kind": "exec_end", "exit_code": 2,
+         "content": "exit=2 stdout= stderr=bash: line 6: import: command "
+                    "not found"},
+        {"ts": _t0 + 5, "kind": "error", "guard": "done_gate",
+         "block": "cannot_start",
+         "content": "Done-gate blocked a tool that cannot start: the tool(s) "
+                    "you wrote this cycle cannot start at all: widget_maker "
+                    "-- no #! line."},
+        # Its OWN calls, which must never be counted as history.
+        {"ts": _t0 + 6, "kind": "exec_start",
+         "content": "Block 1: did-i widget_maker"},
+        {"ts": _t0 + 7, "kind": "exec_end", "exit_code": 0,
+         "content": 'exit=0 stdout=did-i "widget_maker": 6 records mention it'},
+    ]
+    # Six more of the identical edit, because that is the shape of the failure
+    # this tool exists for: thirteen identical tool-edits in 6.9 minutes, each
+    # drawing the same error. It is also the only honest way to build an
+    # answer too wide for its channel.
+    for _i_di in range(6):
+        _di_records.append({"ts": _t0 + 10 + _i_di * 2, "kind": "exec_start",
+                            "content": _long_paste})
+        _di_records.append({"ts": _t0 + 11 + _i_di * 2, "kind": "exec_end",
+                            "exit_code": 1,
+                            "content": "exit=1 stdout= stderr=bash: line 4: "
+                                       "import: command not found"})
+    with _io_di.open(_di_log, "w", encoding="utf-8", newline=chr(10)) as _lf:
+        for _r in _di_records:
+            _lf.write(json.dumps(_r) + chr(10))
+
+    def _run_didi(*argv):
+        """Run did-i against the fixture journal and return its stdout."""
+        _ns = {"__name__": "didi_under_test"}
+        exec(compile(_di_src.replace('LOG = "/mind/journal.jsonl"',
+                                     "LOG = " + repr(_di_log)),
+                     "<did-i>", "exec"), _ns)
+        _old_out, _old_err, _old_argv = sys.stdout, sys.stderr, sys.argv
+        sys.stdout, sys.stderr = _io_di.StringIO(), _io_di.StringIO()
+        sys.argv = ["did-i"] + list(argv)
+        try:
+            _rc = _ns["main"]()
+            return _rc, sys.stdout.getvalue(), sys.stderr.getvalue()
+        finally:
+            sys.stdout, sys.stderr, sys.argv = _old_out, _old_err, _old_argv
+
+    _rc, _out, _err = _run_didi("widget_maker")
+    check("did-i exits 0 and writes the answer to stdout", _rc == 0 and _out)
+    # 11 of the 20 records name the term: the two did-i calls are excluded,
+    # and the seven exec_ends that carry only a bash error never name it at
+    # all -- which is exactly why an outcome is read from the record that
+    # FOLLOWS a command rather than from one that happens to match.
+    check("did-i COUNTS every record that names the term (11 of the 20 in "
+          "the file)", "11 records mention it" in _out)
+    check("did-i breaks the count down by kind, which is the answer a single "
+          "screen of records cannot give",
+          "by kind:" in _out and "exec_start 8" in _out
+          and "think_end 1" in _out and "error 1" in _out)
+    # The record lines are "[MM-DD HH:MM] <kind>: ...", so "] <kind>:" is the
+    # only string that proves a record of that kind was SHOWN -- the bare kind
+    # name also appears in the by-kind breakdown, where it proves nothing.
+    check("did-i shows the COMMANDS by default, not every record that "
+          "happened to echo the name",
+          "] exec_start:" in _out and "] think_end:" not in _out
+          and "] exec_end:" not in _out)
+    check("did-i pairs a command with what it actually did (the exit code "
+          "from the exec_end that followed it)", "-> exit=1" in _out)
+    # An instrument that counts the act of measuring reports its own noise
+    # back as history -- and this one would do it on every repeat search.
+    check("did-i never counts its OWN calls, and says how many it excluded",
+          "2 of your own did-i calls were not counted" in _out)
+
+    # The answer has to survive the channel that carries it. log-read prints
+    # 15 records at 200 chars into a pipe that keeps 1,200 -- so most of its
+    # output has never reached the creature at all.
+    check("did-i's DEFAULT answer fits the channel that carries it back "
+          "(<= EXEC_STDOUT_JOURNAL_CHARS)",
+          len(_out) <= loop.EXEC_STDOUT_JOURNAL_CHARS)
+    check("and it fits even though the fixture's command is 800 chars long",
+          len(_long_paste) > 750)
+
+    _rc10, _out10, _ = _run_didi("widget_maker", "10", "--kind=any")
+    _note_at = _out10.find("NOTE:")
+    _first_rec = _out10.find(chr(10) + "[")
+    check("when the answer cannot fit, the notice comes BEFORE the records it "
+          "describes -- a warning past the cut is a warning nobody can read",
+          _note_at != -1 and _first_rec != -1 and _note_at < _first_rec)
+    # The strongest form of the pairing property: THIS exec_end never names
+    # the term at all ("bash: line 6: import: command not found"), so a
+    # search that only reported matching records could never tell the
+    # creature what its command did. The outcome is read from the record that
+    # FOLLOWED the command, which is the only place it exists.
+    check("an outcome reaches its command even when the exec_end does not "
+          "mention the term",
+          "Block 1: widget_maker  -> exit=2" in _out10)
+
+    _rc_e, _out_e, _ = _run_didi("widget_maker", "2", "--kind=error")
+    check("did-i --kind narrows to one kind of record",
+          "] error:" in _out_e and "Done-gate blocked" in _out_e
+          and "] exec_start:" not in _out_e)
+
+    _rc_z, _out_z, _ = _run_didi("nothing_ever_named_this")
+    check("a term with no history says 0 and says how many records it "
+          "searched, rather than printing nothing",
+          _rc_z == 0 and "0 records" in _out_z
+          and "20 records searched" in _out_z)
+
+    _rc_u, _out_u, _err_u = _run_didi()
+    check("did-i with no term: usage on STDERR, nonzero, stdout EMPTY "
+          "(the framework-tools contract)",
+          _rc_u == 2 and _out_u == "" and "usage" in _err_u)
+
+    # The marker format is loop._capped's so that a LATER cut adds to this
+    # number instead of replacing it -- the nested-truncation invariant, where
+    # +40 was once shown for 3,319 characters withheld.
+    check("did-i's truncation marker is the one loop._capped writes, so a "
+          "second cut can only increase the number",
+          bool(loop._TRUNC_MARK_RE.search(_out)))
     _te_own = os.path.join(TMP, "te_own")
     os.makedirs(_te_own, exist_ok=True)
     with open(os.path.join(_te_own, "victim"), "w", encoding="utf-8") as _vf:

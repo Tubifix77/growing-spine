@@ -1,0 +1,269 @@
+#!/usr/bin/env python3
+"""Search your own past: did-i <term> [N] [--kind=<kind>]. Says how many times it appears, in what kinds of record, and shows the commands you ran. Fewer records means a wider window on each. --kind=any shows every kind."""
+# tool: did-i
+# call: did-i <term> [N] [--kind=<kind>|--kind=any]
+# does: Search every record of your own history for a term; print how many times it appears, break it down by kind of record, and show the most recent commands you ran that named it with what each one did.
+#
+# WHY THIS EXISTS, because it is the answer to a measured failure.
+#   Everything you have ever done is recorded on the volume and always has
+#   been. What you could SEE of it was the last eight meaningful records --
+#   minutes, not days -- and a five-slot working memory that overwrites every
+#   cycle. Nothing let you ASK that record a question. So on 2026-09-17 a tool
+#   was edited thirteen times in 6.9 minutes with the identical change, and at
+#   the thirteenth attempt the window in front of you covered 1.4 minutes and
+#   held 2 of the 12 attempts that had already failed. The record was complete
+#   the whole time. It was simply not queryable.
+#
+# CONTRACT:
+#   - stdout carries the answer; every failure goes to stderr with a nonzero
+#     exit and stdout stays empty.
+#   - THE COUNT IS THE ANSWER; the records are the detail. The count and the
+#     breakdown by kind are always reported, even when there is only room to
+#     show a few records, because "seventeen times before, four of them
+#     errors" is the fact that changes what you do next. Measured on the first
+#     live run: a common tool name matches 3,065 records, so the six most
+#     recent of them are a worse answer than one line of arithmetic.
+#   - the records it SHOWS are the commands you ran, because that is what the
+#     question asks. Everything else is reachable with --kind.
+#   - every cut announces itself AND names its own ceiling. A reader who cannot
+#     see the ceiling cannot size the next request.
+#   - THE ANSWER IS FRONT-LOADED. The count, the span and the breakdown come
+#     first and any notice about this output being too wide for the channel
+#     comes before the records it describes -- because a warning printed past
+#     the point where the channel cuts is a warning nobody can read.
+#   - it never counts its OWN calls. An instrument that measures the act of
+#     measuring reports its own noise back as history.
+
+import json
+import sys
+import time
+from collections import Counter, deque
+
+LOG = "/mind/journal.jsonl"
+
+# MIRROR of executive/loop.py EXEC_STDOUT_JOURNAL_CHARS -- the width of the
+# channel that carries this output back to you. This tool runs inside the body,
+# where the repo cannot be imported, so the number cannot be imported either;
+# it is bound to the canonical by a test that fails on one character of drift,
+# the same arrangement tool-edit uses for the startability predicate. An answer
+# wider than its channel is destroyed on the way back, which is how the tool
+# that came before this one ended up printing 3,000 characters into a 1,200
+# character pipe.
+CHANNEL_CHARS = 1200
+# Each record costs its own text PLUS a timestamp, its kind, and up to
+# OUTCOME_CHARS of what the command did. ROW_OVERHEAD is the estimate of that
+# surcharge used to size the first attempt; it is then corrected against what
+# the rows actually came to, because the estimate has been wrong twice.
+ROW_OVERHEAD = 74
+OUTCOME_CHARS = 44
+MIN_RECORD_CHARS = 70
+DEFAULT_N = 4
+MAX_N = 40
+ANY = "any"
+# What "did I" asks about: the commands you ran. A tool name also appears in
+# every thought that planned it and in the output of every command that printed
+# it, and those crowd the recent end out of all usefulness -- measured, not
+# assumed. The breakdown by kind names everything else and how to reach it.
+ACTION_KIND = "exec_start"
+ELLIPSIS = chr(0x2026)
+NL = chr(10)
+
+
+def when(ts):
+    try:
+        return time.strftime("%m-%d %H:%M", time.localtime(float(ts)))
+    except (TypeError, ValueError, OSError, OverflowError):
+        return "??-?? ??:??"
+
+
+def cap(text, limit):
+    """Cut to limit, announcing the loss and naming the ceiling.
+
+    The marker format is loop._capped's on purpose: a later cut then ADDS to
+    this number rather than replacing it with its own, which is the
+    nested-truncation invariant -- a marker reports the TOTAL not shown.
+    """
+    text = " ".join(text.split())
+    if len(text) <= limit:
+        return text
+    keep = max(1, limit - 34)
+    return "%s%s[+%d chars cut; window %d]" % (
+        text[:keep], ELLIPSIS, len(text) - keep, limit)
+
+
+def outcome_of(entry):
+    """What a command actually did, read from its exec_end record."""
+    content = entry.get("content") or ""
+    body = content.split("stdout=", 1)[1] if "stdout=" in content else content
+    body = " ".join(body.split())[:OUTCOME_CHARS]
+    code = entry.get("exit_code")
+    if code is None:
+        return body
+    return "exit=%s %s" % (code, body)
+
+
+def main():
+    kind = None
+    rest = []
+    for arg in sys.argv[1:]:
+        if arg.startswith("--kind="):
+            kind = arg.split("=", 1)[1].strip() or None
+        elif arg in ("-h", "--help"):
+            sys.stdout.write((__doc__ or "").strip() + NL)
+            return 0
+        else:
+            rest.append(arg)
+    if not rest:
+        sys.stderr.write("usage: did-i <term> [N] [--kind=<kind>]" + NL)
+        return 2
+    term = rest[0]
+    n = DEFAULT_N
+    if len(rest) > 1:
+        try:
+            n = max(1, min(MAX_N, int(rest[1])))
+        except ValueError:
+            sys.stderr.write("N must be a number, not %r" % (rest[1],) + NL)
+            return 2
+
+    needle = term.lower()
+    # Three buffers, because the count and the display answer different
+    # questions: by_kind counts EVERY match, chosen holds the records asked
+    # for, and everything is the fallback for a term that was only ever
+    # thought about and never run.
+    chosen = deque(maxlen=n)
+    everything = deque(maxlen=n)
+    by_kind = Counter()
+    want = kind or ACTION_KIND
+    total = own = scanned = 0
+    first_ts = last_ts = None
+    pending = None
+
+    try:
+        handle = open(LOG, encoding="utf-8", errors="replace")
+    except (IOError, OSError) as err:
+        sys.stderr.write("cannot read your history at %s: %s%s" % (LOG, err, NL))
+        return 1
+
+    with handle:
+        for line in handle:
+            if len(line) < 3:
+                continue
+            scanned += 1
+            # An exec_start that matched is waiting to learn what it did, and
+            # its exec_end need not mention the term at all -- so while one is
+            # pending, every exec_end is parsed.
+            if pending is not None and '"kind": "exec_end"' in line:
+                try:
+                    pending[3] = outcome_of(json.loads(line))
+                except ValueError:
+                    pass
+                pending = None
+            if needle not in line.lower():
+                continue
+            try:
+                entry = json.loads(line)
+            except ValueError:
+                continue
+            content = entry.get("content") or ""
+            if needle not in content.lower():
+                continue  # the term matched a timestamp or a key, not the record
+            record_kind = entry.get("kind") or "?"
+            if record_kind in ("exec_start", "exec_end") and "did-i " in content:
+                own += 1
+                continue
+            total += 1
+            by_kind[record_kind] += 1
+            ts = entry.get("ts") or 0
+            if first_ts is None:
+                first_ts = ts
+            last_ts = ts
+            row = [ts, record_kind, content, ""]
+            everything.append(row)
+            if want == ANY or record_kind == want:
+                chosen.append(row)
+            # A buffered command is waiting to learn what it did, whether or
+            # not it is the kind being displayed.
+            pending = row if record_kind == "exec_start" else None
+
+    if not total:
+        sys.stdout.write(
+            'did-i "%s": 0 records in your whole history mention it.%s'
+            % (term, NL))
+        sys.stdout.write(
+            "%d records searched, so this is new -- nothing you have ever "
+            "done has named it.%s" % (scanned, NL))
+        if own:
+            sys.stdout.write("(%d of your own did-i calls were not counted)%s"
+                             % (own, NL))
+        return 0
+
+    head = ['did-i "%s": %d records mention it, first %s, last %s.%s'
+            % (term, total, when(first_ts), when(last_ts), NL),
+            "  by kind: %s%s" % (
+                ", ".join("%s %d" % (k, c) for k, c in by_kind.most_common(8)),
+                NL)]
+
+    # A term that was only ever thought about and never run still has a
+    # history worth showing; falling back is announced rather than silent,
+    # because a reader who is not told which population is on screen will
+    # read it as the one asked for.
+    shown, label = chosen, want
+    if not shown and not kind:
+        shown, label = everything, ANY
+        head.append("  no command you ran ever named it; showing every kind "
+                    "instead%s" % NL)
+    if not shown:
+        head.append("  no %s record mentions it; --kind=any for the rest%s"
+                    % (want, NL))
+        sys.stdout.write("".join(head))
+        return 0
+
+    tail = []
+    pool = total if label == ANY else by_kind.get(label, 0)
+    if pool > len(shown):
+        tail.append(
+            "(the %d most recent %s of %d; `did-i %s <N>` for more -- fewer "
+            "records means a wider window on each)%s"
+            % (len(shown), label, pool, term, NL))
+    if own:
+        tail.append("(%d of your own did-i calls were not counted)%s"
+                    % (own, NL))
+    # Fixed length, and counted in the measurement that decides whether to
+    # print it, so the decision can never rest on a string that excludes
+    # itself.
+    notice = ("  NOTE: this is wider than the %d characters your activity log "
+              "keeps of any command's output, so the last of the records "
+              "below never reach you -- ask for fewer.%s"
+              % (CHANNEL_CHARS, NL))
+
+    # The frame is MEASURED, not reserved. It varies with the length of the
+    # term you searched for and with how many kinds of record matched, so a
+    # constant reserve is wrong by however much those differ from the day it
+    # was chosen -- which is how the first version of this overran its own
+    # channel by 170 characters while believing it had 200 to spare.
+    frame = sum(len(x) for x in head) + sum(len(x) for x in tail) + len(notice)
+    per = max(MIN_RECORD_CHARS,
+              (CHANNEL_CHARS - frame) // len(shown) - ROW_OVERHEAD)
+    body = []
+    for _attempt in range(4):
+        body = []
+        for ts, record_kind, content, outcome in shown:
+            text = cap(content, per)
+            if outcome:
+                text += "  -> " + outcome
+            body.append("[%s] %s: %s%s" % (when(ts), record_kind, text, NL))
+        width = frame + sum(len(x) for x in body)
+        if width <= CHANNEL_CHARS or per <= MIN_RECORD_CHARS:
+            break
+        # ROW_OVERHEAD is an estimate of the timestamp, the kind and the
+        # outcome; correct it against what the rows actually came to.
+        per = max(MIN_RECORD_CHARS,
+                  per - max(1, (width - CHANNEL_CHARS) // len(shown)))
+    if width > CHANNEL_CHARS:
+        head.append(notice)
+    sys.stdout.write("".join(head + body + tail))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
