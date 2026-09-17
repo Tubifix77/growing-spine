@@ -3101,6 +3101,110 @@ async def main():
         finally:
             _sh.MIND, _sh.OWN = _old_mind, _old_own
 
+        # ---- COMPOUNDING: the metric the project is actually about ---------
+        # README.md: "The honest measure of success is not tool count. It is
+        # reuse and dependency." Nothing watched either until 2026-09-18, and
+        # the ratio had fallen 2.33 -> 1.56 per tool over a month with no line
+        # anywhere saying so. Same repoint discipline as UNMET above: a
+        # recorder that writes a module constant has flattened live state from
+        # a test in this codebase before.
+        _sh.COMPOUND_STATE = os.path.join(TMP, "compounding.json")
+        check("compounding state is repointed away from the real file",
+              _sh.COMPOUND_STATE.startswith(TMP))
+
+        # Depth is the "built out of" signal: a chain a->b->c is depth 2 at a.
+        _cg = {"a": ["b"], "b": ["c"], "c": [], "lone": []}
+        _cd = _sh._compound_depths(_cg)
+        check("composition depth counts the CHAIN, not the edge count",
+              _cd["a"] == 2 and _cd["b"] == 1 and _cd["c"] == 0
+              and _cd["lone"] == 0)
+        # A cycle must terminate and must not manufacture infinite depth.
+        _cyc = {"x": ["y"], "y": ["x"]}
+        check("a dependency cycle terminates and adds no genuine depth",
+              max(_sh._compound_depths(_cyc).values()) <= 2)
+        # A dependency on a tool that no longer exists adds no depth and does
+        # not raise -- the creature deletes tools, so the graph has dangling
+        # names by construction.
+        check("a dangling dependency neither raises nor adds depth",
+              _sh._compound_depths({"a": ["gone"]})["a"] == 1)
+
+        # The marginal ratio needs a real sample. A handful of new tools is
+        # noise, and reporting it would be a voodoo constant with a decimal
+        # point on it (section 6).
+        _cdays = [{"day": "2026-09-01", "tools": 600, "edges": 1000},
+                  {"day": "2026-09-02", "tools": 650, "edges": 1010}]
+        _marg, _base = _sh.compound_marginal(_cdays, 700, 1100)
+        check("marginal edges-per-new-tool measures against the OLDEST record "
+              "far enough back, for the longest baseline",
+              _marg is not None and abs(_marg - 1.0) < 1e-9
+              and _base == "2026-09-01")
+        check("marginal reads n/a rather than guessing when too few tools are "
+              "new (sample floor %d)" % _sh.COMPOUND_MIN_NEW_TOOLS,
+              _sh.compound_marginal([{"day": "2026-09-17", "tools": 700,
+                                      "edges": 1100}], 703, 1101)
+              == (None, None))
+
+        def _cseq(vals, start=1):
+            """days where vals are (marginal, avg) pairs."""
+            return [{"day": "2026-08-%02d" % (start + i), "marginal": mv,
+                     "avg": av} for i, (mv, av) in enumerate(vals)]
+
+        # The alarm is THRESHOLD-FREE: new work bringing fewer edges than the
+        # standing average means the average must fall. That is arithmetic, so
+        # there is no level to tune and none to get wrong.
+        check("the streak fires when new work is less connected than the body "
+              "it joins, for %d consecutive days" % _sh.COMPOUND_STREAK_DAYS,
+              _sh.compound_streak(_cseq([(0.3, 1.6)] * 3))
+              >= _sh.COMPOUND_STREAK_DAYS)
+        check("and does NOT fire when new work is MORE connected than the "
+              "average -- a deepening body must never trip the alarm",
+              _sh.compound_streak(_cseq([(2.9, 1.6)] * 5)) == 0)
+        check("one healthy day breaks the streak rather than being smoothed",
+              _sh.compound_streak(_cseq([(0.3, 1.6), (0.3, 1.6), (2.9, 1.6)]))
+              == 0)
+        # A missing calendar day is absence of evidence, not a zero -- the same
+        # rule the UNMET streak follows, and for the same reason: the box gets
+        # switched off and a night off must not read as a finding.
+        _cgap = (_cseq([(0.3, 1.6)], start=1)
+                 + _cseq([(0.3, 1.6), (0.3, 1.6)], start=5))
+        check("a missing day breaks the compounding streak rather than "
+              "counting as evidence", _sh.compound_streak(_cgap) == 2)
+        # A day whose marginal could not be computed must break it too: a
+        # streak assembled across gaps is not a streak.
+        check("a day with no computable marginal breaks the streak",
+              _sh.compound_streak(_cseq([(0.3, 1.6), (None, 1.6),
+                                         (0.3, 1.6)])) == 1)
+
+        # The scan reads BIRTHS from the canonical write-door predicate, so a
+        # tool created by a redirect is not invisible. First MENTION would be
+        # wrong: the creature names tools it has not built about ten times per
+        # think, so a mention dates a birth to when it was first wished for.
+        _cj = os.path.join(TMP, "compound_journal.jsonl")
+        _t0 = 1789000000.0
+        with open(_cj, "w", encoding="utf-8", newline=chr(10)) as _cf:
+            for _r in (
+                {"ts": _t0, "kind": "think_end",
+                 "content": "<thought>I should build widget_maker</thought>"},
+                {"ts": _t0 + 1, "kind": "exec_start",
+                 "content": "Block 1: tool-new widget_maker \"does a thing\""},
+                {"ts": _t0 + 2, "kind": "exec_start",
+                 "content": "Block 1: cat > /mind/tools/own/redirect_born <<EOF"},
+                {"ts": _t0 + 3, "kind": "exec_start",
+                 "content": "Block 1: widget_maker --check"},
+                {"ts": _t0 + 4, "kind": "sleep", "content": "sleeping"},
+            ):
+                _cf.write(json.dumps(_r) + chr(10))
+        _cb, _ci, _cn = _sh.compound_scan(_cj)
+        check("the scan parses only exec_start records, not the whole journal",
+              _cn == 3)
+        check("a tool born through tool-new has a birth date",
+              _cb.get("widget_maker") == _t0 + 1)
+        check("a tool born through a REDIRECT is not invisible to the birth "
+              "scan (cat > tools/own/X leaves no tool-new record)",
+              "redirect_born" in _cb)
+        check("a THINK record naming an unbuilt tool does not date its birth",
+              _cb.get("widget_maker") != _t0)
+
     # ---- tools that cannot start (2026-08-19) -------------------------------
     # Twelve files in the live library carry backslash-escaped triple quotes,
     # `prompt = f\\"""`, from the creature generating Python through a shell

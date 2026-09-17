@@ -818,7 +818,7 @@ def check_compounding(today=None, journal=None, now=None):
         births, invocations, _ = compound_scan(journal)
     except Exception as e:
         births, invocations = {}, []
-        carry = None
+        carry = carry_rate = None
         carry_note = "scan:%s" % type(e).__name__
     else:
         carry_note = ""
@@ -827,6 +827,16 @@ def check_compounding(today=None, journal=None, now=None):
         old = sum(1 for ts, t in recent
                   if t in births and ts - births[t] >= COMPOUND_OLD_DAYS * 86400)
         carry = (100.0 * old / len(recent)) if recent else None
+        # The SHARE alone is confounded by how much building is going on: a
+        # heavy authoring month fills the denominator with the creature testing
+        # what it just wrote. Measured 2026-09-18, total invocations per active
+        # day fell 1,264 (Aug) -> 945 (Sep) while old-tool invocations ROSE
+        # 419 -> 525, so the share moved partly for the wrong reason and the
+        # rate is the honest number. Report both; rate over the days that
+        # PRODUCED records, never wall-clock -- the box gets switched off.
+        active = len({time.strftime("%Y-%m-%d", time.localtime(ts))
+                      for ts, _ in recent})
+        carry_rate = (old / float(active)) if active else None
 
     st, fresh = _compound_load()
     days = [d for d in st["days"] if d.get("day") != today]
@@ -835,7 +845,9 @@ def check_compounding(today=None, journal=None, now=None):
                  "avg": round(avg, 3), "deep3": deep,
                  "marginal": None if marg is None else round(marg, 3),
                  "marginal_vs": base,
-                 "carry_pct": None if carry is None else round(carry, 1)})
+                 "carry_pct": None if carry is None else round(carry, 1),
+                 "carry_per_day": None if carry_rate is None
+                 else round(carry_rate, 1)})
     st["days"] = days[-COMPOUND_HISTORY_DAYS:]
     try:
         tmp = COMPOUND_STATE + ".tmp"
@@ -847,6 +859,8 @@ def check_compounding(today=None, journal=None, now=None):
 
     tag = "COMPOUND:%dt/%de %.2f/t deep3:%d" % (tools, edges, avg, deep)
     tag += " carry:%s" % ("n/a" if carry is None else "%.0f%%" % carry)
+    if carry_rate is not None:
+        tag += "/%.0fpd" % carry_rate
     if carry_note:
         tag += "(" + carry_note + ")"
     if marg is None:
