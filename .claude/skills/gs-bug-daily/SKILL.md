@@ -104,12 +104,47 @@ Full scar list: `CLAUDE.md` §5. Do not restate it here — point at it.
     the workhorse walled, and I could not tell the difference because no
     per-rung baseline existed. Measure this BEFORE changing anything that
     touches prompt size.
-16. **The effort funnel for this window**, as defined in `../effort-funnel.md`.
+16. **Framework-tool usage per MONTH, never per lifetime.** Added 2026-09-17
+    by the blank pass, and the lesson is about the shape of the number rather
+    than the number. Every framework tool is listed in every wake context with
+    its `does:` line (`_build_tool_catalogue`, under *"Built-in (always
+    available)"*), so a built-in is never invisible — but `log-read` still
+    reads as a used tool at **80 lifetime uses** while its monthly curve is
+    **48 (Jun) → 21 (Aug) → 11 (Sep)**: reached for, then abandoned, because a
+    tail with a 200-char cap answers no question. A lifetime total cannot show
+    that and a total is what anyone reaches for first.
+
+```bash
+python3 - <<'PY'
+import json, os, re, collections, time
+names = [n for n in os.listdir("framework-tools") if not n.startswith(("_", "."))]
+pat = {n: re.compile(r"(?<![\w.-])" + re.escape(n) + r"(?![\w-])") for n in names}
+by = collections.defaultdict(collections.Counter)
+for line in open(os.path.expanduser("~/growing-spine-mind/journal.jsonl"),
+                 encoding="utf-8", errors="replace"):
+    if '"kind": "exec_start"' not in line:
+        continue
+    try: e = json.loads(line)
+    except ValueError: continue
+    c, m = e.get("content") or "", time.strftime("%Y-%m", time.localtime(e.get("ts") or 0))
+    for n in names:
+        if pat[n].search(c): by[n][m] += 1
+for n in sorted(names):
+    print("%-20s %s" % (n, dict(sorted(by[n].items()))))
+PY
+```
+
+    **Word-boundary match, not substring** — `grep -o ask` counts *task* and
+    *asked* and gave 72 where the truth was 2. A falling curve is a finding
+    about OUR tool, never about the creature: the response is to fix or
+    replace the tool, never to advertise it harder.
+
+17. **The effort funnel for this window**, as defined in `../effort-funnel.md`.
     The error buckets say what went wrong; the funnel says what fraction of what
     it set out to build became a working tool. Report every stage including the
     zeroes, and keep rounds-to-green separate from rounds-then-abandoned — a tool
     that took fifteen attempts and works is a success story, not a fault.
-17. **Deltas against the previous run of this skill**, from the history file.
+18. **Deltas against the previous run of this skill**, from the history file.
 
 ## Tier 2 — pointed open inspection. Prose, and it cannot be skipped.
 

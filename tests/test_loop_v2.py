@@ -553,18 +553,20 @@ async def main():
     with _io_di.open(_di_path, encoding="utf-8") as _df:
         _di_src = _df.read()
 
-    # A tool the creature is never told about is not a capability. This is the
-    # measurement that made it a rule: of the framework tools, `tools` is named
-    # 14 times in the files it reads, `ask` 11, `tool-find` 5 -- and `log-read`
-    # ZERO, which is why a journal reader that existed for three months was
-    # used 0 times in 75,805 exec blocks. The catalogue does not list framework
-    # tools, so the prompt is the only door.
+    # The catalogue DOES list every framework tool each wake, with its does:
+    # line, so did-i is reachable without this paragraph -- which is why the
+    # paragraph says something the does: line cannot: WHEN to reach for it,
+    # and the invariant behind it (your visible past is minutes, your recorded
+    # past is complete). log-read is the counter-example that earns this:
+    # listed every wake since June, used 80 times, declining 48/21/11 by
+    # month, and 0 exec blocks ever queried the journal directly. A tool
+    # nobody is told the PURPOSE of gets tried and abandoned.
     _pp_path = os.path.join(os.path.dirname(os.path.dirname(
         os.path.abspath(__file__))), "protected-prompt.md")
     with _io_di.open(_pp_path, encoding="utf-8") as _pf:
         _pp_src = _pf.read()
-    check("did-i is NAMED in the prompt the creature reads (an unnamed tool "
-          "is not a capability -- log-read was named nowhere and used 0 times)",
+    check("the prompt the creature reads says WHEN to search its own history "
+          "(the catalogue gives the does: line; only this gives the occasion)",
           "did-i" in _pp_src)
 
     # Section 4, held by test where import is impossible: did-i runs inside the
@@ -665,8 +667,9 @@ async def main():
           "2 of your own did-i calls were not counted" in _out)
 
     # The answer has to survive the channel that carries it. log-read prints
-    # 15 records at 200 chars into a pipe that keeps 1,200 -- so most of its
-    # output has never reached the creature at all.
+    # 15 records at 200 chars into a pipe that keeps 1,200, so two thirds of
+    # what it prints has never reached the creature -- which is the likeliest
+    # reason a tool it was shown every wake fell from 48 uses a month to 11.
     check("did-i's DEFAULT answer fits the channel that carries it back "
           "(<= EXEC_STDOUT_JOURNAL_CHARS)",
           len(_out) <= loop.EXEC_STDOUT_JOURNAL_CHARS)

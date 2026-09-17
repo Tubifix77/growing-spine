@@ -662,6 +662,97 @@ or a path literal that already exists elsewhere, stop.
   Config is read at `Keychain()` construction, so the window is "until the next
   restart" — push and pull the code first, then edit config, then restart.
 
+- **The creature could not ask a question of its own history, and every
+  obedience scar in this file sits downstream of that.** Measured 2026-09-17:
+  `journal.jsonl` holds **394,544 records / 201 MB**, it has been readable from
+  inside the body at `/mind/journal.jsonl` since June, and **not one of the
+  creature's 702 tools references it** — nor did a single one of **75,825 exec
+  blocks** ever name it. The one instrument it had for its own past,
+  `log-read`, is tail-only with a 200-char cap and answers no question: it was
+  **tried 48 times in June, 21 in August, 11 in September** — the usage curve
+  of a tool that was reached for and abandoned. So its working view of its own
+  past was the wake render's
+  `meaningful[-8:]` plus a five-slot working register that overwrites each
+  cycle. At the thirteenth identical `tool-edit` of `recall_and_answer` that
+  window covered **1.4 minutes and held 2 of the 12 attempts that had already
+  failed**. The repetition was not stubbornness and not disobedience: it was
+  the only rational act available to something with no way to ask *have I done
+  this before*. **This is the root that the eight instruments built this month
+  all sit above** — every one of them reports to US, and every one is built out
+  of ITS diary, which §2 had already ruled on: *"If a fault is only caught
+  because a human or a session reads a log, it is not fixed."* When a fault
+  class keeps recurring in text the creature reads, ask whether it can see its
+  own past at all before writing the message a fourth time.
+  Fixed by `framework-tools/did-i`: how many records in the whole history name
+  a term, broken down by kind, plus the most recent COMMANDS with the exit code
+  of whatever followed each one. Four design facts, each of them a scar in this
+  file. **The count is the answer** — a common tool name matches 3,065 records,
+  so the six most recent of them are a worse answer than one line of
+  arithmetic. **An outcome is read from the FOLLOWING record, never a matching
+  one**, because the `exec_end` carrying `bash: line 6: import: command not
+  found` never names the tool it broke. **The answer must fit the channel that
+  carries it, measured and not reserved**: exec stdout is journalled at 1,200
+  chars, so anything wider is destroyed on the way back — which is what
+  `log-read` has done since June, printing 15 records at 200 chars into a
+  1,200-char pipe. My own first two budgets overran by 170 and by 30, both
+  because the frame varies with the search term's length; it now measures the
+  rendered frame and fits the rows to what is left. And **an overflow notice
+  must precede the records it describes**, because a warning printed past the
+  cut is a warning nobody can read. Streams with a substring pre-filter ahead
+  of `json.loads`: **1.41 s, 13.8 MB peak** against log-read's 4.2 s and 471 MB
+  for strictly less. It excludes its own calls and says how many it excluded —
+  an instrument that counts the act of measuring reports its own noise back as
+  history.
+- **I diagnosed an instrument fault with two broken instruments in the same
+  hour, and both read ZERO while broken.** Building `did-i` I set out to prove
+  that framework tools are undiscoverable, and produced a whole thesis from two
+  bad measurements. (1) `awk '/\bfw\b/'` over `loop.py` returned nothing, so I
+  reported `_build_tool_catalogue`'s `fw` as a dead variable and concluded
+  framework tools never reach the creature. **In POSIX ERE `\b` is a
+  BACKSPACE, not a word boundary** — the search was for control characters and
+  could never have matched anything. `fw` is used eleven lines later, and every
+  framework tool is listed in EVERY wake context with its `does:` line under
+  *"Built-in (always available)"*. (2) Counting mentions with
+  `grep -o -- "$name"` gave `ask` 72 and `tools` 227, because it was matching
+  inside *task*, *asked* and *toolset*, and it searched `CLAUDE.md` and
+  `README.md` — **documents the creature has never read.** Its prompt surface
+  is `protected-prompt.md` (11,643 b) plus `editable-prompt.md`, which is 153
+  bytes and effectively empty.
+  **Both wrong claims were CORRECTED BY THE SAME METHOD that this file already
+  mandates and I skipped: prove the search can return non-zero.** One
+  `grep -n fw loop.py` and one word-boundary count settled both in seconds.
+  The discarded numbers, kept because the method that produced them is worth
+  more than the answer: *"`log-read` 0 mentions and 0 uses in 75,805 exec
+  blocks; `web-fetch` 0; the prompt is the single door."* The truth is
+  `log-read` **80** uses, `web-fetch` **192**, `memories` **735 with zero
+  prompt mentions** — so "named nowhere therefore used nowhere" is simply
+  false, and discoverability was never the fault. **The fault was tool
+  QUALITY**: shown every wake since June, `log-read` fell 48 → 21 → 11 uses a
+  month because a tail with a 200-char cap cannot answer a question. General
+  rule, now third-time-earned: **a zero is a claim about your instrument
+  before it is a claim about the world.** And when you are about to build
+  something on a measured absence, measure the presence of the same thing by a
+  second method first.
+  What survives of the discoverability idea is smaller and real: the catalogue
+  gives a tool's `does:` line and nothing else, so `did-i` is also named in
+  `protected-prompt.md` — not to make it reachable, which it already is, but to
+  say WHEN to reach for it and to state the invariant behind it (your visible
+  past is minutes; your recorded past is complete). A tool whose purpose is
+  never stated gets tried and abandoned, which is exactly `log-read`'s curve.
+- **When a new instrument reads the creature's record, say plainly whether it
+  is PUSH or PULL before reaching for §2.5.** §2.5 says *"Never tell the
+  creature about its own bugs... Chat is world-facts only: no offers, no
+  debugging hints, no advice"* — and that governs what WE SEND. A search the
+  creature runs on its own record is the opposite direction, and it already
+  receives `kind=error` records in every wake render, so a history search
+  changes the DEPTH of what it can reach and not the KIND. `did-i` therefore
+  searches its journal unfiltered, deliberately. A filtered one would have been
+  the house disease wearing a new costume: an instrument that reads plausible
+  while withholding. And §2's own method asks for exactly this — *"make the
+  fault visible to the creature so it can prune it itself"* — of which a search
+  over its own history is the strongest available form. Judgement recorded so
+  the next session does not re-litigate it; Tue delegated it explicitly.
+
 ---
 
 ## 6. Standing decisions (Tue's)
@@ -767,7 +858,83 @@ journalctl --user -u growing-spine --since "2 hours ago"
 
 ---
 
-## 8. State — 2026-09-17 20:30
+## 8. State — 2026-09-18 00:20
+
+**The creature can ask a question of its own history for the first time, and
+the fault that closed was never a tool fault.** `journal.jsonl` — 394,544
+records, 201 MB, readable from the body since June — was referenced by **none
+of its 702 tools** and touched by **none of 75,805 exec blocks**. Its whole
+view of its own past was eight records and a five-slot register. Shipped
+`framework-tools/did-i` (`e1d8988`): the count of every record naming a term,
+a breakdown by kind, and the most recent commands with what each one did. The
+live reading on its own journal is the argument for it in one screen —
+`did-i recall_and_answer` returns **3,065 records (think_end 1,401,
+exec_start 818, exec_end 797, error 41)** and the last four commands read
+*paste Python into bash → `exit=2 import: command not found` → tool-edit →
+paste again → the identical error*, while `--kind=error` shows our own false
+*"no #! line"* **41 times**. 1.41 s and 13.8 MB against `log-read`'s 4.2 s and
+471 MB for strictly less. Full anatomy and the four design scars are in §5.
+
+**A correction to my own reasoning, made before it reached the code but after
+it reached the commit message of `e1d8988`.** I justified this partly on
+discoverability — that framework tools never reach the creature and `log-read`
+was therefore used zero times. **Both halves were artifacts of broken
+searches** (`awk '/\bfw\b/'`, where `\b` is a backspace; and substring
+`grep -o "ask"` over documents the creature does not read). The truth:
+`_build_tool_catalogue` lists **every** framework tool in **every** wake with
+its `does:` line, `log-read` has **80** uses, `web-fetch` **192**, and
+`memories` **735 with zero prompt mentions**. So `did-i` needs no introduction
+to be reachable. The new §5 scar has the anatomy and the discarded numbers.
+**What the real data supports is a stronger case, not a weaker one:**
+`log-read` has been in front of the creature every wake since June and its use
+fell **48 → 21 → 11** per month, while **0 of 75,825 exec blocks ever named
+`journal.jsonl`** and 0 of its 702 tools reference it. It reached for its past,
+the instrument could not answer, and it stopped. The prompt paragraph stays,
+for the one thing a `does:` line cannot carry — WHEN to ask, and the invariant
+behind it. Mutation-proved both ways: dropping the name fails the gate, and
+drifting `CHANNEL_CHARS` by one character fails the gate.
+
+**The measurement that settles whether a tool was enough.** `did-i` reaches
+the creature by exactly the same route `log-read` always did — listed every
+wake with its `does:` line — so nothing about its placement proves it will be
+used. **First check next run: does any exec block call `did-i`, and did a
+repeat-edit streak end after one?** Measure it the way `log-read` should have
+been measured — **uses per MONTH, never uses ever**, because a flat total of 80
+hides a curve of 48 → 21 → 11 and an abandoned tool reads as a used one. If it
+is unused after seven days — by **2026-09-25** — then the fact must arrive
+unprompted instead, on the same logic that justified `tool-edit`'s write-time
+warning. Instrument: `did-i` in exec blocks, which the tool itself excludes
+from its own counts, so grep the journal rather than asking it.
+
+**The new daily item paid for itself on its first run, and it retracts one of
+my own worries.** Framework-tool uses per month (Jun / Jul / Aug / Sep, Sep
+partial at 17 days): `web-fetch` **38 / 24 / 57 / 73 — RISING**, so the
+"unnamed fetcher" concern I raised earlier today was wrong twice over and is
+withdrawn. `ask` 73 / 93 / 79 / 153, also rising. But three of our built-ins
+are being abandoned in plain sight: `git-save` **503 / 102 / 21 / 0**,
+`check-persistence` **245 / 1 / 0 / 0**, `log-read` **48 / 0 / 21 / 11**, and
+`deploy-self` has **6 uses in its entire life**, all in August. Every one of
+those reads as a healthy tool in a lifetime total. Not chased today — recorded
+with the instrument that found them. **Look at the three declining doors at
+the next `gs-products`:** a built-in nobody uses any more is either superseded
+by something the creature built itself, which is the system working, or it is
+`log-read` again.
+
+**Deployed with no restart, deliberately.** `materialize_framework()` re-reads
+`framework-tools/` from the checkout on every wake and chmods 0755, and the
+prompts are re-read every cycle — so nothing here needed the brain bounced.
+Verify on the next wake that `/mind/tools/framework/did-i` exists.
+
+**Everything from the 20:30 run below still stands**, including the escalation
+that has never had a second rung to reach, `openrouter_super` retired,
+throughput at 9–13/h with 483 of 780 `think_start`s finding no rung, and the
+`UNMET` jump to 12,400.
+
+Gates: **laptop 462 PASS, PC 456 PASS**.
+
+---
+
+### Previous state — 2026-09-17 20:30
 
 **The escalation has run 22 productive hours and never once had a rung to
 escalate TO.** 30 `ESCALATING (1/2)`, 30 `all 1 attempted rungs truncated`,
