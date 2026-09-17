@@ -692,9 +692,18 @@ or a path literal that already exists elsewhere, stop.
   one**, because the `exec_end` carrying `bash: line 6: import: command not
   found` never names the tool it broke. **The answer must fit the channel that
   carries it, measured and not reserved**: exec stdout is journalled at 1,200
-  chars, so anything wider is destroyed on the way back — which is what
-  `log-read` has done since June, printing 15 records at 200 chars into a
-  1,200-char pipe. My own first two budgets overran by 170 and by 30, both
+  chars, so anything wider is destroyed on the way back. **Verified
+  end-to-end on live data 2026-09-18 rather than by arithmetic**, pushing real
+  output through `_capped` at both call sites: `did-i` produces 1,034 chars and
+  the creature receives all of it, every record and both header lines intact;
+  asked for ten records it produces 1,606 and **6 of 14 lines die in transit,
+  with the NOTE arriving at offset 211 against the first record at 371** — so
+  the warning survives the cut it describes, which was the whole point of
+  front-loading it. `log-read 15` loses **22%** (1,562 produced, 1,230
+  received, 6 of 27 lines) — **not the "two thirds" I claimed when I shipped
+  this, which was arithmetic from the 200-char cap and never measured.** Its
+  real defect is not the loss: it is that it answers no question, offering only
+  the tail the wake render already gives free. My own first two budgets overran by 170 and by 30, both
   because the frame varies with the search term's length; it now measures the
   rendered frame and fits the rows to what is left. And **an overflow notice
   must precede the records it describes**, because a warning printed past the

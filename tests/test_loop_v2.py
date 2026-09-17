@@ -667,9 +667,11 @@ async def main():
           "2 of your own did-i calls were not counted" in _out)
 
     # The answer has to survive the channel that carries it. log-read prints
-    # 15 records at 200 chars into a pipe that keeps 1,200, so two thirds of
-    # what it prints has never reached the creature -- which is the likeliest
-    # reason a tool it was shown every wake fell from 48 uses a month to 11.
+    # Measured end-to-end through loop's own caps on live data 2026-09-18:
+    # `log-read 15` produces 1,562 chars and the creature receives 1,230 --
+    # 22% destroyed, 6 of 27 lines gone. Not the two thirds I first claimed.
+    # The stronger criticism of it is not the loss but that it answers no
+    # question: no count, no search, only the tail it already had for free.
     check("did-i's DEFAULT answer fits the channel that carries it back "
           "(<= EXEC_STDOUT_JOURNAL_CHARS)",
           len(_out) <= loop.EXEC_STDOUT_JOURNAL_CHARS)
