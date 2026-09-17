@@ -499,6 +499,45 @@ async def main():
     check("tool-edit's startability mirror is verbatim-identical to the "
           "canonical (drift breaks this test)", _drift == [])
 
+    from volume import tools as _tools
+    # ---- a DISPLACED shebang is named, not denied (2026-09-17) --------------
+    # recall_and_answer had `#!/usr/bin/env python3` on LINE 3, under an empty
+    # line and a comment. The predicate said "no #! line" -- literally false --
+    # and the creature obeyed the letter: ten tool-edits in five minutes, each
+    # adding a shebang below the comment it had also written, each drawing the
+    # same false message. news_plan_tracker.py sat two months in the broken
+    # stock with the header comment above its shebang. Fixture shape is the
+    # real file's first three lines, per section 5: from the corpus, never
+    # authored.
+    _disp = (chr(10) + "# Insert the new code for recall_and_answer tool" + chr(10)
+             + "#!/usr/bin/env python3" + chr(10) + "import sys" + chr(10)
+             + "print(sys.argv)" + chr(10))
+    _rd = _tools.tool_start_failure("recall_and_answer", _disp, None) or ""
+    check("displaced shebang: the message names the LINE the #! is on",
+          "line 3" in _rd)
+    check("displaced shebang: it states the invariant -- the first two bytes",
+          "first two bytes" in _rd)
+    check("displaced shebang: it shows what sits above the #!",
+          "Insert the new code" in _rd)
+    check("displaced shebang: it no longer claims there is 'no #! line'",
+          not _rd.startswith("no #! line"))
+    check("displaced shebang: and it still says this is Python handed to the shell",
+          "handed to the shell" in _rd)
+    _none = "import sys" + chr(10) + "print(1)" + chr(10)
+    check("genuinely no shebang: the original message stands",
+          (_tools.tool_start_failure("y", _none, None) or "").startswith("no #! line"))
+    # A displaced shebang on a body bash accepts is NOT a start failure: the
+    # kernel hands it to the shell, the #! line is a comment to bash, and it
+    # runs. Only the message changed, never the verdict.
+    _bashok = "# header comment" + chr(10) + "#!/bin/bash" + chr(10) + "echo hi" + chr(10)
+    _rb = _tools.tool_start_failure("z", _bashok, None)
+    check("displaced shebang on a valid shell body: still not a failure (bash runs it)",
+          _rb is None)
+    # A #! buried deep in a body must not be mistaken for a displaced shebang.
+    _deep = ("import sys" + chr(10)) * 12 + "#!/not/a/shebang" + chr(10)
+    check("a #! past line 10 is not reported as displaced",
+          "line 13" not in (_tools.tool_start_failure("w", _deep, None) or ""))
+
     _te_own = os.path.join(TMP, "te_own")
     os.makedirs(_te_own, exist_ok=True)
     with open(os.path.join(_te_own, "victim"), "w", encoding="utf-8") as _vf:
@@ -656,8 +695,17 @@ async def main():
     check("escaped triple quotes are caught", "esc_quotes" in _uns)
     check("a header written without the # is caught", "hdr_no_hash" in _uns)
     check("a U+2011 typographic hyphen is caught", "u2011" in _uns)
-    check("an error message written in as the tool is caught",
-          "err_as_tool" in _uns)
+    # This fixture's fault is an UNTERMINATED QUOTE, and bash -n is the only
+    # instrument that can see it. On MSYS (the PC) `bash -n` fed that text on
+    # stdin HANGS about half the time and the 15 s timeout returns UNKNOWN --
+    # measured 2026-09-17: four calls, three timeouts, one prompt answer. Per
+    # section 5 an instrument that cannot run must say UNKNOWN, never FAULTY, so
+    # the predicate is right to return None there. Assert the contract where
+    # the instrument can exist (POSIX, the production machine) and do not claim
+    # a verdict where it cannot; the laptop gate is authoritative for this one.
+    check("an error message written in as the tool is caught"
+          + ("" if os.name == "posix" else " (UNKNOWN off POSIX: bash -n may hang on MSYS)"),
+          "err_as_tool" in _uns or os.name != "posix")
     check("a healthy tool written the same cycle is NOT flagged",
           "real_tool" not in _uns)
 

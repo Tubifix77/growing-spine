@@ -263,15 +263,34 @@ def tool_start_failure(name: str, text: str, path: str = None):
         return None
     first = text.split("\n", 1)[0]
     if not first.startswith("#!"):
+        # A shebang that exists but is not the FIRST TWO BYTES of the file
+        # is invisible to the kernel. Until 2026-09-17 this branch said
+        # "no #! line" about such files -- which is literally false, and
+        # the creature obeyed the letter of it: told "no #! line" about
+        # recall_and_answer, it added a shebang TEN times in five minutes,
+        # every time below a comment it had also written, and every time
+        # drew the same false message. news_plan_tracker.py sat in the
+        # broken stock for two months with the header comment above its
+        # shebang and the same message. Name where the #! actually is and
+        # what sits above it; the invariant is the first two bytes.
+        _lines = text.split("\n")
+        _head = "no #! line"
+        for _i, _ln in enumerate(_lines[1:10], start=2):
+            if _ln.startswith("#!"):
+                _above = ", ".join(repr(_l[:40]) for _l in _lines[:_i - 1])
+                _head = ("the #! line is on line %d, and a shebang only works "
+                         "as the very first two bytes of the file (above it: "
+                         "%s)" % (_i, _above))
+                break
         import ast as _ast
         try:
             _ast.parse(text)
-            return ("no #! line: this is Python, but nothing tells the kernel "
+            return (_head + ": this is Python, but nothing tells the kernel "
                     "that, so it is handed to the shell instead")
         except SyntaxError:
             pass
         if _shell_syntax_ok(name, text) is False:
-            return ("no #! line, and the body is neither valid Python nor valid "
+            return (_head + ", and the body is neither valid Python nor valid "
                     "shell")
         return None
     err = tool_syntax_error(name, text)
