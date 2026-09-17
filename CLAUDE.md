@@ -925,6 +925,51 @@ by something the creature built itself, which is the system working, or it is
 prompts are re-read every cycle — so nothing here needed the brain bounced.
 Verify on the next wake that `/mind/tools/framework/did-i` exists.
 
+**Live re-check at 00:30, six hours of records, and it answers the escalation
+first-check.** `served_by` carries **12 `escalated=` records and every single
+one reads `finish=length escalated=1`** — **zero `finish=stop`**. So the
+escalation fires, hops once, finds nothing on the other side and degrades to
+the longest partial, exactly as designed. The reason is in the same reading:
+`google_gemma` served **76 of 77** cycles and `gemini_flash` **1**. Depth is
+ONE. **The consequence worth naming is that the instrument is blocked by the
+scarcity it was built to measure around:** `escalated=N` with `finish=stop` was
+supposed to be the evidence a think-ceiling decision needs, and it cannot be
+produced while there is no second rung. The **2026-09-20 ceiling trigger will
+therefore arrive with nothing from this instrument** — decide it on the
+reply-length distribution or defer it explicitly, but do not wait on data that
+cannot exist.
+
+**And it corrects yesterday's truncation number.** §8 recorded **6.8%** on
+09-17 and flagged it as a short window; over the six hours to 00:30 it is
+**15.6%** (12 `length` of 77). The 6.8% was the artifact. Reply truncation is
+still at the elevated post-cap-raise level, so that §5 scar stands unchanged.
+Throughput likewise: **203 `think_start`s produced 77 served cycles**, so 126
+found no rung — 62%, the same disease at the same rate. 2 errors in six hours,
+both `done_gate`, and `exec_skip` was **1**, which is the escalation earning its
+keep: the partial still executed.
+
+**The displaced-shebang fix is ARMED BUT NOT EXERCISED, and that is correct
+rather than disappointing.** `cannot_start` is **20**, flat, with **nothing
+newer than 09-17 01:29** — so no tool has broken in 23 hours. Only 2 of the 20
+are displaced shebangs, and `recall_and_answer` has not been touched since
+01:29, which is *before* the fix shipped. The write-time warning speaks only
+when the creature writes that file and the set-change warning only when the SET
+moves, so silence here is the edge-trigger design working. It will be tested
+the next time it edits a tool with a displaced shebang, not before.
+
+**`did-i` is not yet usable as evidence: 26 minutes, 14 `think_start`s, 8 exec
+blocks, 0 calls.** The plumbing is confirmed live — the file is re-materialised
+into the body on every wake — and the seven-day trigger (**2026-09-25**) stands
+untouched. Two of my own measurements failed on the way to that reading: a
+hardcoded epoch boundary that sat 30 minutes in the FUTURE and read everything
+as zero, and a `cannot_start` census that reported **0 of 703** because
+`list_tools` was handed the parent of the tools dir, where every entry is a
+directory and `is_tool_file` filters them all out. Both announced themselves
+only because a second number contradicted them. **The `assert names` /
+sanity-floor line now in that census is the cheap fix: any census over a known
+population should refuse to report a total it cannot reconcile with the
+population size.**
+
 **Everything from the 20:30 run below still stands**, including the escalation
 that has never had a second rung to reach, `openrouter_super` retired,
 throughput at 9–13/h with 483 of 780 `think_start`s finding no rung, and the
