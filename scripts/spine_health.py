@@ -644,12 +644,233 @@ def check_flatline():
     return "FLATLINE:!!" + ",".join(dead) if dead else "FLATLINE:ok"
 
 
+# ---------------------------------------------------------------------------
+# COMPOUNDING -- the project's own headline metric, and the last one to get an
+# instrument. README.md states the measure without hedging: "The honest measure
+# of success is not tool count. It is reuse and dependency ... A toolkit where
+# tool N is built from tools 1...N-1 is a body that compounds. Twenty
+# independent, never-reused tools are 31 dashboards wearing lab coats." The
+# architecture doc's central open question is "Does it keep compounding, or
+# plateau?"
+#
+# On 2026-09-18 that question had been answering NO for a month with nobody
+# looking: 433 tools / 1011 edges (2.33 per tool) on 08-18 against 703 / 1100
+# (1.56) a month later -- the library up 62%, net edges up 9%. Every status
+# report in between had led with the tool COUNT, which cannot show it. This
+# exists so a month cannot pass like that again.
+#
+# WHO RECEIVES IT: us and Tue, never the creature. Built / Adopted / Depends-on
+# are already surfaced to it each cycle, and the architecture doc explicitly
+# rejected adding a fourth fuzzy visible metric because "a fuzzy metric that's
+# also a visible target invites gaming" -- a ratio over its whole library is
+# the most gameable shape there is. Nothing here enters the wake context.
+COMPOUND_STATE = os.path.expanduser("~/spine-health-compounding.json")
+COMPOUND_HISTORY_DAYS = 60
+COMPOUND_STREAK_DAYS = 3
+# A SAMPLE-SIZE floor, not a threshold on the metric: production runs 8-40
+# tools/day, so a marginal ratio computed across three new tools is noise. 25
+# is "at least a day or two of real production". The ALARM is threshold-free by
+# construction -- it compares the marginal ratio against the corpus average,
+# which is arithmetic, not a number anyone picked.
+COMPOUND_MIN_NEW_TOOLS = 25
+# "Old" for the carry-forward share. A tool invoked in the same days it was
+# written is the creature testing what it just built; a tool invoked a month
+# later is load-bearing. 30 days is the calendar month the README's monthly
+# framing already implies.
+COMPOUND_OLD_DAYS = 30
+
+
+def _compound_depths(graph):
+    """Longest chain length below each tool; a cycle contributes no depth."""
+
+    def depth(tool, stack):
+        if tool in stack or not graph.get(tool):
+            return 0
+        return 1 + max(depth(d, stack | {tool}) for d in graph[tool])
+
+    return {t: depth(t, frozenset()) for t in graph}
+
+
+def compound_scan(journal=None):
+    """One journal pass: when each tool was BORN, and every later invocation.
+
+    Returns (births, invocations, scanned) where births is {tool: ts} and
+    invocations is a list of (ts, tool).
+
+    Birth is the first cycle that WROTE the tool, read from the canonical
+    loop._tools_touched -- which counts tool-new, tool-edit and the redirect
+    door alike, so a tool created with `cat > tools/own/X` is not invisible to
+    it. First MENTION would have been wrong: the creature names tools it has
+    not built about ten times per think (UNMET demand passed 12,400 on 09-17),
+    so mentions date a birth to when it was first wished for.
+
+    Parses only `exec_start` records, selected by a byte test before any
+    json.loads -- the journal is 201 MB / 394k records and most of it is
+    think and sleep bookkeeping this metric cannot use.
+    """
+    from executive import loop            # lazy: a loop import fault must not
+    names = loop._own_tool_names()        # take down the other daily checks
+    pattern = loop._dependency_pattern([n for n in names if len(n) >= 4])
+    births, invocations, scanned = {}, [], 0
+    path = journal or JOURNAL
+    try:
+        fh = open(path, "rb")
+    except OSError:
+        return births, invocations, scanned
+    with fh:
+        for raw in fh:
+            if b'"exec_start"' not in raw:
+                continue
+            try:
+                rec = json.loads(raw.decode("utf-8", "replace"))
+            except ValueError:
+                continue
+            if rec.get("kind") != "exec_start":
+                continue
+            scanned += 1
+            ts, content = rec.get("ts") or 0, rec.get("content") or ""
+            if b"tools/own" in raw or b"tool-new" in raw or b"tool-edit" in raw:
+                for tool in loop._tools_touched([(content, 0)]):
+                    if tool not in births:
+                        births[tool] = ts
+            if pattern:
+                for m in pattern.finditer(content):
+                    invocations.append((ts, m.group(1)))
+    return births, invocations, scanned
+
+
+def _compound_load():
+    try:
+        with open(COMPOUND_STATE, encoding="utf-8") as f:
+            st = json.load(f)
+        if isinstance(st, dict) and isinstance(st.get("days"), list):
+            return st, False
+    except Exception:
+        pass
+    return {"days": []}, True
+
+
+def compound_marginal(days, tools, edges):
+    """Edges added per tool added, against the oldest record far enough back.
+
+    Returns (marginal, baseline_day) or (None, None) when no record is
+    COMPOUND_MIN_NEW_TOOLS tools back -- a marginal ratio over a handful of
+    tools is noise, and reporting it would be the voodoo constant this file
+    warns about wearing a decimal point.
+    """
+    for rec in days:
+        dt = tools - rec.get("tools", 0)
+        if dt >= COMPOUND_MIN_NEW_TOOLS:
+            return (edges - rec.get("edges", 0)) / float(dt), rec.get("day")
+    return None, None
+
+
+def compound_streak(days):
+    """Consecutive most-recent CALENDAR days whose NEW work was less connected
+    than the body it joined (marginal < average).
+
+    Threshold-free on purpose: when each new tool brings fewer edges than the
+    standing average, the average must fall -- that is arithmetic, not a level
+    anyone chose. A missing calendar day breaks the streak, because the box was
+    off and absence of evidence is not a zero (the UNMET rule). A day whose
+    marginal could not be computed also breaks it rather than being skipped: a
+    streak assembled across gaps is not a streak.
+    """
+    streak = 0
+    for i in range(len(days) - 1, -1, -1):
+        cur = days[i]
+        if i < len(days) - 1:
+            try:
+                d0 = time.strptime(cur["day"], "%Y-%m-%d")
+                d1 = time.strptime(days[i + 1]["day"], "%Y-%m-%d")
+            except Exception:
+                break
+            if round((time.mktime(d1) - time.mktime(d0)) / 86400) != 1:
+                break
+        marg, avg = cur.get("marginal"), cur.get("avg")
+        if marg is None or avg is None or marg >= avg:
+            break
+        streak += 1
+    return streak
+
+
+def check_compounding(today=None, journal=None, now=None):
+    """The headline metric: is the body compounding or just widening?
+
+    Reports every run whether or not the alarm fires, so the trend is visible
+    without the alarm having to be right -- the rule check_wake_cost follows.
+    """
+    today = today or time.strftime("%Y-%m-%d")
+    now = now or time.time()
+    try:
+        from executive import loop
+        graph = loop._tool_dependencies()
+    except Exception as e:
+        return "COMPOUND:fail(graph:%s)" % type(e).__name__
+    tools = len(graph)
+    if not tools:
+        return "COMPOUND:no-tools"
+    edges = sum(len(v) for v in graph.values())
+    avg = edges / float(tools)
+    deep = sum(1 for d in _compound_depths(graph).values() if d >= 3)
+
+    try:
+        births, invocations, _ = compound_scan(journal)
+    except Exception as e:
+        births, invocations = {}, []
+        carry = None
+        carry_note = "scan:%s" % type(e).__name__
+    else:
+        carry_note = ""
+        lo = now - COMPOUND_OLD_DAYS * 86400
+        recent = [(ts, t) for ts, t in invocations if ts >= lo]
+        old = sum(1 for ts, t in recent
+                  if t in births and ts - births[t] >= COMPOUND_OLD_DAYS * 86400)
+        carry = (100.0 * old / len(recent)) if recent else None
+
+    st, fresh = _compound_load()
+    days = [d for d in st["days"] if d.get("day") != today]
+    marg, base = compound_marginal(days, tools, edges)
+    days.append({"day": today, "tools": tools, "edges": edges,
+                 "avg": round(avg, 3), "deep3": deep,
+                 "marginal": None if marg is None else round(marg, 3),
+                 "marginal_vs": base,
+                 "carry_pct": None if carry is None else round(carry, 1)})
+    st["days"] = days[-COMPOUND_HISTORY_DAYS:]
+    try:
+        tmp = COMPOUND_STATE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(st, f)
+        os.replace(tmp, COMPOUND_STATE)
+    except OSError:
+        pass
+
+    tag = "COMPOUND:%dt/%de %.2f/t deep3:%d" % (tools, edges, avg, deep)
+    tag += " carry:%s" % ("n/a" if carry is None else "%.0f%%" % carry)
+    if carry_note:
+        tag += "(" + carry_note + ")"
+    if marg is None:
+        tag += " marg:n/a"
+        if fresh:
+            tag += " first"
+        return tag
+    streak = compound_streak(st["days"])
+    tag += " marg:%.2f vs %s streak %d/%d" % (marg, base, streak,
+                                              COMPOUND_STREAK_DAYS)
+    if streak >= COMPOUND_STREAK_DAYS:
+        tag += ("  COMPOUNDING:!![new tools bring %.2f edges each against a "
+                "%.2f average -- the body is widening faster than it deepens]"
+                % (marg, avg))
+    return tag
+
+
 if __name__ == "__main__":
     line = (time.strftime("%Y-%m-%d %H:%M") + "  "
             + "  ".join([check_sensor(), check_fallbacks(), stub_janitor(),
                          journal_integrity(), check_tool_wiring(),
                          check_jsonl(), check_flatline(),
-                         check_unmet_demand(), check_wake_cost()]))
+                         check_unmet_demand(), check_wake_cost(),
+                         check_compounding()]))
     _rc = exit_code(SILENT_KEYS, DEAD_KEYS)
     if _rc:
         line += f"  SERIOUS:{','.join(sorted(SILENT_KEYS & DEAD_KEYS))}"
