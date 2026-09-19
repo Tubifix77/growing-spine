@@ -947,11 +947,75 @@ message the first line of one of the creature's own tools; failures now leave
 by stderr, nonzero, stdout empty. 5 tests, including the directory form so the
 178 working calls cannot regress.
 
+**gs-bug-daily 2026-09-19 (42.1 h, NO gaps, 43 hours with records).** 626
+served / 888 exec / 16 skips / **37 errors, 36 of them guard rails** by the
+`guard` field (31 false-completion, 5 upgrade-no-change) and **zero
+unclassified**. 14.9 served/h over the span; **962 of 1588 `think_start`s (61%)
+found no rung**, unchanged. Truncation **12.0%**, all of it `google_gemma` (67)
+and `gemini_flash` (8). Skip rate by rung: gemma **1.5%**, cloudflare **0.0%**,
+gemini_flash **18.2%** — the ladder is three serving rungs since
+`openrouter_super` was retired, and none of them is the 97.3% hole any more.
+Funnel: 36 tools at 2.9 rounds, **69 done-marks attempted, 36 refused, 33
+accepted (52%)**. Library 726, `cannot_start` **20 → 21**.
+
+**THE ESCALATION FINALLY PRODUCED ITS MEASUREMENT, and it bears directly on
+tomorrow's ceiling decision.** 83 `served_by` records carry `escalated=` and
+**8 of them end `finish=stop`** — the first time since it shipped on 09-16 that
+a later rung FINISHED what the first could not. §8 has been waiting for exactly
+this number. **What it says: those replies completed within the SAME 3,072
+ceiling on a different rung, so that truncation was RUNG-SPECIFIC, not
+budget-bound.** Combined with the 09-16 finding that the median reply grew only
+25% while the p90 doubled, the evidence points **away** from raising the
+ceiling. The **2026-09-20 trigger can now be decided on evidence rather than
+deferred.**
+
+**The displaced-shebang fix is VERIFIED, by the strongest possible test.**
+`recall_and_answer` — 1,284 b and unstartable after ten edits against our own
+false *"no #! line"* — was repaired by the creature at **09-18 04:51: 4,465 b
+and it STARTS**, larger than the 3,626-byte version it lost. Its own reasoning
+names the real fault: *"It starts with `# Insert the new code...`, which means
+the script begins with a comment"* (09-18 02:19). It could not have written
+that sentence from the old message. **`news_plan_tracker.py` still carries the
+same shape since 07-18** and is untouched — the message is edge-triggered on
+the set changing, so silence there is the design, not a failure.
+
+**Fixed up front: a dropped connection was reaching the `unknown` path.**
+`"All providers failed; last unrecognised error -- google_gemma: Remote end
+closed connection without response"` — `http.client` raises
+`RemoteDisconnected` when the server hangs up, and **that message carries no
+status code at all**, so nothing keyed on a number could have matched it. Now
+`flaky`, like `timed out` and 499. **This is the FOURTH unenumerated provider
+shape the `c1b93a5` fail-open default has handed us intact**, and a test
+asserts the default stays fail-open so naming one more string is never mistaken
+for closing the class. `6122ee7`, **brain restarted 14:45:21** — the only
+change in two days that needed one; every other commit was framework-tools,
+markdown, `spine_health` or tests.
+
+**Item 13 keeps earning its place: 73 provider-shaped failures live under kinds
+other than `error`**, including **4 `idea_gate` EMPTY-REPLY batch-judge
+failures** invisible to any census keyed on `kind == "error"`.
+
+**New watch — the redirect door.** Authoring split this window: `tool-edit`
+**75**, `tool-new` **32**, **redirect-or-tee 38**. One of the two tools written
+in-window that cannot start reads **"not executable (no +x)"**, which is that
+door's exact signature — a redirect sets no execute bit and leaves no `.bak`.
+The other is a plain syntax error. Watch whether the redirect share keeps
+rising.
+
+**Blank pass — and it caught my own instrument.** The funnel first reported
+*0 attempted, 36 refused, **−36 accepted, 3600% refusal***, because the regex
+hunted `current-phase done` while the creature writes `current-phase "done"`
+**with quotes**. Only the negative sign caught it; a slightly-wrong pattern
+would have produced a plausible number and been believed. Now mandated as
+`gs-bug-daily` item 17: **accepted = attempted − refused and is never negative,
+a rate is never above 100%, and a census over a known population never reports
+a total it cannot reconcile with that population.**
+
 **Throughput recovered without intervention: `THINK:16/h`** on the hourly line,
 above the 15/h floor, against 9–13/h two days ago. `mistral` is `SERIOUS` at
 398 h dark — its allowance is monthly and it returns on 10-01.
 
-Gates: **laptop 488 PASS, PC 482 PASS**.
+Gates: **laptop 491 PASS, PC 485 PASS**.
 
 ---
 
