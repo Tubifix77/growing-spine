@@ -144,6 +144,19 @@ PY
     it set out to build became a working tool. Report every stage including the
     zeroes, and keep rounds-to-green separate from rounds-then-abandoned — a tool
     that took fifteen attempts and works is a success story, not a fault.
+
+    **Sanity-check every DERIVED number before reporting it, and say what the
+    check was.** Added 2026-09-19 by the blank pass. On that run the funnel
+    reported *0 done-marks attempted, 36 refused, **-36 accepted, refusal rate
+    3600%***, because the regex hunted `current-phase done` while the creature
+    writes `current-phase "done"` **with quotes**. The truth was 69 attempted,
+    36 refused, 33 accepted, 52%. Only the negative sign caught it — a
+    slightly-wrong pattern would have produced a plausible number instead and
+    been believed. The cheap invariants: **accepted = attempted − refused, and
+    it is never negative; a rate is never above 100%; a census over a known
+    population never reports a total it cannot reconcile with that
+    population.** A derived number that cannot fail a check is not a
+    measurement.
 18. **Deltas against the previous run of this skill**, from the history file.
 
 ## Tier 2 — pointed open inspection. Prose, and it cannot be skipped.
