@@ -872,7 +872,90 @@ journalctl --user -u growing-spine --since "2 hours ago"
 
 ---
 
-## 8. State — 2026-09-18 00:20
+## 8. State — 2026-09-19 14:40
+
+**`did-i` was used by the creature on its second day, for exactly what it is
+for.** Two calls: 09-18 03:11, then **09-19 09:13 — `did-i "HTTP 429"` and
+`did-i "Groq API rate limit"`**. It asked its own history about an error rather
+than re-deriving it. The 2026-09-25 trigger is **answered early and
+positively**; keep measuring uses per MONTH, never uses ever.
+
+**The compounding trend has turned up, and the recent cohort is the reason.**
+Three daily readings: **1.57 → 1.58 → 1.69** edges/tool, edges 1101 → 1117 →
+1221. The 36 tools written since 09-18 average **2.22 edges against a 1.70
+corpus average** — back to the July level. Cause unknown and **deliberately not
+attributed**: `did-i` shipped the same night and this project's ledger is full
+of plausible mechanisms that measured false.
+
+**The instrument's real defect was that it could not have seen this for a
+month, and that is fixed (`3adad60`).** The corpus average is a LAGGING
+indicator — 700 tools of history drown one week of work, which is why the fall
+from 2.33 to 1.56 took a month to surface and the recovery would have taken
+another. `check_compounding` now reports the **cohort**: what the tools BORN in
+the last 7 days call. It reads 2.22 on a day the corpus average had barely
+moved. It also reports the brief split, and counts **anachronistic edges
+without filtering them** — the headline count has to stay comparable with the
+1011 and 1101 already recorded here, because a metric quietly redefined
+mid-trend is worth less than one with a known impurity stated beside it.
+
+**The composition mechanism WORKS, measured properly this time.**
+Attribution is by TIME — the brief that most recently preceded a birth, within
+3 h — never by matching the assigned name against a filename, which is what
+produced the five-categories-at-exactly-0.00 reading I refused to report on
+09-18. Result: **534 composition-briefed tools average 1.82 edges against 145
+other-briefed at 1.19**, +53%, and the within-week splits agree (08-31: 1.41 vs
+0.69; 08-17: 1.36 vs 0.64; 09-07: 1.81 vs 0.75). Composition-briefed out-degree
+fell from ~2.3 in July to **1.36** in mid-August and has recovered to **2.36**
+in the week of 09-14. The lever exists and it is pulling.
+
+**I also tested my own "24% of edges are retroactive" theory and it was
+WRONG.** Old files pointing at newly-written tools looked like name collisions
+with the future; against real birth dates from the journal only **21 of 1234
+edges (2%)** are anachronistic. The error was **taking mtime for a birth date
+for the third time in two days** — mtime is LAST WRITTEN, and those targets
+were born long ago and merely rewritten. `compound_cohort`'s docstring now says
+so at the point of use. **Rule: birth dates come from the journal, never from
+the filesystem.**
+
+**`git-save` was never abandoned — it was BROKEN, and the creature took the
+hint 625 times.** Item 8 asked whether three unused built-ins were superseded
+or faulty, and the journal splits them cleanly:
+
+| tool | evidence | verdict |
+|---|---|---|
+| `check-persistence` | 243 of 246 exit 0 | works, superseded, output is noise about `/etc/hostname`. Nothing to fix. |
+| `deploy-self` | 6 of 6 exit 128, all one afternoon, all `OCI runtime exec failed … possibly OOM-killed` | infrastructure, not the tool. **Deliberately not probed: it restarts the brain.** |
+| `git-save` | **402 of 625 exit 1 with a Python traceback** | broken |
+
+`run()` passes `cwd=path`, and the creature calls
+`git-save /mind/tools/own/SomeTool 'message'` — a **file**, which is the plain
+reading of the usage line's `<path>`. `subprocess`'s `cwd=` needs a directory,
+so every file path raised `NotADirectoryError` and it received a bare
+traceback. **398 of 418 failures are file paths against 20 from every other
+cause; all 178 successes are directories**, and the mechanism reproduces
+exactly. The bitter detail: the repository it was reaching for **already
+existed at `/mind/tools/own/.git`** — its own `GrowthAgent` version control —
+the entire time. Fixed: a file versions itself in its own directory's repo and
+stages only itself, because "save this tool" must not sweep in every other
+edit. **Two further faults surfaced while fixing it, both already in §5.** The
+no-change guard hunted the literal `"nothing to commit"` while git says
+`"nothing added to commit but untracked files present"` whenever anything
+untracked sits alongside — so an unchanged file reported a failure; now it asks
+`git diff --cached --quiet` what is STAGED rather than matching prose. And
+errors printed to **stdout with exit 0**, the class that once made a rate-limit
+message the first line of one of the creature's own tools; failures now leave
+by stderr, nonzero, stdout empty. 5 tests, including the directory form so the
+178 working calls cannot regress.
+
+**Throughput recovered without intervention: `THINK:16/h`** on the hourly line,
+above the 15/h floor, against 9–13/h two days ago. `mistral` is `SERIOUS` at
+398 h dark — its allowance is monthly and it returns on 10-01.
+
+Gates: **laptop 488 PASS, PC 482 PASS**.
+
+---
+
+### Previous state — 2026-09-18 00:20
 
 **The creature can ask a question of its own history for the first time, and
 the fault that closed was never a tool fault.** `journal.jsonl` — 394,544
