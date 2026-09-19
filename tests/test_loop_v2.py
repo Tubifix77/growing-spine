@@ -715,6 +715,55 @@ async def main():
     check("did-i's truncation marker is the one loop._capped writes, so a "
           "second cut can only increase the number",
           bool(loop._TRUNC_MARK_RE.search(_out)))
+
+    # ---- git-save: a FILE path is a path (2026-09-19) -----------------------
+    # Its usage line promises <path>, and a single tool file is the obvious
+    # reading of it -- "save the thing I just wrote". subprocess's cwd= needs a
+    # DIRECTORY, so every file path raised NotADirectoryError and the creature
+    # received a bare traceback: 398 of 418 failures across 625 calls, against
+    # 20 from every other cause combined. The repo it was reaching for already
+    # existed at /mind/tools/own/.git the whole time.
+    import subprocess as _sp_gs
+    _gs_path = os.path.join(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__))), "framework-tools", "git-save")
+    _gs_dir = os.path.join(TMP, "gitsave", "own")
+    os.makedirs(_gs_dir, exist_ok=True)
+    _gs_tool = os.path.join(_gs_dir, "a_tool")
+    with open(_gs_tool, "w", encoding="utf-8") as _gf:
+        _gf.write("#!/usr/bin/env python3" + NL + "print(1)" + NL)
+
+    def _git_save(*args):
+        _r = _sp_gs.run([sys.executable, _gs_path] + list(args),
+                        capture_output=True, text=True, timeout=60)
+        return _r.returncode, _r.stdout, _r.stderr
+
+    _rc_gs, _o_gs, _e_gs = _git_save(_gs_tool, "saved one tool")
+    check("git-save accepts a FILE and does not traceback (the 398-failure "
+          "class: cwd= needs a directory)",
+          _rc_gs == 0 and "Traceback" not in _e_gs and "Saved:" in _o_gs)
+    # An untracked sibling is what made git say "nothing ADDED to commit"
+    # instead of "nothing to commit", so the old literal guard reported a
+    # failure for a file that simply had not changed.
+    with open(os.path.join(_gs_dir, "untracked_sibling"), "w") as _gf:
+        _gf.write("x")
+    _rc2, _o2, _e2 = _git_save(_gs_tool, "nothing changed")
+    check("git-save reports NO CHANGE by asking git what is staged, not by "
+          "matching words in its prose",
+          _rc2 == 0 and "Nothing new to save" in _o2)
+    with open(_gs_tool, "a", encoding="utf-8") as _gf:
+        _gf.write("print(2)" + NL)
+    _rc3, _o3, _e3 = _git_save(_gs_tool, "second edit")
+    check("git-save commits a real change to a file on the second edit",
+          _rc3 == 0 and "Saved:" in _o3)
+    # The directory form is the 178 calls that always worked; it must not move.
+    _rc4, _o4, _e4 = _git_save(_gs_dir, "the whole directory")
+    check("git-save still versions a DIRECTORY (regression: 178 working calls)",
+          _rc4 == 0 and "Saved:" in _o4)
+    _rc5, _o5, _e5 = _git_save(os.path.join(TMP, "gitsave", "nope"), "missing")
+    check("git-save on a missing path: reason on STDERR, nonzero, stdout EMPTY "
+          "and no traceback (the framework-tools contract)",
+          _rc5 != 0 and _o5.strip() == "" and "no such file" in _e5
+          and "Traceback" not in _e5)
     _te_own = os.path.join(TMP, "te_own")
     os.makedirs(_te_own, exist_ok=True)
     with open(os.path.join(_te_own, "victim"), "w", encoding="utf-8") as _vf:
@@ -3194,7 +3243,7 @@ async def main():
                 {"ts": _t0 + 4, "kind": "sleep", "content": "sleeping"},
             ):
                 _cf.write(json.dumps(_r) + chr(10))
-        _cb, _ci, _cn = _sh.compound_scan(_cj)
+        _cb, _ci, _ca, _cn = _sh.compound_scan(_cj)
         check("the scan parses only exec_start records, not the whole journal",
               _cn == 3)
         check("a tool born through tool-new has a birth date",
@@ -3204,6 +3253,52 @@ async def main():
               "redirect_born" in _cb)
         check("a THINK record naming an unbuilt tool does not date its birth",
               _cb.get("widget_maker") != _t0)
+
+        # The LEADING indicator. The corpus average is drowned by 700 tools of
+        # history -- the fall from 2.33 to 1.56 took a month to surface and the
+        # recovery would have taken another. What this week's BIRTHS call is
+        # visible immediately.
+        _cgraph = {"fresh_a": ["x", "y"], "fresh_b": ["x"], "ancient": []}
+        _cnow = 1789000000.0
+        _cbirths = {"fresh_a": _cnow - 86400, "fresh_b": _cnow - 2 * 86400,
+                    "ancient": _cnow - 90 * 86400}
+        _cdeg, _cnum = _sh.compound_cohort(_cgraph, _cbirths, _cnow)
+        check("the cohort measures only tools BORN in the window, so one week "
+              "of new work is not drowned by a year of history",
+              _cnum == 2 and abs(_cdeg - 1.5) < 1e-9)
+        check("a cohort with no births in the window reads None, never 0.0 "
+              "(a zero here would be a quiet lie about idle weeks)",
+              _sh.compound_cohort(_cgraph, {"ancient": _cnow - 90 * 86400},
+                                  _cnow) == (None, 0))
+
+        # Attribution by TIME, not by name: the creature renames freely, and
+        # the name-matching version reported five whole categories at exactly
+        # 0.00 edges with 100% standalone.
+        _casg = [(_cnow - 5000, "composition"), (_cnow - 4000, "planning")]
+        _cb2 = {"comp_tool": _cnow - 4900, "plan_tool": _cnow - 3900}
+        _cg2 = {"comp_tool": ["a", "b", "c"], "plan_tool": ["a"]}
+        _cc, _co, _ccn, _con = _sh.compound_by_brief(_cg2, _cb2, _casg)
+        check("a tool is attributed to the brief that PRECEDED it in time",
+              _ccn == 1 and _con == 1 and _cc == 3.0 and _co == 1.0)
+        # A birth long after the last brief answers something else entirely.
+        _cb3 = {"late_tool": _cnow + 99999}
+        check("a birth outside the brief window is attributed to neither",
+              _sh.compound_by_brief({"late_tool": ["a"]}, _cb3, _casg)[2:]
+              == (0, 0))
+
+        # Anachronism is REPORTED, never filtered: the headline edge count has
+        # to stay comparable with the 1011 and 1101 already in CLAUDE.md.
+        _cg4 = {"old_tool": ["newer_tool"]}
+        _cb4 = {"old_tool": _cnow - 86400, "newer_tool": _cnow}
+        check("an edge whose target was born after the file was written is "
+              "counted as anachronistic",
+              _sh.compound_anachronistic(_cg4, _cb4,
+                                         lambda t: _cnow - 86400) == 1)
+        check("and an edge to a tool that already existed is not",
+              _sh.compound_anachronistic(
+                  _cg4, {"old_tool": _cnow - 86400,
+                         "newer_tool": _cnow - 99999},
+                  lambda t: _cnow - 86400) == 0)
 
     # ---- tools that cannot start (2026-08-19) -------------------------------
     # Twelve files in the live library carry backslash-escaped triple quotes,

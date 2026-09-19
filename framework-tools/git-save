@@ -1,17 +1,35 @@
 #!/usr/bin/env python3
-"""Version your work with a local git commit. Usage: git-save <path> <message>"""
+"""Version your work with a local git commit. Usage: git-save <file-or-dir> <message>"""
 import subprocess, sys, os
 
 GIT_NAME  = "GrowthAgent"
 GIT_EMAIL = "creature@growing-spine.local"
 
 if len(sys.argv) < 3:
-    print("Usage: git-save <path> <message>")
+    print("Usage: git-save <file-or-dir> <message>")
     print("Example: git-save /workspace/opt-self 'added memory search'")
+    print("Example: git-save /mind/tools/own/my_tool 'fixed the parser'")
     sys.exit(1)
 
 path    = sys.argv[1]
 message = " ".join(sys.argv[2:])
+
+# A PATH is what the usage line promises, and a single tool file is the
+# obvious reading of it -- "save the thing I just wrote". subprocess's cwd=
+# needs a DIRECTORY though, so every file path raised NotADirectoryError and
+# the creature received a bare Python traceback: 398 of 418 failures over 625
+# calls, against 20 from every other cause combined. The repository it was
+# reaching for already existed at /mind/tools/own/.git the entire time.
+# A file now versions itself in its own directory's repo, and stages only
+# itself, because "save this tool" should not sweep in every other edit.
+target = os.path.abspath(path)
+if os.path.isdir(target):
+    repo, stage = target, ["-A"]
+elif os.path.exists(target):
+    repo, stage = (os.path.dirname(target) or "."), ["--", os.path.basename(target)]
+else:
+    sys.stderr.write("git-save: no such file or directory: %s\n" % path)
+    sys.exit(1)
 
 env = os.environ.copy()
 env["GIT_AUTHOR_NAME"]     = GIT_NAME
@@ -20,21 +38,39 @@ env["GIT_COMMITTER_NAME"]  = GIT_NAME
 env["GIT_COMMITTER_EMAIL"] = GIT_EMAIL
 
 def run(cmd, **kw):
-    r = subprocess.run(cmd, capture_output=True, text=True, cwd=path, env=env, **kw)
+    r = subprocess.run(cmd, capture_output=True, text=True, cwd=repo, env=env, **kw)
     return r
 
 # init if needed
-if not os.path.exists(os.path.join(path, ".git")):
+if not os.path.exists(os.path.join(repo, ".git")):
     r = run(["git", "init"])
-    print(f"Initialised git repo at {path}")
+    if r.returncode != 0:
+        sys.stderr.write("git-save: could not init a repo at %s: %s\n"
+                         % (repo, r.stderr.strip()))
+        sys.exit(1)
+    print(f"Initialised git repo at {repo}")
 
-run(["git", "add", "-A"])
+run(["git", "add"] + stage)
+
+# Ask git whether anything is STAGED rather than matching words in its prose.
+# The old check hunted the literal "nothing to commit"; git says "nothing
+# added to commit but untracked files present" when the directory holds
+# anything untracked, so the no-change case reported a failure instead. A
+# guard that names one exact string is one rename away from silent, and this
+# one was one sentence away.
+if run(["git", "diff", "--cached", "--quiet"]).returncode == 0:
+    print("Nothing new to save.")
+    sys.exit(0)
+
 r = run(["git", "commit", "-m", message])
 
 if r.returncode == 0:
     print(f"Saved: {message}")
     print(r.stdout.strip())
-elif "nothing to commit" in r.stdout + r.stderr:
-    print("Nothing new to save.")
 else:
-    print("Error:", r.stderr.strip())
+    # Failures leave by stderr with a nonzero exit, never as answer-shaped
+    # text on stdout. A framework tool that prints its error to stdout and
+    # exits 0 is how a rate-limit message once became the entire first line of
+    # one of the creature's own tools.
+    sys.stderr.write("git-save: %s\n" % (r.stderr.strip() or r.stdout.strip()))
+    sys.exit(1)

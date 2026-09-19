@@ -12,7 +12,7 @@ Checks (all side-effect-free except the janitor move):
      to the attic (birth debris must not become permanent residents).
 Appends one line per run to ~/spine-health.log.
 """
-import json, os, re, subprocess, sys, time
+import bisect, json, os, re, subprocess, sys, time
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 try:
@@ -678,6 +678,15 @@ COMPOUND_MIN_NEW_TOOLS = 25
 # later is load-bearing. 30 days is the calendar month the README's monthly
 # framing already implies.
 COMPOUND_OLD_DAYS = 30
+# The corpus average is a LAGGING indicator: 700 tools of history drown one
+# week of new work, so the fall from 2.33 to 1.56 took a month to become
+# visible and the recovery would have taken another. The cohort -- what the
+# tools BORN this week call -- is the leading one, and it showed 2.22 against a
+# 1.70 corpus average on the day the corpus average had barely moved.
+COMPOUND_COHORT_DAYS = 7
+# A brief older than this did not produce the tool that followed it.
+COMPOUND_BRIEF_WINDOW = 3 * 3600
+_BRIEF_RE = re.compile(r"Assigned cousin-tool gap \[([a-z_]+)\]")
 
 
 def _compound_depths(graph):
@@ -704,21 +713,36 @@ def compound_scan(journal=None):
     not built about ten times per think (UNMET demand passed 12,400 on 09-17),
     so mentions date a birth to when it was first wished for.
 
-    Parses only `exec_start` records, selected by a byte test before any
-    json.loads -- the journal is 201 MB / 394k records and most of it is
-    think and sleep bookkeeping this metric cannot use.
+    Also returns the oracle's ASSIGNMENTS in time order, because attributing a
+    tool to the brief that produced it must be done by TIME, never by matching
+    the assigned name against a filename: the creature renames freely, and a
+    name match reported five whole categories at exactly 0.00 edges with 100%
+    standalone -- this file's own signature for a broken instrument.
+
+    Parses only `exec_start` and the oracle's `ideation` lines, selected by a
+    byte test before any json.loads -- the journal is 201 MB / 394k records and
+    most of it is think and sleep bookkeeping this metric cannot use.
     """
     from executive import loop            # lazy: a loop import fault must not
     names = loop._own_tool_names()        # take down the other daily checks
     pattern = loop._dependency_pattern([n for n in names if len(n) >= 4])
-    births, invocations, scanned = {}, [], 0
+    births, invocations, assignments, scanned = {}, [], [], 0
     path = journal or JOURNAL
     try:
         fh = open(path, "rb")
     except OSError:
-        return births, invocations, scanned
+        return births, invocations, assignments, scanned
     with fh:
         for raw in fh:
+            if b"Assigned cousin-tool gap" in raw:
+                try:
+                    rec = json.loads(raw.decode("utf-8", "replace"))
+                except ValueError:
+                    rec = None
+                if rec:
+                    mo = _BRIEF_RE.search(rec.get("content") or "")
+                    if mo:
+                        assignments.append((rec.get("ts") or 0, mo.group(1)))
             if b'"exec_start"' not in raw:
                 continue
             try:
@@ -736,7 +760,73 @@ def compound_scan(journal=None):
             if pattern:
                 for m in pattern.finditer(content):
                     invocations.append((ts, m.group(1)))
-    return births, invocations, scanned
+    assignments.sort()
+    return births, invocations, assignments, scanned
+
+
+def compound_cohort(graph, births, now, days=None):
+    """Average out-degree of the tools BORN in the last `days`.
+
+    The leading indicator. Birth comes from the journal, never from mtime:
+    mtime is LAST WRITTEN, and taking it for a birth date has produced a wrong
+    answer three separate times in this project -- most recently a claim that
+    24% of all edges were retroactive name collisions, when the honest figure
+    against real birth dates was 2%.
+    """
+    days = COMPOUND_COHORT_DAYS if days is None else days
+    lo = now - days * 86400
+    deg = [len(graph[t]) for t, b in births.items() if b >= lo and t in graph]
+    if not deg:
+        return None, 0
+    return sum(deg) / float(len(deg)), len(deg)
+
+
+def compound_by_brief(graph, births, assignments):
+    """Out-degree of tools born under a COMPOSITION brief against every other.
+
+    Attribution is by TIME -- the brief that most recently preceded the birth,
+    within COMPOUND_BRIEF_WINDOW. Matching the assigned NAME against a filename
+    does not work: the creature renames freely, and that method reported five
+    whole categories at exactly 0.00 edges with 100% standalone.
+    """
+    if not assignments:
+        return None, None, 0, 0
+    stamps = [t for t, _ in assignments]
+    comp = [0, 0]
+    other = [0, 0]
+    for tool, born in births.items():
+        if tool not in graph:
+            continue
+        i = bisect.bisect_right(stamps, born) - 1
+        if i < 0:
+            continue
+        when, mode = assignments[i]
+        if born - when > COMPOUND_BRIEF_WINDOW:
+            continue
+        bucket = comp if mode == "composition" else other
+        bucket[0] += 1
+        bucket[1] += len(graph[tool])
+    c = (comp[1] / float(comp[0])) if comp[0] else None
+    o = (other[1] / float(other[0])) if other[0] else None
+    return c, o, comp[0], other[0]
+
+
+def compound_anachronistic(graph, births, mtime_of):
+    """Edges whose TARGET was born after the source file was last written.
+
+    Reported, never filtered out: the headline edge count has to stay
+    comparable with the 1011 and 1101 already recorded in CLAUDE.md, and a
+    metric quietly redefined mid-trend is worth less than a metric with a
+    known 2% impurity stated beside it.
+    """
+    bad = 0
+    for tool, deps in graph.items():
+        written = mtime_of(tool)
+        for dep in deps:
+            born = births.get(dep)
+            if born is not None and born > written:
+                bad += 1
+    return bad
 
 
 def _compound_load():
@@ -814,10 +904,11 @@ def check_compounding(today=None, journal=None, now=None):
     avg = edges / float(tools)
     deep = sum(1 for d in _compound_depths(graph).values() if d >= 3)
 
+    cohort = cohort_n = comp_deg = other_deg = anach = None
     try:
-        births, invocations, _ = compound_scan(journal)
+        births, invocations, assignments, _ = compound_scan(journal)
     except Exception as e:
-        births, invocations = {}, []
+        births, invocations, assignments = {}, [], []
         carry = carry_rate = None
         carry_note = "scan:%s" % type(e).__name__
     else:
@@ -837,6 +928,16 @@ def check_compounding(today=None, journal=None, now=None):
         active = len({time.strftime("%Y-%m-%d", time.localtime(ts))
                       for ts, _ in recent})
         carry_rate = (old / float(active)) if active else None
+        cohort, cohort_n = compound_cohort(graph, births, now)
+        comp_deg, other_deg, _cn, _on = compound_by_brief(
+            graph, births, assignments)
+
+        def _mt(tool):
+            try:
+                return os.path.getmtime(os.path.join(OWN, tool))
+            except OSError:
+                return 0
+        anach = compound_anachronistic(graph, births, _mt)
 
     st, fresh = _compound_load()
     days = [d for d in st["days"] if d.get("day") != today]
@@ -847,7 +948,14 @@ def check_compounding(today=None, journal=None, now=None):
                  "marginal_vs": base,
                  "carry_pct": None if carry is None else round(carry, 1),
                  "carry_per_day": None if carry_rate is None
-                 else round(carry_rate, 1)})
+                 else round(carry_rate, 1),
+                 "cohort_deg": None if cohort is None else round(cohort, 2),
+                 "cohort_n": cohort_n,
+                 "brief_composition": None if comp_deg is None
+                 else round(comp_deg, 2),
+                 "brief_other": None if other_deg is None
+                 else round(other_deg, 2),
+                 "anachronistic_edges": anach})
     st["days"] = days[-COMPOUND_HISTORY_DAYS:]
     try:
         tmp = COMPOUND_STATE + ".tmp"
@@ -858,6 +966,15 @@ def check_compounding(today=None, journal=None, now=None):
         pass
 
     tag = "COMPOUND:%dt/%de %.2f/t deep3:%d" % (tools, edges, avg, deep)
+    # The leading indicator goes next to the lagging one, always, because the
+    # whole failure this check exists for was a turn that took a month to
+    # surface in the corpus average.
+    if cohort is not None:
+        tag += " new%dd:%.2fx%d" % (COMPOUND_COHORT_DAYS, cohort, cohort_n)
+    if comp_deg is not None and other_deg is not None:
+        tag += " brief:%.2f/%.2f" % (comp_deg, other_deg)
+    if anach:
+        tag += " anach:%d" % anach
     tag += " carry:%s" % ("n/a" if carry is None else "%.0f%%" % carry)
     if carry_rate is not None:
         tag += "/%.0fpd" % carry_rate
