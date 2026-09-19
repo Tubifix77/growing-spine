@@ -135,7 +135,18 @@ def classify_error(err: str) -> str:
             # classified. Same family as "timed out", so the same class: route to
             # the next rung, never wall the account for a cancelled request.
             or "499" in err or "client closed request" in err_l
-            or "request was cancelled" in err_l):
+            or "request was cancelled" in err_l
+            # The server hung up mid-request: http.client raises
+            # RemoteDisconnected("Remote end closed connection without
+            # response"), which carries no status code at all. Surfaced
+            # 2026-09-19 by the `unknown` path doing its job for the FOURTH
+            # time -- google_gemma dropped one connection, nothing recognised
+            # the string, and the fail-open default routed around it and
+            # carried the text so it could be named. Transport-level and
+            # transient, so the same class as "timed out": next rung, and
+            # never wall an account because a socket closed.
+            or "remote end closed connection" in err_l
+            or "remotedisconnected" in err_l):
         return "flaky"
     # UNRECOGNISED, and that is a class of its own rather than a reason to stop.
     #

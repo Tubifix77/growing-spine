@@ -1186,6 +1186,23 @@ async def main():
           classify_error("empty completion (content and reasoning both null)") == "flaky")
     check("classify: read timeout -> flaky",
           classify_error("The read operation timed out") == "flaky")
+    # The server hung up mid-request. http.client raises RemoteDisconnected
+    # and the message carries NO status code, so nothing keyed on a number
+    # could ever have caught it. Fixture is the real journal string from
+    # 2026-09-19, including the framework's own prefix -- from the corpus,
+    # never authored.
+    _rd = ("All providers failed; last unrecognised error -- google_gemma: "
+           "Remote end closed connection without response")
+    check("a dropped connection is flaky, not unknown (4th unenumerated "
+          "provider shape the fail-open default has handed us)",
+          classify_error(_rd) == "flaky")
+    check("and the bare http.client exception name classifies too",
+          classify_error("RemoteDisconnected('Remote end closed connection "
+                         "without response')") == "flaky")
+    # The fail-open default must stay fail-open: naming one more string must
+    # never be mistaken for closing the class.
+    check("an error nobody has enumerated still routes onward, never walls",
+          classify_error("something nobody has ever seen") == "unknown")
     check("classify: openrouter upstream 429 -> quota (probe machinery heals)",
           classify_error('HTTP 429: {"error":{"message":"Provider returned error"'
                          ',"code":429}} temporarily rate-limited upstream') == "quota")
