@@ -3949,7 +3949,24 @@ def _build_context(recent_journal: list, tue_message: str = None) -> str:
     workspace_block = ("\n\nYour workspace (/workspace/README.md):\n" + workspace_map) if workspace_map else ""
     chat_block = ""
     if tue_message:
-        chat_block = f"\n\nMessage from Tue: {tue_message}\nYou MUST include a <reply>...</reply> tag in THIS response, before any bash blocks, even if you are mid-task -- answer Tue first, then continue working. Example: <reply>Got it, will fix llm_ask_helper to use Groq.</reply>"
+        # The contract here asked for ONE thing -- a reply tag -- and that is
+        # exactly what it got, which is how a correction can be acknowledged
+        # perfectly and change nothing. On 2026-09-20 a message saying git-save
+        # had been repaired was read at 23:37, answered at 23:38 with "Got it",
+        # and by 23:39 existed nowhere the creature could reach: chat_block is
+        # built only while a message is UNREAD, so it is gone the moment the
+        # reply is extracted, and nothing was written to memory in either
+        # direction. Same shape as llm_ask_helper on 2026-08-07 -- told twice,
+        # agreed twice, acted never.
+        #
+        # So it is now told the fact it had no way to know: the message is
+        # shown ONCE. That is making an existing fact legible, not adding a
+        # rule -- the message really is one-shot, and it could not see that.
+        # The INVARIANT is named ("a reply is not storage") and the mechanism
+        # is not: naming `remember` here would be the jq -n mistake again,
+        # obeyed to the letter and rebuilt by another route. Whether this
+        # particular message is worth keeping stays its judgement.
+        chat_block = f"\n\nMessage from Tue: {tue_message}\nYou MUST include a <reply>...</reply> tag in THIS response, before any bash blocks, even if you are mid-task -- answer Tue first, then continue working. Example: <reply>Got it, will fix llm_ask_helper to use Groq.</reply>\nThis message is shown to you ONCE. It will not be in your next cycle's context and nothing will repeat it. Your reply is not storage. If it changed a fact you rely on, it survives this cycle only if you put it somewhere that lasts."
     active_project = _build_active_project_block()
     knowledge = _build_knowledge_block()
     loop_warning = _build_loop_warning()

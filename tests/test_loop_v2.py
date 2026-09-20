@@ -716,6 +716,36 @@ async def main():
           "second cut can only increase the number",
           bool(loop._TRUNC_MARK_RE.search(_out)))
 
+    # ---- a reply is not storage (2026-09-20) --------------------------------
+    # The chat contract asked for ONE thing, a reply tag, and got exactly that:
+    # the git-save correction was read at 23:37, answered "Got it" at 23:38,
+    # and by 23:39 existed nowhere the creature could reach. Obedient and
+    # useless. It is now told the fact it had no way to know -- the message is
+    # shown once -- which is making an existing fact legible rather than adding
+    # a rule. Source is read, never rendered: _build_context ends in
+    # _mark_surfaced() and writing rotation state from a test is forbidden.
+    _ctx_src = inspect.getsource(loop._build_context)
+    check("the chat block tells the creature the message is shown ONCE",
+          "shown to you ONCE" in _ctx_src)
+    check("and names the invariant: a reply is not storage",
+          "Your reply is not storage" in _ctx_src)
+    # THE IMPORTANT ONE. Naming `remember` here would be the jq -n mistake a
+    # third time: told a MECHANISM, the creature obeys the letter and rebuilds
+    # the fault by another route -- it stopped using jq and reached the same
+    # broken shape with a heredoc 36 hours later. The invariant is named and
+    # the mechanism is left to it.
+    _chat_lit = _ctx_src.split("chat_block = f")[1].split(chr(10))[0]
+    check("the chat block names NO mechanism -- no `remember`, no tool name, "
+          "so the fault cannot be rebuilt by another route",
+          "remember" not in _chat_lit and "recall" not in _chat_lit)
+    check("whether THIS message is worth keeping stays the creature's "
+          "judgement (conditional, not a standing order)",
+          "If it changed a fact you rely on" in _chat_lit)
+    # Regression: Tue still gets an answer. The reply requirement is why the
+    # chat channel works at all.
+    check("the reply tag is still required (regression)",
+          "<reply>" in _chat_lit and "MUST include" in _chat_lit)
+
     # ---- a fact told to the creature must be FINDABLE (2026-09-20) ---------
     # Chat was the one channel whose content never reached journal.jsonl. An
     # hour after a correction was sent saying git-save had been repaired,
