@@ -467,6 +467,33 @@ def _mark_surfaced(names, surfaced):
         pass
 
 
+def _journal_chat(message, reply):
+    """Put a consumed chat exchange into journal.jsonl.
+
+    Chat was the ONE channel whose content never reached the journal: it lived
+    only in chat.jsonl, which nothing the creature runs can read. Measured
+    2026-09-20, an hour after a correction was sent saying git-save had been
+    repaired -- `did-i git-save` returned 3,000 records whose four most recent
+    commands all end `exit=1 stderr=Traceback`, and not one word of the fix.
+    The searchable record still taught the false belief, and the history tool
+    built two days earlier was the thing that would have re-taught it.
+
+    Invariant: **a fact told to the creature must be findable in the record the
+    creature can search.** A chat message is in the wake context for exactly
+    ONE cycle -- `chat_block` is built only while the message is unread -- so
+    without this the correction is gone the moment it is answered, while the
+    402 failures it corrects are permanent.
+
+    Deliberately OUTSIDE MEANINGFUL_KINDS, like `oracle_rest`: the message
+    already had its cycle, and re-showing it in every wake render is the nag
+    the method warns against. This reaches `did-i` and any census, never the
+    render.
+    """
+    journal.append(VOLUME_MOUNT, "chat_from_tue", message or "")
+    if reply:
+        journal.append(VOLUME_MOUNT, "chat_reply", reply)
+
+
 def _build_tool_catalogue() -> str:
     own = os.path.join(VOLUME_MOUNT, "tools", "own")
     fw = os.path.join(VOLUME_MOUNT, "tools", "framework")
@@ -3973,6 +4000,7 @@ async def run_cycle(keychain: Keychain, dockerfile_dir: str):
         if reply:
             chatmod.mark_read(VOLUME_MOUNT, tue_ts)
             chatmod.record_reply(VOLUME_MOUNT, reply)
+            _journal_chat(tue_message, reply)
         else:
             # No <reply> tag: the model steamrolled the message while deep in
             # a task. Re-present it next cycle instead of consuming it; give
@@ -3985,6 +4013,9 @@ async def run_cycle(keychain: Keychain, dockerfile_dir: str):
                     "deep in a task; please re-send if it needs an answer)")
                 journal.append(VOLUME_MOUNT, "chat_retry",
                                f"gave up waiting for <reply> after {n} cycles")
+                # Delivered three times and consumed, so it happened even
+                # though no reply came back. Record it for the same reason.
+                _journal_chat(tue_message, None)
             else:
                 journal.append(VOLUME_MOUNT, "chat_retry",
                                f"no <reply> tag; message re-queued (attempt {n}/3)")

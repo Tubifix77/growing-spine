@@ -716,6 +716,31 @@ async def main():
           "second cut can only increase the number",
           bool(loop._TRUNC_MARK_RE.search(_out)))
 
+    # ---- a fact told to the creature must be FINDABLE (2026-09-20) ---------
+    # Chat was the one channel whose content never reached journal.jsonl. An
+    # hour after a correction was sent saying git-save had been repaired,
+    # `did-i git-save` returned 3,000 records whose four most recent commands
+    # all end `exit=1 stderr=Traceback` and not one word of the fix -- so the
+    # only searchable record still taught the false belief, and the history
+    # tool shipped two days earlier was what would have re-taught it.
+    _chat_src = inspect.getsource(loop._journal_chat)
+    check("a consumed chat message is journalled under its own kind",
+          'journal.append(VOLUME_MOUNT, "chat_from_tue"' in _chat_src)
+    check("and the creature's reply is journalled too",
+          'journal.append(VOLUME_MOUNT, "chat_reply"' in _chat_src)
+    # It must NOT reach the wake render: the message already had its one cycle
+    # via chat_block, and repeating it every wake is the nag the method warns
+    # against. Same placement as oracle_rest.
+    check("chat kinds stay OUT of MEANINGFUL_KINDS, so the fact reaches did-i "
+          "and never becomes a per-cycle nag",
+          "chat_from_tue" not in loop.MEANINGFUL_KINDS
+          and "chat_reply" not in loop.MEANINGFUL_KINDS)
+    # The message is journalled on BOTH paths that consume it -- answered, and
+    # given up on after three attempts -- because it was delivered either way.
+    _wake_src = inspect.getsource(loop)
+    check("chat is journalled on both consumption paths (replied, and given "
+          "up after 3 attempts)", _wake_src.count("_journal_chat(") >= 2)
+
     # ---- git-save: a FILE path is a path (2026-09-19) -----------------------
     # Its usage line promises <path>, and a single tool file is the obvious
     # reading of it -- "save the thing I just wrote". subprocess's cwd= needs a
