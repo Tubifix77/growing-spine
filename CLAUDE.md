@@ -872,7 +872,66 @@ journalctl --user -u growing-spine --since "2 hours ago"
 
 ---
 
-## 8. State — 2026-09-20 23:55
+## 8. State — 2026-09-21 00:05
+
+**"In one ear out the other" — Tue, on the git-save correction being
+acknowledged and changing nothing. He is right, and the room produced it.**
+The chat contract asked for exactly ONE thing, a `<reply>` tag, and that is
+precisely what it delivered: read 23:37, *"Got it"* 23:38, and by 23:39 the
+fact existed nowhere the creature could reach. **Identical to `llm_ask_helper`
+on 2026-08-07 — told twice, agreed twice, acted never.** The instruction was
+obeyed perfectly and the outcome was useless, which is §5's most expensive
+class.
+
+**Two independent routes shipped tonight, and they fail differently on
+purpose.**
+
+1. **`f24eaa4` — the exchange is journalled** (`chat_from_tue` / `chat_reply`,
+   outside `MEANINGFUL_KINDS`). Works even if the creature records nothing:
+   the fact becomes findable by `did-i`. Covers forgetting.
+2. **`980c513` — the creature is told the message is shown ONCE.** The new
+   line: *"This message is shown to you ONCE. It will not be in your next
+   cycle's context and nothing will repeat it. Your reply is not storage. If
+   it changed a fact you rely on, it survives this cycle only if you put it
+   somewhere that lasts."* Covers the decision.
+
+**Why that wording, precisely.** It is **making an existing fact legible, not
+adding a rule** — `chat_block` is built only while a message is UNREAD, so the
+message genuinely is one-shot and the creature had no way to see that. By
+`gs-bug-daily`'s own test (*"does the change add a constraint, or make an
+existing fact legible?"*) that is repair and therefore ours, not a §2.7
+announcement. **The INVARIANT is named and the MECHANISM is not:** saying "run
+`remember`" would be the `jq -n` mistake a third time, obeyed to the letter and
+rebuilt by another route, exactly as it stopped using `jq` and reached the same
+broken shape by heredoc 36 hours later. And the sentence is **conditional** —
+*which* messages are worth keeping stays its judgement, so this cannot decay
+into remembering every "hello".
+
+**The load-bearing test is the NEGATIVE one:** the chat literal must name no
+tool at all. A test that only asserted the new words would pass while someone
+helpfully added the mechanism back. 5 checks total, including a regression that
+the reply tag is still required — Tue getting an answer is why the channel
+works.
+
+**This is verified by BEHAVIOUR, not by hoping.** §5: 8 of 33 scars live in
+text the creature reads and **they are the only ones that have ever recurred
+after being fixed**, while no code scar has. **Measurement: does a durable
+write follow the next chat message** — and separately, does `git-save` appear
+in an exec block. Neither is answerable tonight; the creature has authored no
+tool since replying.
+
+**Deliberately NOT done: writing the memory for it.** The framework could call
+`remember` on its behalf at delivery. That writes into its world, cannot know
+which facts matter to it, and makes it dependent on our judgement — against
+§2's *"never build anything that makes it depend on your inspection"* and the
+README's *"we shape the creature's environment, we never program the
+creature."* The room was wrong; the room is fixed.
+
+Gates: **laptop 500 PASS, PC 494 PASS**. Brain restarted 23:55:21.
+
+---
+
+### Previous state — 2026-09-20 23:55
 
 **Tue asked how long the creature remembers a chat message, and the answer
 found a live framework fault in under an hour.** It read the `git-save`
