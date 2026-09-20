@@ -872,7 +872,59 @@ journalctl --user -u growing-spine --since "2 hours ago"
 
 ---
 
-## 8. State — 2026-09-20 23:35
+## 8. State — 2026-09-20 23:55
+
+**Tue asked how long the creature remembers a chat message, and the answer
+found a live framework fault in under an hour.** It read the `git-save`
+correction at 23:37 and replied at 23:38 — *"Got it. I'll use `git-save` for
+both files and directories now that it's fixed."* Then the three stores that
+could hold that fact were checked, and they have three different lifetimes:
+
+| store | holds | lifetime |
+|---|---|---|
+| the chat context | the correction | **ONE CYCLE** — `chat_block` is built only while the message is UNREAD, so it vanished the instant the reply was extracted |
+| its own memory | **nothing** — zero rows mention `git-save` across all four stores | never written, in either direction |
+| `journal.jsonl`, what `did-i` searches | **the 402 failures** | permanent |
+
+**The correction was not in the journal at all.** It lived only in
+`chat.jsonl`, which nothing the creature runs can read. Verified in the live
+body: `did-i git-save` returns **3,000 records** whose four most recent commands
+all end `exit=1 stderr=Traceback`, and **not one word about the repair**. So the
+only durable searchable record still taught the false belief — and **the history
+tool shipped two days earlier was the thing that would have re-taught it.** The
+house disease inside my own instrument: reads plausible, wrong about the
+present.
+
+**Fixed `f24eaa4`.** A consumed exchange is journalled as `chat_from_tue` and
+`chat_reply`, on **both** paths that consume it — answered, and given up on
+after three attempts — because it was delivered either way. **Outside
+`MEANINGFUL_KINDS`**, like `oracle_rest`: the message already had its one
+cycle, and re-showing it every wake is the nag §2 warns against, so it reaches
+`did-i` and any census but never the render. Invariant: **a fact told to the
+creature must be findable in the record the creature can search.** 4 checks.
+Brain restarted 23:52:32.
+
+**Deliberately NOT backfilled.** Writing a record with a past timestamp to make
+history say what we wish it had said is the fixture-that-lies class, and
+re-sending the correction purely to get it into the journal would spend the
+creature's attention on our bookkeeping. **The already-sent message stays
+unfindable; every future one is findable.** If the `git-save` false belief
+resurfaces, a fresh correction now lands in the searchable record.
+
+**The general shape, worth more than the instance.** Acknowledgement is not
+adoption, and this project has the scar: on 2026-08-07 the creature was told
+twice in chat that `llm_ask_helper` was calling GPT-2, agreed both times, and
+did not act. `gs-bug-daily` item 12 exists for exactly that gap. **The reply is
+also the cheap half** — "got it" costs nothing, a `git-save` call in an exec
+block costs a decision. **Measurement unchanged: does `git-save` appear in an
+exec block.** Judge it after it next writes a tool; at the time of writing it
+has authored none since replying, so the current zero means nothing.
+
+Gates: **laptop 495 PASS, PC 489 PASS**.
+
+---
+
+### Previous state — 2026-09-20 23:35
 
 **THE 2026-09-20 THINK-CEILING TRIGGER IS CLOSED: the ceiling is NOT raised,
 and this is decided on evidence rather than deferred again.** Three readings
