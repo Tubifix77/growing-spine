@@ -872,7 +872,83 @@ journalctl --user -u growing-spine --since "2 hours ago"
 
 ---
 
-## 8. State — 2026-09-19 14:40
+## 8. State — 2026-09-20 23:35
+
+**THE 2026-09-20 THINK-CEILING TRIGGER IS CLOSED: the ceiling is NOT raised,
+and this is decided on evidence rather than deferred again.** Three readings
+settle it. (1) **165 escalations since 09-16, of which 9 ended `finish=stop`** —
+a later rung completed the reply **within the same 3,072 ceiling**, so that
+truncation was rung-specific and no larger budget was needed. (2) The other
+156 degraded, and that is mostly **ladder depth, not budget**: `google_gemma`
+served **489 of 540** cycles this window, so an escalation usually has nowhere
+to go. (3) The symptom is **shrinking on its own** — truncation 12.0% → **10.9%**
+and `exec_skip` **15 of 662 exec blocks (2.3%)**. Raising the ceiling would tax
+every call on the scarcest resource while throughput is the binding constraint,
+against a 2.3% loss that is already falling. §6: *"Don't fix what has no
+symptom. Measured cost beats theoretical harm."*
+**Re-arm condition, so this is a decision and not an excuse:** revisit if
+truncation holds above **20%** for a week, or `exec_skip` exceeds **10% of exec
+blocks**. Instrument: the `finish=length` share and the skip count, both already
+on the daily line.
+
+**The creature is having its best week since the ladder thinned.** Hourly
+`THINK` reads **14 → 15 → 16 → 16 → 17 → 18/h**, against 9–13/h on 09-17 and a
+declared floor of 15. Over 32.8 h: **540 served at 16.5/h**, 662 exec, **15
+skips**, **19 errors of which all 19 are guard rails** (18 false-completion, 1
+spin trap) — zero provider, zero unclassified. `think_start`s finding no rung
+fell **61% → 56%**.
+
+**Compounding keeps climbing and the new leading indicator is doing its job.**
+`COMPOUND:728t/1236e 1.70/t deep3:48 new7d:2.11x36 brief:1.81/1.18 anach:21
+carry:54%/525pd`. Four daily readings now: **1.57 → 1.58 → 1.69 → 1.70**, with
+`deep3` **27 → 48**. The cohort reads **2.11 across 36 tools born this week**,
+above the 1.70 corpus average — exactly the gap the lagging average cannot
+show. The brief split holds at **1.81 composition against 1.18 other**, so the
+v0.8 lever is still pulling. `anach:21` confirms the 2% impurity is stable and
+is reported rather than filtered.
+
+**FINDING — an alarm that fires by construction, and it is 26% of every health
+line we have ever written.** `cloudflare` spends its whole daily allowance in
+about five hours and is dark for the rest: measured 09-15..09-20, **26–31 calls
+between ~00:36 and ~07:32, then 16–18 h of silence, every single day**.
+`FLATLINE_HOURS = 12`, so it crosses the threshold daily and **`SERIOUS:cloudflare`
+appears on 269 of 1,046 health lines**. The threshold was chosen when every rung
+had a budget large enough to last a day; a ~26-calls/day rung **cannot** stay
+alive 12 h, so the alarm is structurally guaranteed and carries no information.
+This is the exact failure §8 named for cerebras — *"a permanent SERIOUS that
+trains us to ignore the alarm"* — now measurable.
+**NOT fixed tonight, deliberately.** The honest fix is a **per-rung threshold
+that exceeds that rung's reset period** (a daily-reset rung needs >24 h, not
+12), and that is a config decision under ladder discipline, which `gs-bug-daily`
+puts in the findings column rather than the obvious-fix column: *"if it needs an
+argument it is a finding with a named trigger and a date, not a fix."* Raising
+the GLOBAL threshold is the wrong answer — it would weaken detection for
+`google_gemma`, the 14,400/day workhorse whose 55 h of silence is why the alarm
+exists. **Named trigger: 2026-09-27, or the first real rung outage that nobody
+notices because the line was already red — whichever comes first.**
+
+**`did-i` and `git-save`: ZERO calls in 32.8 h, and that is the honest reading
+of both.** `did-i` stands at 2 lifetime calls (09-18, 09-19); the **2026-09-25
+trigger remains live and is NOT met** — two calls is not adoption, and my own
+rule says measure per month, never per lifetime. `git-save` is the harder case:
+the fix landed 09-19 14:29 and **the creature has not reached for it since**,
+which is what you would expect from a tool it learned was broken across **402
+failures**. **Nothing tells it the tool works now.** The `ask` precedent
+(2026-08-14) is the shape of the answer — a capability fact announced in chat,
+in Tue's voice, numbers verbatim — and under §2.7 *"World-RULE changes are
+announced in Tue's voice and are Tue's call. Draft, show him, send after
+approval."* **Draft it for Tue; do not send it.** Until then, a silently
+repaired tool that the creature has already written off is a fix nobody can
+observe.
+
+**Ladder:** `google_gemma` 489, `cloudflare` 28, `gemini_flash` 23.
+`mistral` 431 h dark — monthly allowance, returns **10-01**, expected.
+
+Gates: **laptop 491 PASS, PC 485 PASS** (unchanged; no code shipped since).
+
+---
+
+### Previous state — 2026-09-19 14:40
 
 **`did-i` was used by the creature on its second day, for exactly what it is
 for.** Two calls: 09-18 03:11, then **09-19 09:13 — `did-i "HTTP 429"` and
