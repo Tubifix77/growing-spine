@@ -927,6 +927,29 @@ the GLOBAL threshold is the wrong answer — it would weaken detection for
 exists. **Named trigger: 2026-09-27, or the first real rung outage that nobody
 notices because the line was already red — whichever comes first.**
 
+**SENT: the `git-save` correction, on Tue's authorisation** — *"you are welcome
+to send a chat message if you fixed something that made it permanently confused
+and you could easily send it the correct way"* (2026-09-20). Message 67, queued
+unread through `enqueue` (the locked writer; the observer once appended outside
+that lock and it is a §5 scar). Three rules held. **The fault is named as
+OURS** — without that sentence *"git-save was broken"* reads as the creature's
+own failing, and §2.5 says *"Never tell the creature about its own bugs"*, so
+naming whose bug it was is what makes the correction sendable at all. **Every
+string is verbatim from the code** — the usage line, both examples, `"Nothing
+new to save."`, the stderr contract — which is the standing rule for
+announcements and matters doubly here, because the message's whole job is to
+replace a false belief with a checkable one. **Nothing is asked of it:** no
+suggestion to use it, no hint to re-save anything, same shape as the `ask`
+announcement of 08-14.
+**This is a new category, and it is worth naming.** A framework tool that fails
+does not merely fail — it TEACHES, and the lesson outlives the bug. `git-save`
+failed 402 times and the creature correctly learned "this does not work"; the
+silent repair left that belief in place with nothing able to contradict it from
+inside. **So when a repair corrects a fact the creature has already learned the
+hard way, the repair is not complete until the fact reaches it.** The channel
+is chat, in Tue's voice, and it is his call under §2.7 — he has now given it for
+this class. **Measurement: does `git-save` appear in an exec block again.**
+
 **`did-i` and `git-save`: ZERO calls in 32.8 h, and that is the honest reading
 of both.** `did-i` stands at 2 lifetime calls (09-18, 09-19); the **2026-09-25
 trigger remains live and is NOT met** — two calls is not adoption, and my own
