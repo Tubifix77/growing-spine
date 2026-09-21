@@ -60,6 +60,68 @@ tool claims to do and how often it actually ran in the last fortnight. The
 interactive [framework map](docs/framework-map.html) shows the machinery —
 every LLM prompt verbatim, every gate in place — that shaped this growth.
 
+## Current status (2026-09-21, v0.16) — the headline metric finally has an instrument
+
+**737 own tools.** But this project's own README says the measure of success is
+not the count — *"it is reuse and dependency"* — and for a month nobody was
+reading that number. The last deliberate reading was **2026-06-26**. Every
+status line in between led with the tool count, which cannot fall while the
+thing it stands for does. That is now fixed at the source: a daily probe
+reports **edges per tool**, the depth distribution, and the share of work
+flowing to tools older than a month, and the project's doctrine file now
+forbids reporting production as a count.
+
+**The answer, measured with one static scan at three points:**
+
+| date | tools | dependency edges | edges/tool |
+|---|---|---|---|
+| 2026-08-18 | 433 | 1011 | **2.33** |
+| 2026-09-18 | 703 | 1100 | **1.56** |
+| 2026-09-21 | 737 | 1241 | **1.68** |
+
+It **dipped and is recovering**. The lagging average hid both moves for weeks,
+so the probe now also reports the leading one — what the tools born *this week*
+call — and that reads **4.12 edges per new tool against a 1.68 corpus
+average**. New work is markedly more connected than the body it joins. The
+deepest real chain is five: `SelfHealingReplanner → ArchiveDrivenStepReplanner
+→ ArchiveDrivenPlanRecovery → step-planner-tracker → knowledge_gap_filler →
+subagent_ask_helper`.
+
+**The other half of the measure — adoption — had never been instrumented at
+all**, because the underlying counter is cumulative and timestampless. Parsed
+out of the journal by month, the share of tool invocations going to tools more
+than 30 days old runs **0% → 6% → 33% → 54%** (Jun→Sep), and the
+confound-free version (old-tool invocations per active day) runs **0 → 23 →
+419 → 520**. The creature leans on its own back catalogue far more than it
+used to.
+
+**The composition brief works, and now there is a number.** Tools born under a
+"compose existing tools" brief average **1.79 edges against 1.19** for every
+other brief, attributed by time rather than by name — 534 tools against 145.
+
+**It can now ask a question of its own history.** A new built-in, `did-i`,
+searches the creature's entire 394,000-record journal: how many times a term
+appears, broken down by kind, and the most recent commands with what each one
+did. It exists because of a measured failure — the creature edited one tool
+thirteen times in seven minutes against a diagnostic message of ours that was
+literally false, and at the thirteenth attempt the eight-record window it can
+see covered 1.4 minutes and held 2 of the 12 attempts that had already failed.
+It repaired that tool itself within a day of the message being corrected.
+
+**Throughput is 17.1 thinks/hour** over the most recent 50-hour window, with
+**every** error in that window being a guard rail firing correctly. The ladder
+is thin by design — free tier only, permanently — and 55% of thinking attempts
+currently find no provider at all, which is what free tiers give rather than a
+fault to fix.
+
+**And the honest one.** A tool the creature had learned was broken stayed
+unused after we fixed it and told it so in chat: 67 opportunities, zero uses.
+Measured across all three chat interventions this project has made, the split
+is clean — chat works when it announces a capability the framework has just
+*built*, and has never once changed an established habit on its own. That is
+now a standing rule: if the only available fix is a message, there is no fix
+yet.
+
 ## Current status (2026-08-06, v0.15) — the audit-closure day
 
 346 own tools (an honest count for the first time — three earlier numbers had been
