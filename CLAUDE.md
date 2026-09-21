@@ -957,6 +957,34 @@ find it, and telling it the message is shown ONCE — **are both UNEXERCISED**,
 because no chat has been sent since they landed at 23:52. They are the next
 test, not a result.
 
+**The `git-save` ADOPTION CHASE IS RETIRED, under the principle it just
+proved.** §6 now says: *"if the only available fix is a chat message, there is
+no fix yet — either build the thing that makes the fact arrive unprompted, or
+accept that the behaviour stands and say so."* Applied here, honestly:
+
+- **The tool is fixed and that was worth doing regardless** — 402 tracebacks
+  are a framework fault whether or not anyone calls it again.
+- **Chasing adoption further is not available to us.** We have tried the only
+  channel we have and it is 0-for-2. Nagging is explicitly forbidden, and
+  building machinery to push one built-in would be the nanny half of §2.
+- **But the underlying cost is REAL and measured, so this does not close as
+  "no symptom".** `recall_and_answer`'s working 3,626-byte predecessor is
+  **gone** — `tool-edit` keeps exactly one `.bak` and that was the ninth
+  broken attempt in five minutes. Version history would have saved it, and the
+  creature's own repo already existed at `/mind/tools/own/.git` the whole time.
+
+**So the real question is not whether it uses `git-save`. It is whether
+`tool-edit` should version what it overwrites** — the framework carrying the
+fact rather than asking the creature to remember. That is a genuine design
+change to protected scar tissue (§2.2) with real cost questions (a commit per
+edit, at 103 edits in 50 h), so it is a **finding, not a fix**: *"anything you
+would have to argue for is a finding with a named trigger and a date."*
+**Named trigger: the next time a working tool is destroyed past its single
+`.bak` — the instrument is a tool that was startable and is not, whose `.bak`
+is also broken. `did-i <tool>` can now establish that retroactively, which it
+could not on 09-17.** Until then the behaviour stands, and that is recorded
+rather than hoped away.
+
 **`did-i`: 0 calls in 50 h, 2 lifetime.** The **2026-09-25** trigger is four
 days out and currently **NOT met**. Per its own rule, measure per MONTH; two
 calls is not adoption.
