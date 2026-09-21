@@ -894,7 +894,69 @@ journalctl --user -u growing-spine --since "2 hours ago"
 
 ---
 
-## 8. State — 2026-09-21 17:10
+## 8. State — 2026-09-21 18:00
+
+**ANSWERED: `tool-edit` should NOT version what it overwrites, and the reason
+is that a BETTER mechanism already exists and nobody knew its coverage —
+including me, four days ago, when I wrote that a tool was "gone".** Tue asked
+the question and asked whether a search could answer it. Partly: the search
+supplied the trap, and reading our own system supplied the answer.
+
+**What the fetch contributed, and it is decisive.** The 2026 checkpoint/rollback
+literature names the exact failure of the design I was about to consider:
+*"Checkpointing does not track file changes made by bash commands — a `rm` or
+`mv` executed through a shell tool is invisible to it; only edits made through
+the harness's own file-editing tools are captured."* That is **our** situation
+measured: this window's authoring split is `tool-edit` 103, `tool-new` 17,
+**redirect-or-tee 26**. Versioning inside `tool-edit` would miss **18% of
+writes**, and the redirect is precisely the door §5 already calls the dangerous
+one (no `.bak`, no execute bit, *"a fixture written OVER a live tool is a stub
+that lies"*). Aider is the strongest prior art for per-edit commits — one commit
+per edit with `/undo`, treated as a feature — and its documented downside is
+noisy history for PRs and `git rebase -i`, an objection that **does not transfer
+here** because nobody reviews the creature's repo.
+
+**What our own system contributed, and it settles it.** `runtime.py` already
+calls `savegame.save(..., label="pre-risky")` whenever `_is_risky_command`
+fires. **18 snapshots exist, 06-21 → 09-18, 2.0 GB, each a full copy of the
+mind including `tools/own`.** Verified by doing, not by reading: a snapshot
+file is **byte-identical** to the live one (`md5` match), and the 09-10 copy of
+`recall_and_answer` (2,976 b) **STARTS** today, sitting beside 732 other tools.
+So the framework already has **door-agnostic** versioning that sees redirects,
+`tool-new` and `tool-edit` alike. Adding it to `tool-edit` would be a SECOND
+copy of a capability we have — §4's disease at the feature level — with
+strictly worse coverage.
+
+**So the real fault is the TRIGGER, not the absence.** Snapshots fire on
+*risky commands*. The `recall_and_answer` destruction was ten ordinary
+`tool-edit` calls in five minutes — nothing risky — so nothing fired. The gaps
+prove it: **06-24 → 09-10 is 78 days with no snapshot, and 09-11 23:12 →
+09-18 03:11 is 6.5 days, with the 09-17 01:24 destruction inside it.** That is
+why the 3,626-byte version is genuinely unrecoverable, and **it corrects my own
+09-17 wording**: not "there is no history" but "the history has holes exactly
+where ordinary work happens".
+
+**RECOMMENDATION — build nothing today, and here is the counter-pressure.**
+The symptom is one lost tool in three months, and §6 says measured cost beats
+theoretical harm. Against that: **the snapshot store is 2.0 GB and is NEVER
+pruned** (oldest is 06-21 and still present) while the body-image pruner
+demonstrably bounds its own images — and disk is the one resource CLAUDE.md
+names as genuinely unbounded, currently **78% / 24 G free**. Making snapshots
+more frequent would push on exactly the resource that has twice been the real
+emergency. **A cadence trigger and a retention policy have to be designed
+together or not at all, and that is design, not repair — Tue's call.**
+**Named trigger: the next working tool destroyed past recovery, OR the
+snapshot store passing 4 GB, whichever comes first.** Instruments: `did-i
+<tool>` establishes the destruction retroactively, and `du -sh
+~/growing-spine-saves` the store.
+
+**The cheap half is already done: knowing.** The recovery path is
+`~/growing-spine-saves/mind-<stamp>-pre-risky/tools/own/<tool>` — and §2.1 says
+restoring one is the creature's call, not ours.
+
+---
+
+### Previous state — 2026-09-21 17:10
 
 **gs-bug-daily 2026-09-21 (50.3 h, NO gaps, 52 hours with records).** 859
 served at **17.1/h** — the best sustained rate since the ladder thinned — 1,098
