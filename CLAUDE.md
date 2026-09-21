@@ -661,6 +661,33 @@ or a path literal that already exists elsewhere, stop.
   module constant into `TMP` before exercising anything that records, and assert
   in the test that you did. Derived state, so it rebuilt within minutes — but
   FLATLINE and the dashboard read "never" for every rung until it did.
+- **A GENERATED artifact rebuilt on the wrong machine silently drops whatever
+  only the other machine can read, and the loss looks like content.**
+  `docs/framework-map.html` is built by a generator whose whole design principle
+  is that nothing is hardcoded -- `loc()` resolves line numbers live, `fw_verbs()`
+  reads `framework-tools/` live, and the prompt panels are loaded from the
+  running code. That is why it survived six weeks of drift with every file:line
+  still correct. Both live reads degrade to a plausible-looking answer, in
+  opposite directions. **`loc()` returned a BARE PATH when a symbol moved** --
+  indistinguishable from a node nobody gave a symbol to, so a rename makes the
+  map say less than it used to and nothing anywhere says so. **And the editable
+  prompt panel rendered EMPTY when built from the PC**, because that file lives
+  on `/mind` and only the laptop has one -- publishing *"the creature has
+  written nothing"*, which is a different claim entirely and invisible by eye.
+  Fixed 2026-09-21: the generator collects misses and blank panels, names them,
+  and **exits 1** rather than writing a hollowed map quietly; mutation-proved by
+  renaming `_capped` (reports that one symbol, fails the build) and by the blank
+  panel firing on the real case immediately, which is what forced the rebuild
+  onto the host. Invariant: **a builder that reads its content live must refuse
+  to publish a read that came back empty.** General rule, and it is the §5
+  instrument disease one level up: a live read is better than a hardcoded value
+  in every way except one -- it can fail quietly, and a hardcoded value cannot.
+  Corollary worth keeping: **the PROSE in a generated artifact does not
+  self-heal.** Three claims in that map were measurably false after six weeks
+  (a ladder of "9 windows" that is five rungs, a done-gate of "four checks" that
+  is five, a "2-min cadence" that is ten seconds) while every mechanical
+  reference in the same file was still exact. Re-read what a generator hardcodes
+  as TEXT whenever you rebuild it.
 - **Deploy code BEFORE config when a schema changes.** A `model_id` list landed on
   the laptop while the running brain still held the old single-string code; its
   last cycle sent the list verbatim and died on `HTTP 400: No models provided`.
