@@ -3343,6 +3343,26 @@ async def main():
               _sh.compound_cohort(_cgraph, {"ancient": _cnow - 90 * 86400},
                                   _cnow) == (None, 0))
 
+        # END-TO-END, because the helpers were all green while the function
+        # that uses them raised NameError on every call: a patch script
+        # aborted on an assertion before writing, so a variable was
+        # referenced and never defined, and 502 passing tests never touched
+        # check_compounding itself. The daily probe calls it inside a list
+        # comprehension, so that would have taken out the WHOLE health line.
+        # A helper suite is not a smoke test.
+        _ce_journal = os.path.join(TMP, "compound_e2e.jsonl")
+        with open(_ce_journal, "w", encoding="utf-8", newline=NL) as _cf:
+            _cf.write(json.dumps({"ts": 1789000000.0, "kind": "exec_start",
+                                  "content": "Block 1: tool-new e2e_tool"}) + NL)
+        _ce = _sh.check_compounding(journal=_ce_journal)
+        check("check_compounding RUNS and returns a line (end-to-end, not "
+              "just its helpers)",
+              isinstance(_ce, str) and _ce.startswith("COMPOUND:"))
+        check("and it never reports a bare depth>=3 threshold count as the "
+              "headline", "deep3:" not in _ce)
+        check("the line carries the depth DISTRIBUTION instead",
+              "depth[" in _ce)
+
         # A THRESHOLD COUNT over a RECURSIVE metric is a cliff. Depth runs
         # through the whole chain, so one edge onto a hub lifts everything
         # above it at once: measured 2026-09-21, deep3 went 48 -> 257 while

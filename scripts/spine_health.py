@@ -902,7 +902,18 @@ def check_compounding(today=None, journal=None, now=None):
         return "COMPOUND:no-tools"
     edges = sum(len(v) for v in graph.values())
     avg = edges / float(tools)
-    deep = sum(1 for d in _compound_depths(graph).values() if d >= 3)
+    # A THRESHOLD COUNT over a RECURSIVE metric is a cliff, not a trend.
+    # Depth runs through the whole chain, so one edge landing on a hub lifts
+    # every tool above it at once: measured 2026-09-21, deep3 went 48 -> 257
+    # while edges moved 1236 -> 1239. Three edges, and it read like a 5x
+    # improvement in composition. The distribution cannot do that -- it
+    # accounts for every tool -- and max names the longest real chain. deep3
+    # is still RECORDED so the existing history stays comparable.
+    _depths = _compound_depths(graph)
+    deep = sum(1 for d in _depths.values() if d >= 3)
+    _dist = collections.Counter(_depths.values())
+    depth_hist = "/".join("%d:%d" % (k, _dist[k]) for k in sorted(_dist))
+    depth_max = max(_depths.values()) if _depths else 0
 
     cohort = cohort_n = comp_deg = other_deg = anach = None
     try:
@@ -966,7 +977,8 @@ def check_compounding(today=None, journal=None, now=None):
     except OSError:
         pass
 
-    tag = "COMPOUND:%dt/%de %.2f/t deep3:%d" % (tools, edges, avg, deep)
+    tag = ("COMPOUND:%dt/%de %.2f/t depth[%s] max%d"
+           % (tools, edges, avg, depth_hist, depth_max))
     # The leading indicator goes next to the lagging one, always, because the
     # whole failure this check exists for was a turn that took a month to
     # surface in the corpus average.
