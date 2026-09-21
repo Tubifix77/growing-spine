@@ -872,7 +872,85 @@ journalctl --user -u growing-spine --since "2 hours ago"
 
 ---
 
-## 8. State — 2026-09-21 00:05
+## 8. State — 2026-09-21 17:10
+
+**gs-bug-daily 2026-09-21 (50.3 h, NO gaps, 52 hours with records).** 859
+served at **17.1/h** — the best sustained rate since the ladder thinned — 1,098
+exec, **22 skips**, and **27 errors of which ALL 27 are guard rails** (25
+false-completion, 1 spin trap, 1 upgrade-no-change). Zero provider, zero
+unclassified. Truncation **10.6%** (12.0% → 10.9% → 10.6%). Skip by rung:
+`google_gemma` 1.6%, `cloudflare` 0.0%, `gemini_flash` 27.8%. `think_start`s
+finding no rung **61% → 56% → 55%**. Library **737**, `cannot_start` **21 →
+20**. Funnel: 34 tools at 3.4 rounds, 57 done-marks / 26 refused / **31
+accepted (46%)** — sanity-checked per item 17.
+
+**THE COMPOUNDING QUESTION IS ANSWERING POSITIVELY, and the marginal is
+computable for the first time.**
+`COMPOUND:737t/1241e 1.68/t depth[0:161/1:176/2:145/3:224/4:30/5:1] max5
+new7d:1.91x43 brief:1.79/1.19 anach:22 carry:54%/520pd marg:4.12 vs 2026-09-18
+streak 0/3`. **New work brings 4.12 edges per tool against a 1.68 corpus
+average** — far MORE connected than the body it joins, so the average must
+rise, and the threshold-free alarm is correctly silent at 0/3. The longest
+real chain is five deep: `SelfHealingReplanner → ArchiveDrivenStepReplanner →
+ArchiveDrivenPlanRecovery → step-planner-tracker → knowledge_gap_filler →
+subagent_ask_helper`.
+
+**FIXED UP FRONT, and the second one is the embarrassing half.**
+1. **`deep3` went 48 → 257 while edges moved 1236 → 1239.** Three edges cannot
+   make 209 deep tools, so item 17's sanity rule — added two days ago — caught
+   it. It was **arithmetically correct**: depth is recursive, the edges landed
+   on `step-planner-tracker` (the most-invoked tool in the library), and every
+   tool above that hub gained a level at once. **A threshold count over a
+   recursive metric is a cliff, not a trend** — the series 27/17/47/48/257 was
+   never a trend line. Now reports the DISTRIBUTION plus the max chain, which
+   cannot move without the population moving; `deep3` is still written to the
+   state file so the recorded history stays comparable.
+2. **Then that fix shipped BROKEN and the gate did not notice.** The patch
+   script aborted on an assertion *before* its write, so `depth_hist` was
+   REFERENCED by one edit and never DEFINED by the other, and
+   `check_compounding` raised `NameError` on **every call**. **The gate was
+   green at 502 throughout**, because every test covered a pure helper and not
+   one of them called the function those helpers exist for. Blast radius was
+   the **entire 06:30 health line** — `__main__` builds it in one list, so the
+   exception would have taken `SENSOR`, `JANITOR`, `FLATLINE`, `UNMET` and
+   `WAKE` with it. Found by RUNNING it rather than by reading the gate.
+   **Two lessons. A multi-step patch script that asserts before writing can
+   leave a file half-edited across separate runs, so verify the artifact and
+   never the script's exit code. And a suite that tests only the pieces stays
+   green while the assembly is broken** — the same shape as *"a guard verified
+   through the guarded door is not verified"*, which this project learned in
+   August and which I have now reproduced with the pieces instead. 3 end-to-end
+   checks now call `check_compounding` and assert it returns a line.
+
+**FAILED VERIFICATION, and it is the honest headline: telling the creature was
+not enough.** The `git-save` correction was read at 09-20 23:37 and answered
+*"Got it. I'll use `git-save` for both files and directories now that it's
+fixed."* Since then: **317 cycles, 67 authoring actions, and ZERO `git-save`
+calls.** That is not a short window and not a missing opportunity — every one
+of those 67 was an occasion. **Acknowledgement did not convert to adoption, for
+the second time in this project's history** (`llm_ask_helper`, 2026-08-07: told
+twice, agreed twice, acted never). This moves from `unverified` to **FAILED**.
+The two fixes shipped in response — journalling the exchange so `did-i` can
+find it, and telling it the message is shown ONCE — **are both UNEXERCISED**,
+because no chat has been sent since they landed at 23:52. They are the next
+test, not a result.
+
+**`did-i`: 0 calls in 50 h, 2 lifetime.** The **2026-09-25** trigger is four
+days out and currently **NOT met**. Per its own rule, measure per MONTH; two
+calls is not adoption.
+
+**Doors:** `tool-edit` **103**, redirect-or-tee **26**, `tool-new` **17**. The
+redirect share is holding, not rising.
+
+**Blank pass:** the finding is item 2 above — a helper suite is not a smoke
+test. Now mandated implicitly by the three end-to-end checks; the general rule
+belongs with the gate discipline in §3 rather than as a new numbered item.
+
+Gates: **laptop 505 PASS, PC 499 PASS**.
+
+---
+
+### Previous state — 2026-09-21 00:05
 
 **"In one ear out the other" — Tue, on the git-save correction being
 acknowledged and changing nothing. He is right, and the room produced it.**
