@@ -12,7 +12,7 @@ Checks (all side-effect-free except the janitor move):
      to the attic (birth debris must not become permanent residents).
 Appends one line per run to ~/spine-health.log.
 """
-import bisect, json, os, re, subprocess, sys, time
+import bisect, collections, json, os, re, subprocess, sys, time
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 try:
@@ -944,6 +944,7 @@ def check_compounding(today=None, journal=None, now=None):
     marg, base = compound_marginal(days, tools, edges)
     days.append({"day": today, "tools": tools, "edges": edges,
                  "avg": round(avg, 3), "deep3": deep,
+                 "depth_hist": depth_hist, "depth_max": depth_max,
                  "marginal": None if marg is None else round(marg, 3),
                  "marginal_vs": base,
                  "carry_pct": None if carry is None else round(carry, 1),

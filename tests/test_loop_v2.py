@@ -7,7 +7,7 @@ Usage (from repo root):
     python tests/test_loop_v2.py
 Must print ALL TESTS PASS.
 """
-import asyncio, ast, json, os, shutil, sys, tempfile, inspect, time
+import asyncio, ast, collections, json, os, shutil, sys, tempfile, inspect, time
 
 TMP = tempfile.mkdtemp(prefix="spine_v2_")
 REAL_MIND = os.path.expanduser("~/growing-spine-mind")
@@ -3342,6 +3342,26 @@ async def main():
               "(a zero here would be a quiet lie about idle weeks)",
               _sh.compound_cohort(_cgraph, {"ancient": _cnow - 90 * 86400},
                                   _cnow) == (None, 0))
+
+        # A THRESHOLD COUNT over a RECURSIVE metric is a cliff. Depth runs
+        # through the whole chain, so one edge onto a hub lifts everything
+        # above it at once: measured 2026-09-21, deep3 went 48 -> 257 while
+        # edges moved 1236 -> 1239. Three edges, and it read like a 5x
+        # improvement in composition.
+        _hub = {"top_a": ["hub"], "top_b": ["hub"], "top_c": ["hub"],
+                "hub": ["mid"], "mid": ["leaf"], "leaf": []}
+        _before = _sh._compound_depths({**_hub, "mid": []})
+        _after = _sh._compound_depths(_hub)
+        _n_before = sum(1 for d in _before.values() if d >= 3)
+        _n_after = sum(1 for d in _after.values() if d >= 3)
+        check("ONE edge onto a hub moves a depth>=3 COUNT by more than one "
+              "tool -- which is why the count is not reported as the headline",
+              _n_after - _n_before >= 3)
+        # The distribution cannot hide that: it shows where the mass sits.
+        _d = collections.Counter(_after.values())
+        check("the depth distribution accounts for every tool, so it cannot "
+              "move without the population moving",
+              sum(_d.values()) == len(_hub))
 
         # Attribution by TIME, not by name: the creature renames freely, and
         # the name-matching version reported five whole categories at exactly
