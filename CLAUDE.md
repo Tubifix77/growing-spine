@@ -802,6 +802,28 @@ or a path literal that already exists elsewhere, stop.
   "we must find a new one next time we run out." Prefer a NEW account over a
   second model on one we already hold: `groq` and `groq_oss120` shared a bucket,
   so the second was never added capacity. Source its limits from headers (§5).
+- **Chat is a HERE-AND-NOW channel. It can carry a fact; it has never carried
+  a habit change.** Tue's standing notion, held from early on and confirmed by
+  measurement on 2026-09-21: *"the chat can only work to a here and now fix and
+  question to speed things up that should be fixed in framework also."* The
+  three chat interventions this project has ever made split cleanly by **what
+  the framework did alongside**, not by how well the message was written:
+
+  | chat used to | uses/month after | outcome |
+  |---|---|---|
+  | announce a capability the framework had just BUILT (`ask`, 08-14) | 79 Aug → **160** Sep | **adopted** |
+  | correct a belief, nothing new framework-side (`llm_ask_helper`, told twice, 08-07) | kept using the broken path | **failed** — the operator had to fix the tool |
+  | correct a belief (`git-save`, 09-20) | 503 → 102 → 21 → **0**, and 0 across 67 authoring actions after | **failed** |
+
+  So a chat message is an **accelerant for something the framework already
+  carries**, and worthless as the carrier itself. **It is never a valid answer
+  to "how does this fact reach the creature"** — that is `gs-bug-daily` Tier 4
+  item 5, and "we told it" now has a 0-for-2 record there. Write the message
+  when it saves the creature a day of rediscovering something the framework has
+  ALREADY made true; never write it in place of the framework change.
+  The corollary is the useful half: **if the only available fix is a chat
+  message, there is no fix yet** — either build the thing that makes the fact
+  arrive unprompted, or accept that the behaviour stands and say so.
 - **If a test is quick and nothing live is at risk, why is it waiting?** A net
   that has never fired is not evidence of calm water — bench the extinguisher.
 - **Don't tune a constant with no evidence** — that is how voodoo constants are born.

@@ -273,6 +273,12 @@ For **each** fault, produce all six:
    the fact has to arrive the way the gate fact arrives. Name the channel and its
    trigger. If the finding reaches only us, say so: that is a weaker outcome and
    must be labelled as one, not presented as a fix.
+   **"We sent it a chat message" is NOT a valid answer to this item** —
+   see `CLAUDE.md` §6, "Chat is a HERE-AND-NOW channel". Chat has a 0-for-2
+   record at changing an established behaviour and a 1-for-1 record at
+   announcing a capability the framework had already built. If the only channel
+   you can name is chat, there is no fix yet: either build the thing that makes
+   the fact arrive unprompted, or record plainly that the behaviour stands.
 6. **Confirmation that no tool of its own was edited** and that none of its junk
    or `.bak` files was deleted.
 
