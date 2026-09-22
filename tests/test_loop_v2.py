@@ -1355,10 +1355,19 @@ async def main():
     _walls = []
 
     async def _run_branch(err_text):
-        kc = _kmod.Keychain()
+        # NEVER Keychain() here: __init__ reads config.yaml, which is
+        # gitignored and laptop-only, so constructing one is green on the
+        # host and red on the PC peer -- the section 5 scar about a test
+        # asserting a mechanism where the mechanism cannot exist. We are
+        # exercising complete(), not config loading, so build the object
+        # directly and set exactly the attributes complete() touches.
+        kc = _kmod.Keychain.__new__(_kmod.Keychain)
         kc.providers = [{"key": "stubrung", "endpoint": "http://x",
                          "api_key": "k", "model_id": ["only-model"]}]
         kc.state = {}
+        kc.last_used = kc.last_model = kc.last_finish_reason = None
+        kc.last_truncated = False
+        kc.last_escalations = 0
         _real_call, _real_exh = _kprov.call, _kqs.record_exhaustion
 
         async def _fake_call(cfg, messages, max_tokens=2048, model=None):
