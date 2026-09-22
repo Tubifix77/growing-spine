@@ -57,6 +57,20 @@ def order_providers(enabled, state, now, cooldown=UPWARD_REPROBE_SECS):
             [p for p in enabled if exhausted(p) and not cooled(p)])
 
 
+def _diag(err, width=160):
+    """One line of an error, for a human reading the log.
+
+    Collapses whitespace so a pretty-printed JSON body does not spread one
+    failure over thirty lines, and says when it cut. A diagnostic that hides
+    its own truncation is the keyhole scar wearing a new hat (CLAUDE.md
+    section 5); a marker always reports the total NOT shown.
+    """
+    flat = " ".join(str(err).split())
+    if len(flat) <= width:
+        return flat
+    return "%s...[+%d chars]" % (flat[:width], len(flat) - width)
+
+
 def classify_error(err: str) -> str:
     """Sort a provider error string into an action class.
     too_large / quota -> mark exhausted, next provider
@@ -289,13 +303,41 @@ class Keychain:
                         tail = ("falling to the next model"
                                 if _mi + 1 < len(variants)
                                 else "no models left on this rung -- walling it")
-                        print(f"[keychain] {cfg['key']}: model {mid} is GONE "
-                              f"(404 from the provider) -- {tail}")
+                        # QUOTE THE ERROR, never a status we did not read.
+                        # This line said "(404 from the provider)" as a LITERAL
+                        # while classify_error returns "gone" for 404, "not
+                        # found", "no endpoints", "model_not_found", the
+                        # Workers-free-plan 403, and any body that merely
+                        # CONTAINS the characters 404. On 2026-09-22 it
+                        # reported groq_oss120 and cloudflare as GONE six
+                        # times; both models answered a live probe the next
+                        # day. Under CLAUDE.md section 6 a defunct model is
+                        # retired the moment it is detected and without asking
+                        # Tue -- so a false retirement verdict is a line that
+                        # gets ACTED on, and two live rungs were one reading
+                        # away from being disabled.
+                        print(f"[keychain] {cfg['key']}: model {mid} reported "
+                              f"GONE by classify_error -- {tail}. "
+                              f"Provider said: {_diag(err)}")
                         break  # next MODEL, same rung
 
                     if kind in ("too_large", "quota"):
+                        # A WALL MUST NAME ITS CAUSE. `gone` has printed since
+                        # 2026-08-17 and `flaky` prints on every hop, but the
+                        # branch that actually walls an account printed
+                        # NOTHING -- so the commonest degradation in the
+                        # system was the one no log could explain. On
+                        # 2026-09-22 google_gemma walled 235 times in 32 h
+                        # against a configured 14,400/day and no instrument
+                        # anywhere could say why; it took a live probe to find
+                        # that the binding limit is 16,000 INPUT TOKENS PER
+                        # MINUTE, a different dimension from the one config
+                        # names. That question should have been answerable
+                        # from the log.
                         qs.record_exhaustion(self.state, cfg["key"])
                         stop_rung = True
+                        print(f"[keychain] {cfg['key']} WALLED as {kind} "
+                              f"-- {_diag(err)}")
                         break  # the ACCOUNT is spent -- next provider
 
                     if kind == "flaky":

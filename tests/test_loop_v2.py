@@ -1309,6 +1309,95 @@ async def main():
               not in ("quota", "too_large", "gone")
               for c in ("520", "521", "522", "523", "524", "525", "526", "527")))
 
+    # ---- a diagnostic names the evidence it saw (2026-09-23) ---------------
+    # Two lines in keychain.py made claims they had not checked.
+    #
+    # (1) The GONE line printed "(404 from the provider)" as a LITERAL, while
+    #     classify_error returns "gone" for 404, "not found", "no endpoints",
+    #     "model_not_found", the Workers-free-plan 403 and any body that merely
+    #     CONTAINS the characters 404. On 2026-09-22 it named groq_oss120 and
+    #     cloudflare as GONE six times; a live probe the next day got a real
+    #     answer from one and that rung's own documented 429 from the other.
+    #     Both were alive. Under CLAUDE.md section 6 a defunct model is retired
+    #     the moment it is detected and WITHOUT asking Tue, so this line is one
+    #     that gets acted on: two live rungs were one reading from disabled.
+    #
+    # (2) The branch that WALLS an account printed nothing at all, while `gone`
+    #     has printed since 2026-08-17 and `flaky` prints on every hop. So the
+    #     commonest degradation in the system was the only one no log could
+    #     explain -- google_gemma walled 235 times in 32 h and it took a live
+    #     probe to learn the binding limit is 16,000 INPUT TOKENS PER MINUTE,
+    #     a different dimension from the 14,400/day that config names.
+    #
+    # The load-bearing test is the NEGATIVE one: the GONE line must not name a
+    # status nobody read. A test that only asserted the new wording would pass
+    # while someone helpfully put the hardcoded 404 back.
+    from keychain.keychain import _diag as _kd
+    from keychain import keychain as _kmod
+    from keychain import provider as _kprov
+    from keychain import quota_state as _kqs
+
+    check("diag: collapses a pretty-printed body onto one line",
+          "\n" not in _kd('HTTP 429: {\n  "error": {\n    "code": 429\n  }\n}'))
+    _long = "x" * 400
+    check("diag: truncation announces the TOTAL not shown",
+          _kd(_long).endswith("...[+240 chars]") and len(_kd(_long)) < 200)
+    check("diag: a short error is passed through whole",
+          _kd("HTTP 402: nope") == "HTTP 402: nope")
+
+    # Exercise the REAL branches through Keychain.complete with a stub
+    # provider, capturing stdout. record_exhaustion is stubbed because it ends
+    # in save_state(), which writes the live keychain/quota_state.json -- a
+    # test once flattened every provider's last_success_at that way (section 5).
+    import contextlib as _ctx
+    import io as _iodiag
+
+    _walls = []
+
+    async def _run_branch(err_text):
+        kc = _kmod.Keychain()
+        kc.providers = [{"key": "stubrung", "endpoint": "http://x",
+                         "api_key": "k", "model_id": ["only-model"]}]
+        kc.state = {}
+        _real_call, _real_exh = _kprov.call, _kqs.record_exhaustion
+
+        async def _fake_call(cfg, messages, max_tokens=2048, model=None):
+            return {"text": "", "tokens_used": 0, "finish_reason": "",
+                    "truncated": False, "error": err_text}
+
+        _kprov.call = _fake_call
+        _kqs.record_exhaustion = lambda state, key: _walls.append(key)
+        buf = _iodiag.StringIO()
+        try:
+            with _ctx.redirect_stdout(buf):
+                try:
+                    await kc.complete("hi")
+                except Exception:
+                    pass          # all rungs failing raises by design
+        finally:
+            _kprov.call, _kqs.record_exhaustion = _real_call, _real_exh
+        return buf.getvalue()
+
+    # A Workers-free-plan 403 is `gone` and is NOT a 404.
+    _cf403 = ('HTTP 403: {"code":5035,"message":"not available on the '
+              'Workers Free plan"}')
+    _out_gone = await _run_branch(_cf403)
+    check("gone line: never claims a status it did not read",
+          "404 from the provider" not in _out_gone, _out_gone[:120])
+    check("gone line: quotes the provider's actual error",
+          "5035" in _out_gone or "Workers Free plan" in _out_gone,
+          _out_gone[:120])
+    check("gone line: still says the rung was walled",
+          "walling it" in _out_gone, _out_gone[:120])
+
+    _quota429 = ('HTTP 429: quota exceeded for metric '
+                 'generate_content_free_tier_input_token_count, limit: 16000')
+    _out_wall = await _run_branch(_quota429)
+    check("wall line: an account walled as quota says so",
+          "WALLED as quota" in _out_wall, _out_wall[:140])
+    check("wall line: carries the provider's own text",
+          "16000" in _out_wall, _out_wall[:140])
+
     # ---- prov.call NEVER RAISES (2026-09-15) --------------------------------
     # `body = e.read()` sat bare inside `except urllib.error.HTTPError`. An
     # exception raised INSIDE an except clause is never offered to the sibling
