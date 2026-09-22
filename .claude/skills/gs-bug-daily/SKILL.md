@@ -157,6 +157,18 @@ PY
     population never reports a total it cannot reconcile with that
     population.** A derived number that cannot fail a check is not a
     measurement.
+19. **A rung that SERVES ZERO while reopening repeatedly.** Added 2026-09-23 by
+    the blank pass. `groq_oss120` reopened its window 28 times in 32 h and served
+    **0 of 408 cycles**, and nothing on this list could see it: FLATLINE watches
+    last success and it HAD one (the probe that reopened it), the skip rate has
+    no denominator for a rung that never serves, and the provider-mix table just
+    shows a small number next to a large one. It sits ABOVE the workhorse, so
+    every cycle paid a reach and a hop for it. The cause was invisible until the
+    wall started logging: **HTTP 413 Request too large**, on every single reach.
+    Report, per rung: reopens, served, and served-per-reopen. **A rung with
+    reopens and zero served is a rung failing on every attempt** — the mirror of
+    item 15's "answers but cannot be used", and it hides in exactly the same way.
+
 18. **Deltas against the previous run of this skill**, from the history file.
 
 ## Tier 2 — pointed open inspection. Prose, and it cannot be skipped.

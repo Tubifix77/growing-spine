@@ -921,7 +921,149 @@ journalctl --user -u growing-spine --since "2 hours ago"
 
 ---
 
-## 8. State — 2026-09-21 18:00
+## 8. State — 2026-09-23 00:50
+
+**gs-bug-daily 2026-09-23 (31.3 h, NO gaps, 32 hours with records).** 408
+served at **12.8/h** — down from 17.1 — 520 exec, **7 skips** (all truncation),
+and **10 errors of which ALL 10 are guard rails** (done_gate/false_completion,
+four sampled by hand and all correct). Zero provider, zero unclassified.
+Truncation **7.6%** (10.6% → 7.6%). Library **742**, `cannot_start` **20**,
+flat, and **0 of the 22 tools written in-window fail to start** — the flow is
+clean for the fourth window running. Funnel: 26 tools at 3.2 rounds, 30
+done-marks / 10 refused / **20 accepted (67%)**, sanity-checked per item 17.
+Gates: **laptop 520 PASS, PC 514 PASS**.
+
+**THE HEADLINE IS A CORRECTION TO THIS FILE, and it was produced by an
+instrument that did not exist three hours ago.** §8 has said since 09-02 that
+`mistral` is dark because its **monthly allowance** is spent and that it
+**"returns 10-01"**. That is false and has been false for some or all of 480
+hours. The rung answers `HTTP 403 {"message":"This model is not available in
+your subscription tier","type":"tier_not_allowed","code":"1910"}` — a
+**paywall, not a reset**, and §6 says a rung behind a paywall is DEFUNCT for
+us by definition. Nobody could see it because the branch that walls an account
+**printed nothing at all**.
+**But the account is ALIVE and the rung should be repointed rather than
+retired.** Probed through `provider.call`: `mistral-large-latest` 403
+tier_not_allowed; `mistral-medium-latest` and `mistral-small-latest` **429
+rate_limited** — reachable, not tier-blocked; `ministral-8b-latest` **answers a
+wake-sized prompt with `finish=stop`**. So only the large model moved behind
+the tier. **Named trigger: next `gs-ladder` — repoint to
+`mistral-medium-latest` after one clean-window wake-sized validation.**
+`ministral-8b` is excluded by the quality floor, not by capability. Config
+change, so it follows ladder discipline rather than being done in a bug-daily.
+
+**THE WORKHORSE'S REAL LIMIT IS A DIFFERENT DIMENSION FROM THE ONE CONFIG
+NAMES.** `google_gemma` walled **235 times in 32 h** while serving 365 cycles
+against a configured `limit: 14400`/day, and no instrument could say why. One
+live call settles it: the 429 body carries
+`quotaId: GenerateContentInputTokensPerModelPerMinute-FreeTier`, **limit
+16,000 — INPUT TOKENS PER MINUTE**. Requests per day was never the binding
+constraint. Two consequences, both measured:
+- The loop sleeps **120 s** on a quota wall while the body says
+  **`retryDelay: 41s`**. 302 sleeps in the window ≈ **6.6 h of unnecessary
+  sleep in 32 h**, which is most of the gap between 12.8/h and the 15/h floor.
+- **A fatter wake context now costs throughput directly**, because fewer
+  cycles fit in 16,000 tokens/minute. That is a THIRD edge of the 08-29 cap
+  raise, and §5's rule that a context-size change has two edges was already one
+  short.
+
+**FIXED UP FRONT — four, and they are one class wearing three costumes: a
+diagnostic that names something it never checked.**
+1. **`73cf999` — the GONE line hardcoded `"(404 from the provider)"`** while
+   `classify_error` returns `gone` for 404, *not found*, *no endpoints*,
+   *model_not_found*, the Workers-free-plan 403, and any body that merely
+   CONTAINS the characters 404. On 09-22 it named `groq_oss120` and
+   `cloudflare` GONE six times. **Probed today: groq_oss120 answered and
+   cloudflare returned its own documented daily-allowance 429. Both alive.**
+   §6 says *"a defunct model is removed the moment it is detected... do not
+   queue it for his decision"* — so two live rungs were one reading away from
+   being disabled, by the book. The line now quotes the provider.
+2. **`73cf999` — the wall that printed nothing.** `gone` has printed since
+   08-17 and `flaky` prints on every hop; the branch that actually walls an
+   account was silent. **Verified firing in production 30 seconds after the
+   restart, on four rungs** — and it immediately produced both findings above
+   plus the next one.
+3. **`8002a57` — the new test constructed `Keychain()`**, which reads
+   laptop-only `config.yaml`: green on the host, red on the PC. The
+   green-here-red-there scar, fourth instance.
+4. **`1c26df2` — the done-gate told the creature a COMMENT had exited with
+   code 1.** `bad_cmd[:120]` is the whole exec block and the creature opens
+   most blocks with a comment stating its plan: **142 of the 279
+   false-completion blocks since 09-01 — 51% — quote a comment.** This one is
+   in text the creature READS, which §5 records as the only class of scar that
+   has ever recurred after being fixed, so it is held to the code standard.
+   Verdict logic untouched; only the quoted fragment changed.
+
+**AND THE EMBARRASSING HALF, two days after the last one of exactly this
+shape.** Fix 4 first shipped with tests on the helper alone — and **the
+mutation PASSED**: the rendered message still quoted the comment while the
+gate stayed green at 517. That is 2026-09-21's *"a suite that tests only the
+pieces stays green while the assembly is broken"* reproduced 48 hours later by
+the person who wrote it down. The message is now a named function
+(`_false_completion_reason`) with the RENDERED string under test, and
+reverting the call site fails two checks. **Second time in one session that
+verifying the ARTIFACT rather than the script's exit code caught something:**
+a re-run of a patch script aborted on its assert and left `loop.py` half
+mutated, and only `grep -c` on the file showed it.
+
+**THE §8 UUID HAZARD HAS FIRED, and it is the root of the false-GONE.**
+The trigger was *"the first walled rung nobody can explain, or 2026-09-10"* —
+both conditions are now met. `classify_error` matches **bare digits anywhere
+in the body** (`"404" in err`) and checks `gone` **before** `quota`, so any
+error text containing those three characters retires a live model. This also
+**blocks the retryDelay fix above**: `prov.call` keeps `body[:200]`, and
+measured against the real 1,382-char Google 429 body the useful fields sit at
+**offset 400 (`limit: 16000`), 482 (`RESOURCE_EXHAUSTED`) and 1342
+(`retryDelay`)** — none survives — but widening the capture makes the
+digit-matching hazard strictly worse. **So the order is forced: separate
+status from body, then widen, then honour `retryDelay`.** Named trigger:
+**2026-09-25, top item.** It is the largest measured throughput loss on the
+board.
+
+**`groq_oss120` served 0 of 408 cycles and the new line says why:** `HTTP 413
+Request too large` on every reach. It sits ABOVE `google_gemma`, so every
+cycle pays a reach and a hop. Known since §8 08-17 ("TPM-walled at 8000, so it
+cannot take fat thinks") and never visible in a log until today.
+
+**Ladder:** `google_gemma` 365, `cloudflare` 24, `gemini_flash` 19,
+`groq_oss120` **0**, `mistral` **0**. Effective depth is **one**, and 63% of
+1,106 `think_start`s found no rung at all (55% last run).
+
+**Instruments.** `THROUGHPUT:!!` fired all window at 10–13/h and for the right
+reason — and for the first time we can say what the reason IS. FLATLINE named
+`mistral` correctly as dark and **carried the wrong cause for 20 days**.
+FLATLINE on `cloudflare` still fires by construction (trigger 2026-09-27).
+The escalation ran **37 times with 6 ending `finish=stop`**. The broken-tool
+warning was silent, correctly — the set did not change. `UNMET:330n/10763d+0
+streak 0/7`. `WAKE:p50` **3630 ms** against the 5,000 budget, rising with the
+library (3271 → 3630). `COMPOUND:739t/1244e **1.68/t** marg **4.23** streak
+0/3` — new work still far more connected than the corpus it joins.
+
+**Item 13 keeps earning its place:** 3 provider failures (`EMPTY-REPLY`,
+provider returned nothing) sat under kind `idea_gate`, invisible to a census
+keyed on `kind == "error"` — which is why the error bucket reads zero provider
+errors and that reading is true but incomplete.
+
+**`did-i`: 0 calls this window, 2 lifetime, none since 09-19.** The
+**2026-09-25** trigger is two days out and **NOT met**. `git-save` 0, as
+recorded when the chase was retired. Framework-tool monthly curves are
+otherwise healthy: `ask` 79 → **165**, `web-fetch` 57 → **85**, `memories`
+48 → 62. `tool-find` fell **937 → 232** — worth a look at the next
+`gs-products`.
+
+**Doors:** `tool-edit` 64, redirect-or-tee 8, `tool-new` 8. The redirect share
+fell from 18% to 10%.
+
+**Blank pass:** the finding is that **a rung serving ZERO while reopening
+dozens of times is invisible to every item on the list.** `groq_oss120`
+reopened 28 times, served 0, and nothing flagged it: FLATLINE watches last
+success (it had one — the probe), the skip rate has no denominator for a rung
+that never serves, and the provider-mix table just shows a small number. Now
+mandated as `gs-bug-daily` item 19, dated.
+
+---
+
+### Previous state — 2026-09-21 18:00
 
 **ANSWERED: `tool-edit` should NOT version what it overwrites, and the reason
 is that a BETTER mechanism already exists and nobody knew its coverage —
