@@ -2537,6 +2537,45 @@ def _run_dup_scan_if_due() -> str:
         return ""
 
 
+def _quotable_command(text: str) -> str:
+    """The first line of `text` that is actually a command.
+
+    The done-gate quotes the failing command back to the creature. It quoted
+    `bad_cmd[:120]`, which is the whole exec block -- and the creature opens
+    most blocks with a comment explaining its plan, so the message routinely
+    said a COMMENT had exited with code 1. Measured 2026-09-23: 142 of the 279
+    false-completion blocks since 09-01, 51%, quoted a comment. A comment
+    cannot exit 1, and CLAUDE.md section 5 is explicit that a diagnostic which
+    is false about the artifact it describes gets obeyed to the letter -- the
+    creature spent ten edits adding a shebang to a file that had one because a
+    message named the wrong thing.
+
+    Invariant: a diagnostic quotes the artifact it is about. Nothing else
+    changes -- the VERDICT, the spin-trap streak key and _abandon_project all
+    still see the full bad_cmd, because those are about the whole block.
+    """
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+        if line and not line.startswith("#"):
+            return line
+    return (text or "").strip()
+
+
+def _false_completion_reason(bad_cmd: str, bad_code) -> str:
+    """What the creature is SHOWN when the done-gate refuses a completion.
+
+    One named function so a test can assert the rendered message rather than
+    its ingredients. Testing _quotable_command on its own left this green
+    while the message still quoted a comment -- the 2026-09-21 lesson that a
+    suite covering only the pieces stays green while the assembly is broken.
+    """
+    return (f"You set current-phase to done, but "
+            f"`{_quotable_command(bad_cmd)[:120]}` exited with "
+            f"code {bad_code} in the same cycle. A failing check means you are NOT "
+            f"done. Phase reverted to code. Fix the failure, run your DONE WHEN "
+            f"check until it exits 0, and only then mark done.")
+
+
 def _enforce_done_gate(executed):
     """Verify a 'done' assertion against ground truth.
 
@@ -2714,10 +2753,7 @@ def _enforce_done_gate(executed):
 
         # Normal block: revert phase and tell the creature exactly what failed
         mem.store(VOLUME_MOUNT, "current-phase", "code")
-        reason = (f"You set current-phase to done, but `{bad_cmd[:120]}` exited with "
-                  f"code {bad_code} in the same cycle. A failing check means you are NOT "
-                  f"done. Phase reverted to code. Fix the failure, run your DONE WHEN "
-                  f"check until it exits 0, and only then mark done.")
+        reason = _false_completion_reason(bad_cmd, bad_code)
         with open(DONE_BLOCK_PATH, "w", encoding="utf-8") as f:
             f.write(reason)
         journal.append(VOLUME_MOUNT, "error",

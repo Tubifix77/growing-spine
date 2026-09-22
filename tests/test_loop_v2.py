@@ -1309,6 +1309,38 @@ async def main():
               not in ("quota", "too_large", "gone")
               for c in ("520", "521", "522", "523", "524", "525", "526", "527")))
 
+    # ---- the done-gate quotes the COMMAND, not the comment (2026-09-23) ----
+    # `bad_cmd[:120]` is the whole exec block, and the creature opens most
+    # blocks with a comment explaining its plan -- so the message told it a
+    # COMMENT had exited with code 1. Measured on the live journal: 142 of the
+    # 279 false-completion blocks since 2026-09-01, 51%. Same class as the
+    # keychain lines above and as the false "no #! line" that drew ten edits
+    # in five minutes: a diagnostic must name the artifact it is about.
+    from executive.loop import _quotable_command as _qc
+
+    check("done-gate quote: skips a leading comment",
+          _qc("# Step 3: run the upgraded tool\nmemory_archive_research 'x'")
+          == "memory_archive_research 'x'")
+    check("done-gate quote: skips several comments and blank lines",
+          _qc("\n# one\n\n#  two\n  ./thing --flag\nmore") == "./thing --flag")
+    check("done-gate quote: a plain command is returned unchanged",
+          _qc("pytest -q") == "pytest -q")
+    check("done-gate quote: an all-comment block still yields something",
+          _qc("# only a comment").strip() != "")
+
+    # The load-bearing check is on the RENDERED MESSAGE. Asserting the helper
+    # alone left the gate green while the message still quoted the comment.
+    from executive.loop import _false_completion_reason as _fcr
+
+    _blk = "# Step 3: run the upgraded tool\nmemory_archive_research 'dark energy'"
+    _msg = _fcr(_blk, 1)
+    check("done-gate message: quotes the command, not the comment above it",
+          "`memory_archive_research 'dark energy'`" in _msg, _msg[:140])
+    check("done-gate message: the comment is not presented as the failure",
+          "`# Step 3" not in _msg, _msg[:140])
+    check("done-gate message: still states the code and the remedy",
+          "code 1" in _msg and "only then mark done" in _msg, _msg[:140])
+
     # ---- a diagnostic names the evidence it saw (2026-09-23) ---------------
     # Two lines in keychain.py made claims they had not checked.
     #
