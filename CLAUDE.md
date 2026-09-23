@@ -921,7 +921,89 @@ journalctl --user -u growing-spine --since "2 hours ago"
 
 ---
 
-## 8. State — 2026-09-23 20:10
+## 8. State — 2026-09-23 21:00
+
+**ALL FOUR REMAINING TEXT SURFACES ARE BENCHED. Two verify, one does not, one
+was the WRONG TEST and is retracted.** `scripts/text_bench.py --bench all`,
+`gemma4:12b` on the workstation, real fixtures from the journal, temperature
+0. **Zero surfaces reported UNKNOWN**, so no prompt was input-truncated and
+no reply was starved.
+
+| surface | n | old | new | verdict |
+|---|---|---|---|---|
+| **shebang** | 5 | 1 (20%) | **4 (80%)** | **VERIFIED** — large effect |
+| done_gate | 32 | 20 (62%) | 22 (69%) | no measurable difference |
+| chat one-shot | 12 | 1 (8%) | 2 (17%) | no measurable difference |
+| truncation marker | 14 | — | — | **RETRACTED: wrong test** |
+
+**THE CONTEXT CONFOUND TUE NAMED WAS REAL, AND IT WOULD HAVE RUINED THIS.**
+Ollama ignores gemma4's own 262,144-token context and applies its own
+default: `prompt_eval_count` pins at **2,051 tokens** whether you send 24k,
+74k or 186k characters, and it discards the **FRONT** of the prompt, so a
+needle placed at the start vanishes and the model answers confidently from
+what survived. Raising `num_ctx` does not fix it cleanly — it then truncates
+to roughly **HALF** the setting (4,099 at 8,192; 8,195 at 16,384). The bench
+now sets `num_ctx` explicitly and checks reported prompt tokens against
+characters sent on **every** call. Measured before any calls were made: the
+largest prompt across all four surfaces is **1,509 chars ≈ 377 tokens**
+against a safe ceiling near 4,800, so nothing needed squeezing — and the
+earlier done_gate run (134 tokens max) was never affected either.
+
+**THE SHEBANG WARNING IS THE FIRST TEXT FIX THIS PROJECT HAS EVER VERIFIED.**
+1/5 → 4/5. Small n, but a large effect on small n is informative where a
+small one is not, and it is the exact failure the 09-17 change was written
+for: the creature made **ten identical edits in five minutes**, each adding a
+shebang *below* a comment, against a message that said "no #! line" about a
+file that had one. With the old wording the model puts the shebang on line 1
+once in five; with the new wording, four times in five.
+
+**THE TRUNCATION BENCH IS RETRACTED AS AN INVALID TEST, under Tue's own
+rule** — *"if you cant fit the test case into the ollama model you should
+stop because then its the wrong test."* It is not a context problem: the
+fixtures are capped `exec_end` results with the **originating command
+stripped out**, so the model cannot know which file to re-read and emits
+placeholders — `less -N <file_path_or_descriptor>`, `tail -n 200 -f <(...)`,
+`less -R -X -S -R -X -S -R...`. Worse, **my scorer counted some of that
+garbage as a PASS** (`less $(ls -1 | grep ...)` scored as "asked 1 line,
+fits"). So 21% → 36% measures nothing and is not reported. **To make it
+valid the fixture must carry the command that produced the output, and the
+scorer must reject an answer that names no concrete file.**
+
+**THE CHAT ONE-SHOT LINE DOES NOT RELIABLY PRODUCE A DURABLE WRITE, and the
+bench reproduces §6's conclusion by a second route.** 1/12 → 2/12, noise, and
+the absolute level is the finding: the model answers *"No actions required.
+The message is informational"* to most world-facts, **in both conditions**.
+That is precisely the production behaviour — acknowledge, act never — that
+made chat 0-for-2 at changing an established habit. §6 already says *"a chat
+message is an accelerant for something the framework already carries, and
+worthless as the carrier itself"*; this is the first independent measurement
+of it. **One detail worth keeping: fixture 12 is the REAL `git-save` message
+that failed in production, and it flipped MISS → OK** — with the one-shot
+line the model wrote the fact down, without it, it did not. n=1, so it is a
+straw in the wind and not a result.
+
+**Scorers were sanity-checked against hand cases BEFORE the findings were
+believed** — 6/6 for the chat scorer, 6/6 for the truncation scorer on
+fits/doesn't-fit. That is what exposed the truncation scorer's real failure
+being upstream, in the fixture rather than the arithmetic.
+
+**THE RETRYDELAY FIX IS VERIFIED IN PRODUCTION.** 1.3 h after the restart:
+**18 quota sleeps, every one provider-stated, 5–27 s instead of a flat 120 s**
+— roughly 30 minutes of sleep returned in 78 minutes. Throughput read
+**15.6 served/h**, above the declared 15/h floor for the first time in days
+(12.8 → 13.1 → 15.6), with zero errors. **Attribution caveat, because §5
+demands one:** three changes landed in that same restart (retryDelay, mistral
+disabled, groq_oss120 demoted), so the *sleep durations* are directly
+attributable and the *throughput gain* is not cleanly attributable to any one
+of them.
+
+**Next, and it is now a rule rather than an aspiration: a text change the
+creature reads gets benched BEFORE it ships.** The truncation marker is the
+outstanding one and needs a better fixture first.
+
+---
+
+### Previous state — 2026-09-23 20:10
 
 **A LOCAL-MODEL BENCH NOW EXISTS FOR TEXT THE CREATURE READS, and its first
 run said my own fix from this morning is NOT an improvement.** Tue's idea,
