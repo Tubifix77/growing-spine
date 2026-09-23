@@ -957,17 +957,38 @@ shebang *below* a comment, against a message that said "no #! line" about a
 file that had one. With the old wording the model puts the shebang on line 1
 once in five; with the new wording, four times in five.
 
-**THE TRUNCATION BENCH IS RETRACTED AS AN INVALID TEST, under Tue's own
-rule** — *"if you cant fit the test case into the ollama model you should
-stop because then its the wrong test."* It is not a context problem: the
-fixtures are capped `exec_end` results with the **originating command
-stripped out**, so the model cannot know which file to re-read and emits
-placeholders — `less -N <file_path_or_descriptor>`, `tail -n 200 -f <(...)`,
-`less -R -X -S -R -X -S -R...`. Worse, **my scorer counted some of that
-garbage as a PASS** (`less $(ls -1 | grep ...)` scored as "asked 1 line,
-fits"). So 21% → 36% measures nothing and is not reported. **To make it
-valid the fixture must carry the command that produced the output, and the
-scorer must reject an answer that names no concrete file.**
+**THE TRUNCATION BENCH WAS REBUILT AND IS NOW VALID -- and it says the marker
+DOES NOT WORK.** The first version was the wrong test and was retracted: the
+fixtures were capped `exec_end` results with the originating command stripped
+out, so the model could not know which file to re-read and answered with
+placeholders (`less -N <file_path_or_descriptor>`), and my scorer counted
+some of that as a pass. Rebuilt on Tue's instruction: 16 fixtures pairing
+`exec_start` with its `exec_end` (2,656 such pairs exist on the current
+window), each a single-line read of one concrete file, and a scorer that
+requires all three of naming the real file, being a bounded read, and fitting
+the window -- sanity-checked 8/8 by hand first, including the two cases the
+old scorer got wrong.
+
+**Result: old marker 4/16 (25%), current marker 3/16 (19%). No measurable
+difference, and both are bad.** It reproduces the production failure exactly:
+the model answers `tail -n +100`, `sed -n '10,1000p'`, `tail -n 1655` --
+an order of magnitude over the ~30 lines that fit -- in BOTH conditions. §5
+recorded the mechanism on 08-27 (*"the ceiling is stated in CHARACTERS and it
+asks in LINES"*) and it is still live.
+
+**Then the bench stopped me shipping the obvious fix.** Candidate marker:
+`[+1606 chars cut; window 1200 chars, about 30 lines]` -- state the ceiling
+in the unit the reader answers in. **It scored WORSE: 3/16 -> 1/16.** The
+reason is visible in the transcripts and is the real lead: **every single
+passing answer was BYTE-bounded (`tail -c 1000`), and naming lines pushed the
+model off the one form that works.** So the remedy is probably to steer
+toward a byte-bounded read rather than to describe the ceiling better -- but
+that is a design change, it is not obvious, and it is not being iterated
+blindly tonight. **Named trigger: bench a byte-steering marker before any
+marker change ships.** Nothing shipped.
+
+This is the bench paying for itself on its first real use: a change I would
+have shipped as self-evidently correct measured worse than what it replaced.
 
 **THE CHAT ONE-SHOT LINE DOES NOT RELIABLY PRODUCE A DURABLE WRITE, and the
 bench reproduces §6's conclusion by a second route.** 1/12 → 2/12, noise, and
