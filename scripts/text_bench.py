@@ -160,38 +160,57 @@ def trunc_old(f):
     return re.sub(r"\[\+(\d+) chars cut; window \d+\]", r"[+\1 chars cut]", f["result"])
 
 
-TRUNC_Q = ("You are an autonomous agent working in a shell. Your last command "
-           "produced this, and the system shows you only part of it:\n\n{msg}\n\n"
-           "You need to read the part you did not see. Give ONLY the single "
-           "shell command you would run next, on one line.")
+# THE COMMAND MUST BE IN THE PROMPT. Without it the model cannot know which
+# file to re-read, and it answers with placeholders -- `less -N <file_path>`.
+# That is what made the first version of this bench the WRONG TEST rather
+# than a hard one, and it was retracted on 2026-09-23.
+TRUNC_Q = ("You are an autonomous agent working in a shell. You ran:\n\n"
+           "    {cmd}\n\n"
+           "and the system showed you only part of the result:\n\n{msg}\n\n"
+           "You still need to read the part you did not see. Give ONLY the "
+           "single shell command you would run next, on one line.")
 
 _RANGE = re.compile(r"(\d+)\s*,\s*(\d+)\s*p")
-_HEADTAIL = re.compile(r"\b(?:head|tail)\b[^|]*?-n?\s*(\d+)")
+_HEADTAIL = re.compile(r"\b(?:head|tail)\b[^|]*?-n\s*\+?(\d+)")
+_BYTES = re.compile(r"\b(?:head|tail)\b[^|]*?-c\s*\+?(\d+)")
+# A placeholder is not an answer. The model produced these when it had no
+# idea which file it was looking at, and the first scorer counted some of
+# them as passes.
+_PLACEHOLDER = re.compile(r"<[^>]*>|_or_|file_path|filename|your_file")
+CHARS_PER_LINE = 40   # declared: the measured median for this library's tools
 
 
 def trunc_score(ans, f):
-    """A request FITS if the lines it asks for could fit the window.
+    """Three things must ALL hold, and the first was missing before.
 
-    ~40 chars per line is the measured median for this creature's tool files,
-    so a window of 1200 holds roughly 30 lines. Asking for 100 is the failure
-    this marker exists to prevent."""
+    1. It must name the REAL file. A placeholder is not an answer, and the
+       first version of this scorer passed several of them.
+    2. It must be a BOUNDED read -- a bare `cat` asks for everything again,
+       which is the behaviour the marker exists to prevent.
+    3. What it asks for must FIT the window it was just told about.
+    """
     a = strip_fence(ans)
     win = f.get("window") or 1200
-    budget_lines = max(1, int(win / 40))
+    base = f.get("basename") or ""
+    budget_lines = max(1, int(win / CHARS_PER_LINE))
+    if _PLACEHOLDER.search(a) or (base and base not in a):
+        return {"ok": False, "note": "does not name %s: %s" % (base[:20], a[:38])}
     m = _RANGE.search(a)
-    asked = None
     if m:
         asked = abs(int(m.group(2)) - int(m.group(1))) + 1
-    else:
-        m2 = _HEADTAIL.search(a)
-        if m2:
-            asked = int(m2.group(1))
-    if asked is None:
-        # No bounded range at all -- a bare cat/grep asks for everything.
-        bounded = bool(re.search(r"\b(sed|head|tail|awk)\b", a))
-        return {"ok": False, "note": ("unbounded: " + a[:52]) if not bounded else a[:60]}
-    return {"ok": asked <= budget_lines,
-            "note": "asked %d lines (fits %d): %s" % (asked, budget_lines, a[:36])}
+        return {"ok": asked <= budget_lines,
+                "note": "%d lines (fits %d): %s" % (asked, budget_lines, a[:34])}
+    mb = _BYTES.search(a)
+    if mb:
+        asked = int(mb.group(1))
+        return {"ok": asked <= win,
+                "note": "%d bytes (fits %d): %s" % (asked, win, a[:34])}
+    mh = _HEADTAIL.search(a)
+    if mh:
+        asked = int(mh.group(1))
+        return {"ok": asked <= budget_lines,
+                "note": "%d lines (fits %d): %s" % (asked, budget_lines, a[:34])}
+    return {"ok": False, "note": "unbounded: " + a[:48]}
 
 
 # ===========================================================================
@@ -296,7 +315,8 @@ def run_surface(name, model, verbose):
         line = []
         for variant in ("old", "new"):
             msg = spec[variant](f)
-            q = spec["q"].format(msg=msg, head=f.get("head", ""))
+            q = spec["q"].format(msg=msg, head=f.get("head", ""),
+                                 cmd=f.get("command", ""))
             r = ask(model, q, max_tokens=spec["maxtok"])
             if r.get("unreachable"):
                 return None, r["unreachable"]
