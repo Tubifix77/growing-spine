@@ -921,7 +921,81 @@ journalctl --user -u growing-spine --since "2 hours ago"
 
 ---
 
-## 8. State — 2026-09-23 18:45
+## 8. State — 2026-09-23 20:10
+
+**A LOCAL-MODEL BENCH NOW EXISTS FOR TEXT THE CREATURE READS, and its first
+run said my own fix from this morning is NOT an improvement.** Tue's idea,
+carried over from the Growing Cousin spinoff: *"for really killing bugs like
+this you could also test your proposed fix on a local ollama model."* It
+lands on the worst asymmetry in this file — §5's *"8 of 33 scars live in text
+the creature reads, and they are the only ones that have ever RECURRED after
+being fixed... a code fix ships with a test and a text fix was being verified
+by hoping."*
+
+`scripts/text_bench.py` (`d5a72e0`) renders the OLD and NEW wording of one
+message over **real fixtures from the journal** and puts both to
+**`gemma4:12b` — the same FAMILY as the production workhorse
+`gemma-4-31b-it`** — at temperature 0, so a difference is the wording rather
+than the dice. It runs on the workstation (RTX 3080, 10 GB), **never on the
+creature's host**, which has 3 GB of RAM free and a 2013 GPU. **The local
+model is a BENCH and must never become a rung** (§6's quality floor); it
+talks to localhost and the ladder does not know it exists.
+
+**The result, over 32 real comment-led blocks:**
+
+| wording | named the right command | named a comment |
+|---|---|---|
+| old (quoted the whole block) | 20/32 — **62%** | **0/32** |
+| new (quotes the command) | 22/32 — **69%** | **0/32** |
+
+**+2 of 32, from 6 gains and 4 losses across 10 changed verdicts. That is
+noise, not a signal.** So the done-gate fix is **NOT VERIFIED** as a
+behaviour change. What remains true of it is narrower and still worth having:
+a comment cannot exit 1, so the old message was *literally false* about the
+artifact it described, and §5 requires that be fixed regardless of whether a
+model notices. **What I implied this morning — that the creature had to guess
+which command failed — is not demonstrated.**
+
+**And the bench refuted my actual diagnosis.** I said the old wording makes
+the reader name the comment. **It never did, in 64 trials: 0/32 both ways.**
+The failure mode is completely different — when the model gets it wrong it
+**invents a plausible command that was never run** (`python3 -m
+tests.policy_check`, `python3 scripts/digest_entity_tracker.py`). That the
+right command is identified only ~65% of the time *either way* is a far
+bigger finding than which line is quoted, and no instrument we had could see
+it.
+
+**The bench found two faults in itself on its first run, which is the honest
+part.** `gemma4` spends **7,517 chars of `thinking`** on this prompt and
+returns an EMPTY answer even at a 2,000-token budget — the same *"empty
+completion (reasoning-only, answer truncated)"* shape `groq_oss120` returns
+in production; **14 of 16 replies came back empty** and with `think=false`
+the same model answers in 8 tokens. Worse, it **printed "NOT AN IMPROVEMENT"
+off those 14 empty replies** — a verdict drawn from nothing, this project's
+own house disease arriving inside a brand-new instrument within minutes of
+its birth. It now says UNKNOWN and reports no verdict when more than a fifth
+of replies are empty.
+
+**Read the bench this way round: a PASS is weak evidence, a FAIL is strong.**
+A local 12B is not the 31B the creature runs on, so it cannot prove a message
+works — but if a model of the same family misreads our sentence, the sentence
+is ambiguous.
+
+**Also corrected: a quiet `git pull` that failed and I did not notice.** An
+untracked local fixtures file blocked it, `-q` swallowed the error, and the
+bench re-ran the old 8 fixtures while I read the count from the stale file.
+The commit hash was one `git log -1` away from showing it. **`-q` on a pull
+whose result you are about to depend on is the same class as trusting a patch
+script's exit code** — which cost four separate corrections earlier today.
+
+**Named trigger: the next text change the creature reads gets benched BEFORE
+it ships**, not after. The `tool-edit` write-time warning, the broken-tool
+warning, the truncation marker and the chat one-shot line are all unbenched
+and all in the class that has recurred.
+
+---
+
+### Previous state — 2026-09-23 18:45
 
 **Tue asked whether anything besides `retryDelay` was ready to fix, and said
 to do them all. Five were ready; all five shipped.** Gates **laptop 559 PASS,
