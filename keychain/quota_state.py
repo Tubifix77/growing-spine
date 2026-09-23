@@ -58,16 +58,27 @@ def record_exhaustion(state: dict, key: str, retry_after_s=None):
     leave it untouched, so the eventual recovery measures from the first failure,
     not the last."""
     s = state.setdefault(key, {})
-    if "exhausted_at" in s:
-        return  # already inside a dark period; keep the original first-failure time
-    s["exhausted_at"] = time.time()
-    # WHEN THE PROVIDER SAYS TO COME BACK, written down as an absolute time.
-    # Google's 429 carries `retryDelay: 41s` and we used to sleep a flat 120,
-    # so roughly a third of every dark period was ours rather than theirs
-    # (139 quota sleeps in 17 h, measured 2026-09-23). Absent when the
-    # provider said nothing -- never invented.
+    # WHEN THE PROVIDER SAYS TO COME BACK, written down as an absolute time,
+    # and REFRESHED ON EVERY WALL rather than only the first.
+    #
+    # The two timestamps here answer different questions and so have opposite
+    # update rules. `exhausted_at` marks where a dark period BEGAN and must
+    # never move, because last_recovery_secs measures from it. `retry_at` is a
+    # forward-looking estimate of when this rung is next worth trying, so the
+    # most recent statement is always the best one.
+    #
+    # Shipped 2026-09-23 with this write sitting BELOW the early return, so it
+    # only ever fired on a rung's first failure -- and rungs are almost always
+    # already walled by the time the loop sleeps. The parser was reporting
+    # "provider says retry in 49s" in the same second that the loop printed
+    # "retrying in 120s (no provider delay given)". Unit tests passed because
+    # they called this on a fresh dict; only watching production caught it.
     if retry_after_s and retry_after_s > 0:
         s["retry_at"] = time.time() + float(retry_after_s)
+    if "exhausted_at" in s:
+        save_state(state)
+        return  # already inside a dark period; keep the original start time
+    s["exhausted_at"] = time.time()
     save_state(state)
 
 

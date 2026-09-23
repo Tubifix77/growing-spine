@@ -1395,6 +1395,26 @@ async def main():
         _past = {"p": {"exhausted_at": 1.0, "retry_at": time.time() - 500}}
         check("retry: a delay already elapsed is never negative",
               _qst.earliest_retry_seconds(_past) == 0.0)
+
+        # THE ONE THAT PRODUCTION CAUGHT AND THE UNIT TESTS DID NOT.
+        # A rung is almost always ALREADY walled by the time the loop sleeps,
+        # and the first version of this wrote retry_at below the early return,
+        # so it only ever fired on a rung's very first failure. The parser
+        # printed "provider says retry in 49s" in the same second the loop
+        # printed "retrying in 120s (no provider delay given)". The two
+        # timestamps have opposite update rules and the test has to say so.
+        _again = {}
+        _qst.record_exhaustion(_again, "r", retry_after_s=90)
+        _first_at = _again["r"]["exhausted_at"]
+        time.sleep(0.01)
+        _qst.record_exhaustion(_again, "r", retry_after_s=20)
+        check("retry: a later wall REFRESHES retry_at",
+              _again["r"]["retry_at"] - time.time() < 30,
+              str(_again["r"]["retry_at"] - time.time()))
+        check("retry: a later wall never moves exhausted_at",
+              _again["r"]["exhausted_at"] == _first_at)
+
+
     finally:
         _qst.STATE_FILE = _real_state_file
 
