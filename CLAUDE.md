@@ -921,7 +921,99 @@ journalctl --user -u growing-spine --since "2 hours ago"
 
 ---
 
-## 8. State — 2026-09-23 18:05
+## 8. State — 2026-09-23 18:45
+
+**Tue asked whether anything besides `retryDelay` was ready to fix, and said
+to do them all. Five were ready; all five shipped.** Gates **laptop 559 PASS,
+PC 551 PASS** (the PC figure is from before the last 2 checks; re-run next
+session). Brain restarted 18:29:27 and holds everything.
+
+**Two of the five turned out to be the OPPOSITE of what §8 recommended this
+morning, and both corrections came from checking a dependency before acting.**
+
+- **`groq_oss120` must NOT be retired.** `framework-tools/ask` reads
+  `GROQ_OSS120_API_KEY`, and `sandbox.py:52` withholds a disabled rung's key
+  from the container — so `enabled: false` would have broken **the most
+  adopted framework tool we have** (165 calls in September, still rising).
+  **DEMOTED instead**, to last among the enabled rungs, keeping the key. It
+  sat ABOVE the workhorse while serving **0 cycles across three windows** with
+  301 `too_large` and 287 `quota` walls in 17 h; at 8,000 TPM it cannot take a
+  wake-sized prompt and never could. `ask` verified from inside the body after
+  the change: `ok`.
+- **`mistral` must NOT be repointed.** `mistral-medium-latest` and
+  `mistral-small-latest` returned **429 rate_limited on every probe across 25
+  minutes**, so neither could be validated on a wake-sized prompt, and
+  repointing to an unvalidated model is exactly what cost 651 cycles on
+  08-19. **RETIRED instead** (`enabled: false`, dated): `mistral-large-latest`
+  answers `HTTP 403 tier_not_allowed` — a paywall, which §6 makes defunct for
+  us by definition. Safe: not a `LEGACY_KEY_ALIAS`, and 0 tools reference
+  `MISTRAL_API_KEY`. **A replacement account is needed and that is Tue's.**
+
+**The enabled ladder is now four and honest about it:** `gemini_flash` →
+`google_gemma` → `cloudflare` → `groq_oss120` (last resort, kept for its key).
+
+**The three code fixes, `8afc647` and `00c420d`.**
+1. **`prov.call` kept `body[:200]`.** Measured against the real 1,382-char
+   Google 429 body that discards everything machine-readable: `limit` at
+   offset 400, `RESOURCE_EXHAUSTED` at 482, `quotaMetric` at 903, `retryDelay`
+   at **1342**. So for the life of the project every provider told us exactly
+   when to come back and we threw the sentence away. Cap is now **1500**,
+   chosen from those offsets. This was only safe because the morning's
+   status-vs-body separation stopped digits being read out of body text.
+2. **The loop slept a flat 120 s while Google asked for 41 s** — 139 quota
+   sleeps in 17 h. `prov.call` now parses `Retry-After` and `retryDelay`,
+   `record_exhaustion` writes it as an absolute time, and the loop waits that
+   long. **Clamped into [5, 120] with the max being the OLD FLAT VALUE on
+   purpose: this can only ever shorten a sleep, so the worst case is exactly
+   the behaviour it replaces.** Nothing is invented — a silent provider still
+   gets 120.
+3. **FLATLINE fired for `cloudflare` by construction.** It spends its daily
+   allowance in ~5 h and is dark 16–18 h, so against a 12 h threshold it
+   crossed daily: `SERIOUS:cloudflare` on **269 of 1,046 health lines**, 26%
+   of every health line ever written, none of which could have meant
+   anything. Threshold is now per rung under a stated rule — **a rung's
+   threshold must exceed its own reset period, or the alarm measures the
+   calendar instead of the rung**. Raising the global value was rejected: it
+   would blind the check for `google_gemma`, whose 55 h of silence is why the
+   instrument exists. The live line now reads **`FLATLINE:ok`** for the first
+   time in weeks.
+
+**THE LESSON OF THE EVENING, and it is the same one four times.** *Verify the
+artifact, never the script's exit code* earned its keep **four separate times
+in one session**: a patch script died mid-run leaving `provider.py` edited and
+three files not; a second died leaving `loop.py` calling `_qs` with no import;
+a re-run silently **duplicated** a whole test block because the replacement
+text contained its own anchor (gate went 559 → 561 and still said ALL TESTS
+PASS); and the retryDelay fix **shipped broken**. Every one was caught by
+`grep -c` on the file, never by the gate.
+
+**The fourth is the instructive one.** `record_exhaustion` returns early when
+a rung is already walled, and the `retry_at` write sat BELOW that return — so
+it only ever fired on a rung's very first failure, and rungs are almost always
+already walled by the time the loop sleeps. **Every unit test passed, because
+every one called it on a fresh dict.** Production said it in one line within
+seconds of the restart: the keychain printed *"provider says retry in 49s"*
+while the loop, in the same second, printed *"retrying in 120s (no provider
+delay given)"*. Fixed `00c420d`, with the rule now stated in the code: **the
+two timestamps have opposite update rules** — `exhausted_at` marks where a
+dark period began and must never move, `retry_at` is forward-looking so the
+most recent statement always wins.
+
+**Status of the evening's work, honestly split.** The parser is **verified
+live** (49 s, 48 s, 15 s read off three different rungs). `retry_at` is
+**verified recorded** in `quota_state.json`. The nap itself is **ARMED BUT NOT
+YET EXERCISED** — the all-rungs-walled branch has not fired since 18:29, so
+nothing has yet slept a provider-stated duration. **First check next run: a
+`Quota exhausted - retrying in Ns (provider-stated)` line with N well under
+120, and whether the quota-sleep count falls from 139 per 17 h.**
+
+**Everything else from the 18:05 entry stands**, including `did-i` at 0 calls
+with its **2026-09-25** trigger, the `cannot_start` backslash tool, and the
+five API keys pending rotation.
+
+---
+
+### Previous state — 2026-09-23 18:05
 
 **gs-bug-daily 2026-09-23 18:05 (17.0 h since this morning's run, NO gaps).**
 235 served at **13.1/h**, 310 exec, **4 skips**, **13 errors and ALL 13 are
