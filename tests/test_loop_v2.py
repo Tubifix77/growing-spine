@@ -1341,6 +1341,95 @@ async def main():
     check("done-gate message: still states the code and the remedy",
           "code 1" in _msg and "only then mark done" in _msg, _msg[:140])
 
+    # ---- come back when the provider said, never later on a guess ---------
+    # (2026-09-23) Google's 429 carries `retryDelay: 41s` and the loop slept a
+    # flat 120 s regardless, so roughly a third of every dark period was ours
+    # rather than theirs: 139 quota sleeps in 17 h against a workhorse whose
+    # real limit is 16,000 INPUT TOKENS PER MINUTE. We never saw the number
+    # because prov.call kept body[:200] and retryDelay sits at offset 1342 of
+    # a 1,382-char body. Widening only became safe once classify_error stopped
+    # reading digits out of body text earlier the same day.
+    from keychain.provider import (retry_after_seconds as _ras,
+                                   PROVIDER_ERROR_BODY_CHARS as _PBC)
+    from keychain import quota_state as _qst
+    from executive.loop import (quota_nap_seconds as _nap,
+                                QUOTA_RETRY_MAX_S as _NAPMAX,
+                                QUOTA_RETRY_FLOOR_S as _NAPMIN)
+
+    check("retry: reads Google's retryDelay out of the JSON body",
+          _ras(None, 'x "retryDelay": "41.111907086s" y') == 41.111907086)
+    check("retry: reads the prose form beside it",
+          _ras(None, "Please retry in 41.1s.") == 41.1)
+    check("retry: prefers the Retry-After header when there is one",
+          _ras({"Retry-After": "30"}, '"retryDelay": "99s"') == 30.0)
+    check("retry: invents nothing when the provider named no delay",
+          _ras(None, "you have used up your daily free allocation") is None)
+
+    # The cap is a MEASUREMENT, not a taste: the real body is 1,382 chars and
+    # retryDelay sits at 1342. A cap that cannot hold it is the old bug back.
+    _g429 = ('HTTP 429: ' + 'x' * 1300 + ' "retryDelay": "41s" }')
+    check("retry: the body cap is wide enough for the field it exists for",
+          _PBC >= 1400 and _ras(None, _g429[:_PBC]) == 41.0, str(_PBC))
+
+    # record_exhaustion writes the LIVE keychain/quota_state.json through
+    # save_state(), and a test once flattened every rung's last_success_at
+    # that way (section 5). Repoint the module constant, and ASSERT we did.
+    _real_state_file = _qst.STATE_FILE
+    _qst.STATE_FILE = os.path.join(TMP, "qs_retry.json")
+    check("retry: the test is NOT pointed at the live quota state",
+          _qst.STATE_FILE != _real_state_file
+          and _qst.STATE_FILE.startswith(TMP))
+    try:
+        _st = {}
+        _qst.record_exhaustion(_st, "rungA", retry_after_s=41)
+        _qst.record_exhaustion(_st, "rungB")          # provider said nothing
+        check("retry: a stated delay is written down as an absolute time",
+              "retry_at" in _st["rungA"])
+        check("retry: silence writes no retry_at at all",
+              "retry_at" not in _st["rungB"])
+        _soon = _qst.earliest_retry_seconds(_st)
+        check("retry: earliest is the soonest rung that actually spoke",
+              _soon is not None and 39 <= _soon <= 41, str(_soon))
+        check("retry: nobody spoke -> None, so the caller keeps its default",
+              _qst.earliest_retry_seconds({"z": {"exhausted_at": 1.0}}) is None)
+        _past = {"p": {"exhausted_at": 1.0, "retry_at": time.time() - 500}}
+        check("retry: a delay already elapsed is never negative",
+              _qst.earliest_retry_seconds(_past) == 0.0)
+    finally:
+        _qst.STATE_FILE = _real_state_file
+
+    # THE ASSEMBLY. Twice today a fix passed its helper tests and shipped
+    # broken, so this asserts what the caller actually receives.
+    check("nap: honours a provider-stated delay", _nap(41.0) == 41.0)
+    check("nap: no delay given falls back to the old flat value",
+          _nap(None) == _NAPMAX)
+    check("nap: a tiny delay is floored, never a hot loop", _nap(0.2) == _NAPMIN)
+    check("nap: a huge delay is capped at the old flat value",
+          _nap(99999) == _NAPMAX)
+    check("nap: CAN ONLY SHORTEN, NEVER LENGTHEN -- worst case is today",
+          all(_nap(v) <= _NAPMAX for v in (None, 0, 1, 41, 120, 121, 10**6)))
+
+    # ---- an alarm shorter than the rung's own reset is no alarm -----------
+    # (2026-09-23) cloudflare spends its whole daily allowance in ~5 h and is
+    # dark 16-18 h every day, so against a 12 h threshold it fired EVERY day:
+    # SERIOUS:cloudflare on 269 of 1,046 health lines, 26% of every health
+    # line ever written, none of which could have meant anything.
+    import importlib as _il
+    _shdir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                          "scripts")
+    if _shdir not in sys.path:
+        sys.path.insert(0, _shdir)
+    _sh = _il.import_module("spine_health")
+    check("flatline: a daily-reset rung's threshold exceeds its reset period",
+          _sh.flatline_hours_for("cloudflare") > 24,
+          str(_sh.flatline_hours_for("cloudflare")))
+    check("flatline: every other rung keeps the 12 h default",
+          _sh.flatline_hours_for("google_gemma") == _sh.FLATLINE_HOURS == 12)
+    check("flatline: the workhorse's 55 h silence would still fire",
+          55 >= _sh.flatline_hours_for("google_gemma"))
+    check("flatline: cloudflare dark 20 h no longer fires",
+          20 < _sh.flatline_hours_for("cloudflare"))
+
     # ---- a number is evidence only where the protocol put it (2026-09-23) --
     # Every numeric branch of classify_error used to be a bare substring test
     # against the WHOLE error -- `"404" in err` -- and Cloudflare puts a UUID
@@ -1460,7 +1549,8 @@ async def main():
                     "truncated": False, "error": err_text}
 
         _kprov.call = _fake_call
-        _kqs.record_exhaustion = lambda state, key: _walls.append(key)
+        _kqs.record_exhaustion = (lambda state, key, retry_after_s=None:
+                                  _walls.append((key, retry_after_s)))
         buf = _iodiag.StringIO()
         try:
             with _ctx.redirect_stdout(buf):

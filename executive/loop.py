@@ -8,6 +8,7 @@ from volume import paths as _paths
 from .runtime import (managed_exec, ensure_body, wake_entry,
                       sleep_entry, sleep_duration_seconds)
 from keychain import Keychain
+from keychain import quota_state as _qs
 from volume import memory as mem
 from volume import savegame
 from volume import tools as toolmod
@@ -294,6 +295,33 @@ assert EXEC_STDOUT_JOURNAL_CHARS >= JOURNAL_RENDER_CHARS, (
 _TRUNC_MARK_RE = re.compile(
     r"\u2026\[\+(\d+) chars cut(?:; window \d+)?\]")
 _MARK_REMNANT_CHARS = 48   # longest a marker can be; a straddled one is noise
+
+
+# Bounds on the quota-exhausted retry nap. DECLARED, never learned: an
+# adaptive bound ratchets along with the fault and never says so. The max is
+# the old flat 120 s deliberately, so honouring a provider's stated delay can
+# only shorten a sleep and never lengthen one.
+QUOTA_RETRY_FLOOR_S = 5
+QUOTA_RETRY_MAX_S = 120
+
+
+def quota_nap_seconds(asked):
+    """How long to wait after a quota wall, given what the provider asked for.
+
+    A NAMED function rather than three inline terms, because twice on
+    2026-09-23 a fix shipped with its pieces tested and its assembly untested,
+    and the gate stayed green while the thing was broken. Test what the caller
+    actually gets.
+
+    Contract: honour the provider's own number, clamped into
+    [QUOTA_RETRY_FLOOR_S, QUOTA_RETRY_MAX_S]. The max IS the old flat value,
+    so this can only ever shorten a sleep and never lengthen one -- the worst
+    case is exactly the behaviour it replaces. `asked` is None when no
+    provider named a delay, and then nothing is invented.
+    """
+    if asked is None:
+        return QUOTA_RETRY_MAX_S
+    return min(QUOTA_RETRY_MAX_S, max(QUOTA_RETRY_FLOOR_S, asked))
 
 
 def _capped(text, cap: int) -> str:
@@ -4226,8 +4254,23 @@ async def run_forever(dockerfile_dir: str = "."):
                 # 2-min retry. Replaces the old inflating interval-based sleep
                 # (min(discovered_reset_interval)*1.2) which ratcheted to 95min+.
                 await sleep_entry(VOLUME_MOUNT, keychain)
-                print("[executive] Quota exhausted - retrying in 2 min.")
-                await asyncio.sleep(120)
+                # SLEEP FOR AS LONG AS THE PROVIDER ASKED, NEVER LONGER ON A
+                # GUESS. Google's 429 body carries `retryDelay: 41s`; this
+                # slept a flat 120 s regardless, so about a third of every
+                # dark period was ours rather than theirs -- 139 quota sleeps
+                # in 17 h on 2026-09-23, against a workhorse whose real limit
+                # is 16,000 input tokens per MINUTE.
+                #
+                # Clamped into [QUOTA_RETRY_FLOOR_S, QUOTA_RETRY_MAX_S], and
+                # the max is the old flat value on purpose: this change can
+                # only ever shorten a sleep, never lengthen one, so the worst
+                # case is exactly today's behaviour.
+                _asked = _qs.earliest_retry_seconds(keychain.state)
+                _nap = quota_nap_seconds(_asked)
+                print("[executive] Quota exhausted - retrying in %.0fs (%s)."
+                      % (_nap, "provider-stated"
+                         if _asked is not None else "no provider delay given"))
+                await asyncio.sleep(_nap)
                 keychain = Keychain()
                 await wake_entry(VOLUME_MOUNT, keychain)
             elif "temporarily unavailable" in msg.lower():

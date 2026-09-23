@@ -370,10 +370,15 @@ class Keychain:
                         # MINUTE, a different dimension from the one config
                         # names. That question should have been answerable
                         # from the log.
-                        qs.record_exhaustion(self.state, cfg["key"])
+                        qs.record_exhaustion(
+                            self.state, cfg["key"],
+                            retry_after_s=result.get("retry_after_s"))
                         stop_rung = True
+                        _ra = result.get("retry_after_s")
                         print(f"[keychain] {cfg['key']} WALLED as {kind} "
-                              f"-- {_diag(err)}")
+                              f"-- {_diag(err)}"
+                              + (f" [provider says retry in {_ra:.0f}s]"
+                                 if _ra else " [provider named no retry delay]"))
                         break  # the ACCOUNT is spent -- next provider
 
                     if kind == "flaky":

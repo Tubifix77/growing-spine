@@ -52,7 +52,7 @@ def record_success(state: dict, key: str):
     save_state(state)
 
 
-def record_exhaustion(state: dict, key: str):
+def record_exhaustion(state: dict, key: str, retry_after_s=None):
     """Got a 429. If this is the FIRST failure of a new dark period, stamp
     exhausted_at = now (this is 'b'). Subsequent failures in the same period
     leave it untouched, so the eventual recovery measures from the first failure,
@@ -61,7 +61,29 @@ def record_exhaustion(state: dict, key: str):
     if "exhausted_at" in s:
         return  # already inside a dark period; keep the original first-failure time
     s["exhausted_at"] = time.time()
+    # WHEN THE PROVIDER SAYS TO COME BACK, written down as an absolute time.
+    # Google's 429 carries `retryDelay: 41s` and we used to sleep a flat 120,
+    # so roughly a third of every dark period was ours rather than theirs
+    # (139 quota sleeps in 17 h, measured 2026-09-23). Absent when the
+    # provider said nothing -- never invented.
+    if retry_after_s and retry_after_s > 0:
+        s["retry_at"] = time.time() + float(retry_after_s)
     save_state(state)
+
+
+def earliest_retry_seconds(state: dict, now=None):
+    """Soonest moment any walled rung SAID it would be ready, in seconds.
+
+    Only rungs that actually told us are considered; a rung that said nothing
+    contributes nothing, so this returns None when nobody spoke and the caller
+    keeps its own default. Never negative.
+    """
+    now = time.time() if now is None else now
+    waits = [s["retry_at"] - now
+             for s in state.values()
+             if isinstance(s, dict) and "exhausted_at" in s and "retry_at" in s]
+    waits = [w for w in waits if w is not None]
+    return max(0.0, min(waits)) if waits else None
 
 
 def is_exhausted(state: dict, key: str) -> bool:

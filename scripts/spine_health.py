@@ -36,6 +36,35 @@ QUOTA_STATE = os.path.join(REPO, "keychain", "quota_state.json")
 CONFIG = os.path.join(REPO, "config.yaml")
 FLATLINE_HOURS = 12  # google_gemma sat dead 55h before anyone noticed, 2026-08-02
 
+# A THRESHOLD SHORTER THAN A RUNG'S OWN RESET PERIOD IS AN ALARM BY
+# CONSTRUCTION, and it carries no information at all.
+#
+# `cloudflare` spends its entire daily allowance in about five hours and is
+# dark for the rest: measured 2026-09-15..20, 26-31 calls between ~00:36 and
+# ~07:32, then 16-18 h of silence, every single day. Against FLATLINE_HOURS=12
+# it therefore crosses the line EVERY day and `SERIOUS:cloudflare` appeared on
+# 269 of 1,046 health lines -- 26% of every health line this project has ever
+# written, none of which could ever have meant anything. That is the failure
+# section 8 named for cerebras: "a permanent SERIOUS that trains us to ignore
+# the alarm".
+#
+# Raising the GLOBAL threshold is the wrong answer -- it would blind the check
+# for google_gemma, the workhorse whose 55 h of silence is the whole reason
+# this instrument exists. So the threshold is per rung, and the rule that sets
+# it is stated rather than tuned: A RUNG'S THRESHOLD MUST EXCEED ITS OWN RESET
+# PERIOD, or the alarm measures the calendar instead of the rung. cloudflare's
+# allowance resets daily, so 24 h is the floor of meaning and 30 h is that plus
+# a margin for a late start. Declared, dated, and never learned -- an adaptive
+# threshold ratchets along with the fault and never says so.
+FLATLINE_HOURS_BY_RUNG = {
+    "cloudflare": 30,   # daily reset; spends its ~26 calls in ~5 h (2026-09-23)
+}
+
+
+def flatline_hours_for(key):
+    """The silence a given rung has to exceed before it means anything."""
+    return FLATLINE_HOURS_BY_RUNG.get(key, FLATLINE_HOURS)
+
 def norm(s): return re.sub(r"[^a-z0-9]", "", (s or "").lower())
 
 def check_sensor():
@@ -638,7 +667,8 @@ def check_flatline():
     for key in sorted(enabled):
         last = state.get(key, {}).get("last_success_at")
         age_h = (now - last) / 3600 if last else None
-        if age_h is None or age_h >= FLATLINE_HOURS:
+        threshold = flatline_hours_for(key)
+        if age_h is None or age_h >= threshold:
             dead.append(f"{key}({'never' if age_h is None else str(int(age_h)) + 'h'})")
             SILENT_KEYS.add(key)
     return "FLATLINE:!!" + ",".join(dead) if dead else "FLATLINE:ok"

@@ -1,5 +1,5 @@
 """provider.py — single OpenAI-compatible provider call."""
-import asyncio, json
+import asyncio, json, re
 import urllib.request, urllib.error
 
 
@@ -54,6 +54,50 @@ def model_ids(cfg: dict) -> list:
     """
     m = cfg.get("model_id")
     return list(m) if isinstance(m, (list, tuple)) else [m]
+
+
+# How much of a provider's error body to keep. Chosen by MEASUREMENT, not
+# taste: the real Google 429 body is 1,382 chars and puts its machine-readable
+# half at the END -- `limit: 16000` at offset 400, `RESOURCE_EXHAUSTED` at 482,
+# `quotaMetric` at 903, `quotaValue` at 1212 and `retryDelay` at 1342. The old
+# cap of 200 kept NONE of them, so for the life of the project every provider
+# told us exactly when to come back and we threw the sentence away and guessed.
+# Widening only became safe on 2026-09-23, once classify_error stopped matching
+# bare digits against body text (a Cloudflare UUID containing 404 was retiring
+# live models); until then a longer body meant more chances to misclassify.
+PROVIDER_ERROR_BODY_CHARS = 1500
+
+_RETRY_PATTERNS = (
+    # Google: "retryDelay": "41.111907086s"  (and the prose form beside it)
+    re.compile(r'"retryDelay"\s*:\s*"?(\d+(?:\.\d+)?)s'),
+    re.compile(r"retry in (\d+(?:\.\d+)?)\s*s", re.I),
+    re.compile(r"try again in (\d+(?:\.\d+)?)\s*s", re.I),
+)
+
+
+def retry_after_seconds(headers=None, body=""):
+    """When the provider TELLS us to come back, in seconds, or None.
+
+    Read the header first -- Retry-After is the protocol's own field and needs
+    no parsing of prose -- then the body, because Google puts the number only
+    in the JSON. Never invented: if nothing says when, this returns None and
+    the caller keeps its own conservative default.
+    """
+    try:
+        if headers is not None:
+            raw = headers.get("Retry-After")
+            if raw and str(raw).strip().isdigit():
+                return float(str(raw).strip())
+    except Exception:
+        pass
+    for pat in _RETRY_PATTERNS:
+        m = pat.search(body or "")
+        if m:
+            try:
+                return float(m.group(1))
+            except ValueError:
+                pass
+    return None
 
 
 async def call(cfg: dict, messages: list, max_tokens: int = 2048,
@@ -126,7 +170,8 @@ async def call(cfg: dict, messages: list, max_tokens: int = 2048,
         except Exception as body_err:
             body = "<error body unreadable: %s>" % body_err
         return {"text": "", "tokens_used": 0, "finish_reason": "", "truncated": False,
-                "error": f"HTTP {e.code}: {body[:200]}"}
+                "retry_after_s": retry_after_seconds(getattr(e, "headers", None), body),
+                "error": f"HTTP {e.code}: {body[:PROVIDER_ERROR_BODY_CHARS]}"}
     except Exception as e:
         return {"text": "", "tokens_used": 0, "finish_reason": "", "truncated": False,
                 "error": str(e)}
