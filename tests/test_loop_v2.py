@@ -1341,6 +1341,59 @@ async def main():
     check("done-gate message: still states the code and the remedy",
           "code 1" in _msg and "only then mark done" in _msg, _msg[:140])
 
+    # ---- a number is evidence only where the protocol put it (2026-09-23) --
+    # Every numeric branch of classify_error used to be a bare substring test
+    # against the WHOLE error -- `"404" in err` -- and Cloudflare puts a UUID
+    # in every error body. Section 8 predicted this on 2026-08-27 at roughly
+    # 0.7% per error and gave it a named trigger; the new GONE diagnostic
+    # caught it live on 2026-09-23, TWICE in 17 h, both on an HTTP 429 whose
+    # trailing UUID contained 404, both reporting a live model as permanently
+    # withdrawn. Cloudflare errored ~498 times in that window, so ~3 was the
+    # prediction and 2 was the count. Section 6 retires a defunct model the
+    # moment it is detected and without asking Tue, which is exactly what
+    # makes a false GONE expensive.
+    #
+    # The load-bearing check is the FIRST one: the real captured body. The
+    # others exist so that pinning digits to the status cannot quietly break
+    # a classification that was already right.
+    from keychain.keychain import http_status as _hs
+
+    _uuid429 = ('HTTP 429: {"errors":[{"message":"AiError: AiError: you have '
+                'used up your daily free allocation of 10,000 neurons, please '
+                'upgrade to Cloudflare\'s Workers Paid plan if you would like '
+                'to continue usage. (d0404a44-8b1e-4f3c-9a02-7e11c5d6b8af)')
+    check("classify: a 429 whose UUID contains 404 is quota, NOT gone",
+          classify_error(_uuid429) == "quota", classify_error(_uuid429))
+    check("classify: that body really does contain the digits 404",
+          "404" in _uuid429)
+    check("status: read from the front, never from the body",
+          _hs(_uuid429) == "429")
+    check("status: absent when the error is not an HTTP failure",
+          _hs('RemoteDisconnected("Remote end closed connection")') is None)
+
+    # A genuine 404 must still retire the model.
+    check("classify: a real HTTP 404 is still gone",
+          classify_error('HTTP 404: {"error":"model_not_found"}') == "gone")
+    # 5035 is a BODY code under HTTP 403, so it stays pinned to that status.
+    check("classify: Workers-free-plan 403/5035 is still gone",
+          classify_error('HTTP 403: {"code":5035,"message":"Model is not '
+                         'available on the Workers Free plan"}') == "gone")
+    check("classify: 5035 in a body WITHOUT the 403 status does not retire",
+          classify_error('HTTP 429: rate limited (req 5035ab)') == "quota")
+    # Everything numeric that was already right must stay right.
+    for _code, _want in (("413", "too_large"), ("402", "quota"),
+                         ("429", "quota"), ("500", "retryable"),
+                         ("503", "retryable"), ("520", "retryable"),
+                         ("527", "retryable"), ("499", "flaky")):
+        check("classify: HTTP %s still maps to %s" % (_code, _want),
+              classify_error("HTTP %s: something" % _code) == _want,
+              classify_error("HTTP %s: something" % _code))
+    # Textual signals keep working with no status at all.
+    check("classify: text-only quota signal survives statuslessness",
+          classify_error("you have exceeded your quota") == "quota")
+    check("classify: the default is STILL fail-open",
+          classify_error("something nobody has ever seen") == "unknown")
+
     # ---- a diagnostic names the evidence it saw (2026-09-23) ---------------
     # Two lines in keychain.py made claims they had not checked.
     #

@@ -1,6 +1,6 @@
 """keychain.py — one function: give it a prompt, get a response."""
 import asyncio
-import time, os, yaml
+import time, os, re, yaml
 from . import quota_state as qs
 from . import provider as prov
 
@@ -71,6 +71,21 @@ def _diag(err, width=160):
     return "%s...[+%d chars]" % (flat[:width], len(flat) - width)
 
 
+_HTTP_STATUS_RE = re.compile(r"^\s*HTTP\s+(\d{3})\b")
+
+
+def http_status(err: str):
+    """The status code a provider actually returned, or None.
+
+    prov.call formats every HTTP failure as "HTTP {code}: {body}", so the
+    status is the FIRST thing in the string and is the only trustworthy
+    place to read a number from. Everything after it is provider prose that
+    we do not control.
+    """
+    m = _HTTP_STATUS_RE.match(err or "")
+    return m.group(1) if m else None
+
+
 def classify_error(err: str) -> str:
     """Sort a provider error string into an action class.
     too_large / quota -> mark exhausted, next provider
@@ -83,7 +98,25 @@ def classify_error(err: str) -> str:
                          The DEFAULT. Never abort a chain with open rungs.
     """
     err_l = err.lower()
-    if ("413" in err or "request too large" in err_l or "request_too_large" in err_l
+    # THE STATUS IS READ ONCE, FROM THE FRONT, AND NO DIGIT RULE LOOKS
+    # ANYWHERE ELSE. Until 2026-09-23 every numeric branch below was a bare
+    # substring test against the WHOLE error -- `"404" in err` -- and
+    # Cloudflare puts a UUID in every error body. Section 8 predicted that
+    # hazard on 2026-08-27 at roughly 0.7% per error and named a trigger; on
+    # 2026-09-23 the new GONE diagnostic caught it happening TWICE in 17 h,
+    # both times on an HTTP 429 whose trailing UUID contained 404, both times
+    # reporting a live model as permanently withdrawn. Cloudflare errored ~498
+    # times in that window, so ~3 hits was the prediction and 2 was the count.
+    # Under CLAUDE.md section 6 a defunct model is retired the moment it is
+    # detected and without asking, which is what makes a false GONE expensive.
+    #
+    # Invariant: A NUMBER IS EVIDENCE ONLY WHERE THE PROTOCOL PUT IT. Digits
+    # are matched against the status code; words are matched against the body.
+    # An error with no parseable status fires no numeric rule at all -- those
+    # errors (RemoteDisconnected, urlopen failures) are textual anyway, and
+    # guessing a status out of their prose is the same mistake one level down.
+    code = http_status(err)
+    if (code == "413" or "request too large" in err_l or "request_too_large" in err_l
             or "too large for model" in err_l or "context length" in err_l
             or "maximum context" in err_l or "reduce the length" in err_l):
         return "too_large"
@@ -91,7 +124,7 @@ def classify_error(err: str) -> str:
             and ("per minute" in err_l or "per-minute" in err_l
                  or "per_minute" in err_l or "rpm" in err_l)):
         return "retryable"
-    if ("404" in err or "not found" in err_l or "no endpoints" in err_l
+    if (code == "404" or "not found" in err_l or "no endpoints" in err_l
             or "model_not_found" in err_l
             # Cloudflare Workers AI answers a model our PLAN cannot reach with
             # HTTP 403 code 5035: "AiError: Model @cf/... is not available on
@@ -104,7 +137,10 @@ def classify_error(err: str) -> str:
             # groq retirement). It matched nothing before this, so it reached
             # the fail-open default and retired mutely.
             or "not available on the workers free plan" in err_l
-            or "5035" in err):
+            # 5035 is a BODY code, not a status: Cloudflare returns it under
+            # HTTP 403. Pinned to that status so a UUID carrying those four
+            # digits cannot retire a rung by coincidence either.
+            or (code == "403" and "5035" in err)):
         # The model left the shelf (the 2026-07-19 openrouter purge, ling on
         # 2026-08-07). This is NOT the account being out of budget: a rung with
         # other models declared should fall to the next one. Returned as its own
@@ -113,7 +149,7 @@ def classify_error(err: str) -> str:
         # must still never hard-raise on it.
         return "gone"
     if ("quota" in err_l or "rate_limit_exceeded" in err_l or "exceeded" in err_l
-            or "billing" in err_l or "429" in err
+            or "billing" in err_l or code == "429"
             # 402 Payment Required is how a spent free ALLOWANCE reads on a
             # provider whose budget is monthly rather than daily. Mistral answers
             # HTTP 402 with {"detail":"Check your subscription on
@@ -123,10 +159,10 @@ def classify_error(err: str) -> str:
             # google_gemma and gemini_flash sitting open. The account is out of
             # budget; that is quota, and it must wall the rung so the ladder falls
             # through instead of dying.
-            or "402" in err or "payment required" in err_l
+            or code == "402" or "payment required" in err_l
             or "subscription" in err_l or "insufficient" in err_l):
         return "quota"
-    if ("500" in err or "502" in err or "503" in err or "504" in err
+    if (code in ("500", "502", "503", "504")
             # Cloudflare's own edge codes, 520-527. A provider fronted by
             # Cloudflare answers an origin failure with one of these rather than
             # a bare 502, and none of them contains any string this function
@@ -135,8 +171,8 @@ def classify_error(err: str) -> str:
             # which routed around it correctly but cost the cycle its chain.
             # Invariant: an edge or origin transport failure is transient and
             # never evidence about the account, so it retries and never walls.
-            or "520" in err or "521" in err or "522" in err or "523" in err
-            or "524" in err or "525" in err or "526" in err or "527" in err
+            or code in ("520", "521", "522", "523",
+                        "524", "525", "526", "527")
             or "high traffic" in err_l):
         return "retryable"
     if ("empty completion" in err_l or "timed out" in err_l or "timeout" in err_l
@@ -148,7 +184,7 @@ def classify_error(err: str) -> str:
             # recognised it, and the raise carried the text so it could be
             # classified. Same family as "timed out", so the same class: route to
             # the next rung, never wall the account for a cancelled request.
-            or "499" in err or "client closed request" in err_l
+            or code == "499" or "client closed request" in err_l
             or "request was cancelled" in err_l
             # The server hung up mid-request: http.client raises
             # RemoteDisconnected("Remote end closed connection without
