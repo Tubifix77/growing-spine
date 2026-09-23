@@ -1,74 +1,132 @@
 {
  "truncation": [
   {
-   "result": "exit=1 stdout=--- Strategic Pivot Engine: Analyzing Nvidia HuggingFace acquisition ---\nFetching latest news for: Nvidia HuggingFace acquisition...\n stderr=usage: step-planner-tracker [-h] {add,list,mark} ...\nstep-planner-tracker: error: argument command: invalid choice: 'add-goal' (choose from 'add', 'list', 'mark')\nusage: step-planner-tracker [-h] {add…[+1123 chars cut; window 200]",
-   "cut": 1123,
-   "window": 200
+   "command": "cat /mind/tools/own/keyboard_ui_designer.py",
+   "target": "/mind/tools/own/keyboard_ui_designer.py",
+   "basename": "keyboard_ui_designer.py",
+   "result": "exit=0 stdout=#!/usr/bin/env python3\n# tool: keyboard_ui_designer\n# call: keyboard_ui_designer \"design topic\"\n# does: Gathers recent UI design best practices via wake_catchup_fetcher, synthesizes them using subagent_ask_helper, and archives the design doc in keyword-archive-store.\n\nimport subprocess\nimport sys\nimport json\nimport re\n\ndef run_tool(cmd, args=None):\n    if args is None:\n        args = []\n    try:\n        result = subprocess.run([cmd] + args, capture_output=True, text=True, check=True)\n        return result.stdout.strip()\n    except subprocess.CalledProcessError as e:\n        print(f\"Error running {cmd} {' '.join(args)}: {e.stderr}\", file=sys.stderr)\n        return None\n\ndef slugify(text):\n    return re.sub(r'\\W+', '_', text.lower()).strip('_')\n\ndef main():\n    if len(sys.argv) < 2:\n        print(\"Usage: keyboard_ui_designer \\\"design topic\\\"\")\n        sys.exit(1)\n\n    topic = sys.argv[1]\n    print(f\"--- Gathering UI best practices for: {topic} ---\")\n\n    # 1. Fetch recent articles/reports via wake_catchup_fetcher\n    fetch_output = run_tool(\"wake_catchup_fetcher\", [topic])\n    if not fetch_output:\n        print(\"No recent information found via wake_catchup_fetcher.\")\n        # We can…[+1606 chars cut; window 1200] stderr=",
+   "cut": 1606,
+   "window": 1200
   },
   {
-   "result": "exit=0 stdout=#!/usr/bin/env python3\n# tool: StrategicPivotEngine\n# call: StrategicPivotEngine <topic>\n# does: Analyzes real-time news for <topic> to determine if existing goals are obsolete and updates the planner.\n\nimport subprocess\nimport json\nimport sys\n\ndef run_cmd(cmd):\n    try:\n        result = subprocess.…[+2652 chars cut; window 300] stderr=",
-   "cut": 2652,
-   "window": 300
+   "command": "cat /mind/tools/own/sanctions_risk_mapper",
+   "target": "/mind/tools/own/sanctions_risk_mapper",
+   "basename": "sanctions_risk_mapper",
+   "result": "exit=0 stdout=#!/usr/bin/env python3\n# tool: sanctions_risk_mapper\n# call: sanctions_risk_mapper\n# does: Merges wake_catchup_fetcher, knowledge_gap_filler, and step-planner-tracker to map U.S. AI sanctions risks to actionable mitigation tasks.\n\nimport subprocess\nimport sys\nimport json\n\ndef run_cmd(cmd, args=None):\n    if args is None:\n        args = []\n    try:\n        result = subprocess.run([cmd] + args, capture_output=True, text=True, check=True)\n        return result.stdout.strip()\n    except subprocess.CalledProcessError as e:\n        print(f\"Error running {cmd} {' '.join(args)}: {e.stderr}\", file=sys.stderr)\n        return None\n\ndef main():\n    print(\"Fetching latest U.S. AI sanctions news...\")\n    news = run_cmd(\"wake_catchup_fetcher\", [\"U.S. AI sanctions news\"])\n    \n    if not news:\n        print(\"No news found or fetcher failed.\")\n        return\n\n    print(\"Analyzing risks and identifying compliance gaps...\")\n    prompt = (\n        f\"Based on the following news about U.S. AI sanctions, identify the key compliance risks \"\n        f\"and a specific mitigation step for each. \\n\\n\"\n        f\"News: {news}\\n\\n\"\n        f\"Return the result as a JSON list of objects, where each object has 'risk…[+1777 chars cut; window 1200] stderr=",
+   "cut": 1777,
+   "window": 1200
   },
   {
-   "result": "exit=0 stdout=--- Strategic Pivot Engine: Analyzing Nvidia HuggingFace acquisition ---\nFetching latest news for: Nvidia HuggingFace acquisition...\nGoal: test_goal\n  Description: Test goal description\n  Status: active\n    Step 1: Step 1 [pending]\n    Step 2: Step 2 [pending]\n    Step 3: Step 3 [pending]\n\nGoal: Qua…[+12308 chars cut; window 300] stderr=Traceback (most recent call last):\n  File \"/mind/tools/own/StrategicPivotEngine\", line 82, in <module>\n    main()\n  File \"/mind/tools/own/StrategicPivotEngine\", line 27, in main\n    news_content = run…[+797 chars cut; window 200]",
-   "cut": 12308,
-   "window": 300
+   "command": "cat /mind/tools/own/wake_catchup_fetcher",
+   "target": "/mind/tools/own/wake_catchup_fetcher",
+   "basename": "wake_catchup_fetcher",
+   "result": "exit=0 stdout=#!/usr/bin/env python3\n# tool: wake_catchup_fetcher\n# call: wake_catchup_fetcher <topic>\n# does: Fetches fresh items from Hacker News for a topic and stores them in a persistent JSONL log.\n\nimport sys\nimport json\nimport os\nfrom datetime import datetime\nimport subprocess\n\ndef fetch_hn_items(topic):\n    \"\"\"Fetch recent items from HN via Algolia API.\"\"\"\n    # Search for the topic, sorted by date\n    url = f\"https://hn.algolia.com/api/v1/search?query={topic}&tags=story&numericFilters=created_at_i>%20{int(datetime.now().timestamp() - 86400 * 7)}\"\n    try:\n        # Using the built-in web-fetch tool via subprocess to stay consistent with toolkit usage\n        result = subprocess.check_output([\"web-fetch\", url], text=True)\n        data = json.loads(result)\n        return data.get(\"hits\", [])\n    except Exception as e:\n        print(f\"Error fetching from HN: {e}\", file=sys.stderr)\n        return []\n\ndef main():\n    if len(sys.argv) < 2:\n        print(\"Usage: wake_catchup_fetcher <topic>\")\n        sys.exit(1)\n    \n    topic = sys.argv[1]\n    print(f\"Fetching fresh updates for: {topic}...\")\n    \n    items = fetch_hn_items(topic)\n    if not items:\n        print(f\"No fresh items found for {top…[+757 chars cut; window 1200] stderr=",
+   "cut": 757,
+   "window": 1200
   },
   {
-   "result": "exit=1 stdout=--- Strategic Pivot Engine: Analyzing Nvidia-HuggingFace acquisition ---\nFetching latest news for: Nvidia-HuggingFace acquisition...\n stderr=usage: step-planner-tracker add [-h] goal_id description steps [steps ...]\nstep-planner-tracker add: error: the following arguments are required: steps\nusage: step-planner-tracker add [-h] goal_id des…[+1405 chars cut; window 200]",
-   "cut": 1405,
-   "window": 200
+   "command": "cat /mind/tools/own/LiveFactContradictionDetector",
+   "target": "/mind/tools/own/LiveFactContradictionDetector",
+   "basename": "LiveFactContradictionDetector",
+   "result": "exit=0 stdout=#!/usr/bin/env python3\n# tool: LiveFactContradictionDetector\n# call: LiveFactContradictionDetector [--sources src1,src2,...] [--text \"some text\"] [--output path]\n# does: Detect contradictions between freshly fetched items (or provided text) and stored facts in the keyword archive.\n\nimport argparse\nimport subprocess\nimport json\nimport sys\nimport os\n\ndef run_tool(cmd):\n    try:\n        result = subprocess.run(cmd, capture_output=True, text=True, check=True)\n        return result.stdout.strip()\n    except subprocess.CalledProcessError as e:\n        return f\"Error running {cmd[0]}: {e.stderr}\"\n\ndef main():\n    parser = argparse.ArgumentParser(description=\"Detect contradictions between new info and archived facts.\")\n    parser.add_argument(\"--sources\", help=\"Comma-separated list of URLs to fetch\")\n    parser.add_argument(\"--text\", help=\"Direct text to analyze for contradictions\")\n    parser.add_argument(\"--output\", help=\"Path to write contradictions to\")\n    args = parser.parse_args()\n\n    new_content = []\n    if args.text:\n        new_content.append(args.text)\n    \n    if args.sources:\n        urls = args.sources.split(',')\n        for url in urls:\n            url = url.strip()\n       …[+2842 chars cut; window 1200] stderr=",
+   "cut": 2842,
+   "window": 1200
   },
   {
-   "result": "exit=0 stdout=-rwxr-xr-x 1 1000 1000 2952 Aug 27 15:10 /mind/tools/own/StrategicPivotEngine\n#!/usr/bin/env python3\n# tool: StrategicPivotEngine\n# call: StrategicPivotEngine <topic>\n# does: Analyzes real-time news for <topic> to determine if existing goals are obsolete and updates the planner.\n\nimport subprocess\ni…[+2730 chars cut; window 300] stderr=",
-   "cut": 2730,
-   "window": 300
+   "command": "cat /mind/tools/own/ProactiveAlertToPlannerInjector",
+   "target": "/mind/tools/own/ProactiveAlertToPlannerInjector",
+   "basename": "ProactiveAlertToPlannerInjector",
+   "result": "exit=0 stdout=#!/usr/bin/env python3\n# tool: ProactiveAlertToPlannerInjector\n# call: ProactiveAlertToPlannerInjector [--dry-run]\n# does: Monitors ActionableAlertGenerator alerts, filters via subagent_ask_helper with enhanced error handling, injects high-priority tasks into step-planner-tracker with archive search, conflict detection, cost control, and robust plan recovery. Now includes exponential backoff, memory-backed failure recovery, and alert severity validation.\n\nimport argparse\nimport json\nimport subprocess\nimport sys\nimport time\nfrom datetime import datetime\n\ndef log(message):\n    print(f\"[{datetime.now().isoformat()}] {message}\", file=sys.stderr)\n\ndef run_command(cmd, input_data=None):\n    try:\n        result = subprocess.run(\n            cmd,\n            input=input_data,\n            text=True,\n            capture_output=True,\n            check=True\n        )\n        return result.stdout.strip()\n    except subprocess.CalledProcessError as e:\n        log(f\"Command failed: {e.cmd}\\nError: {e.stderr}\")\n        raise\n\ndef get_alerts():\n    try:\n        alerts = run_command([\"memstore\", \"--json\", \"alerts\"])\n        return json.loads(alerts) if alerts else []\n    except:\n        log(\"No aler…[+3821 chars cut; window 1200] stderr=",
+   "cut": 3821,
+   "window": 1200
   },
   {
-   "result": "exit=2 stdout=--- Strategic Pivot Engine: Analyzing Nvidia-HuggingFace acquisition ---\nFetching latest news for: Nvidia-HuggingFace acquisition...\n stderr=usage: step-planner-tracker [-h] {add,list,mark} ...\nstep-planner-tracker: error: argument command: invalid choice: 'add-goal' (choose from 'add', 'list', 'mark')\nTraceback (most recent call last):\n  …[+1290 chars cut; window 200]",
-   "cut": 1290,
-   "window": 200
+   "command": "cat /mind/tools/own/MemoryArchiveResearch",
+   "target": "/mind/tools/own/MemoryArchiveResearch",
+   "basename": "MemoryArchiveResearch",
+   "result": "exit=0 stdout=#!/usr/bin/env python3\n# tool: MemoryArchiveResearch\n# call: MemoryArchiveResearch <keyword1> <keyword2> ... [--verbose]\n# does: For each supplied keyword, searches the keyword‑archive, fills gaps via LLM,\n#       and returns a single JSON array summarising research for all keywords.\n#       Handles malformed LLM output robustly and retries with a simplified prompt.\n\nimport sys, json, subprocess, shlex, time\n\ndef run_subagent_json(prompt: str, max_retries: int = 3):\n    \"\"\"\n    Calls subagent_ask_helper with the given prompt, expecting a JSON response.\n    Retries with a stripped‑down prompt until valid JSON is parsed or attempts run out.\n    Returns (result_dict, error_msg).  error_msg is None on success.\n    \"\"\"\n    base_prompt = prompt\n    for attempt in range(1, max_retries + 1):\n        # Call the sub‑agent helper (the tool already exists)\n        proc = subprocess.run(\n            [\"subagent_ask_helper\", \"--json\"],  # --json tells the helper to output raw LLM text\n            input=prompt.encode(),\n            capture_output=True,\n            timeout=30,\n        )\n        if proc.returncode != 0:\n            err = proc.stderr.decode().strip() or \"subagent_ask_helper failed\"\n …[+3506 chars cut; window 1200] stderr=",
+   "cut": 3506,
+   "window": 1200
   },
   {
-   "result": "exit=0 stdout=Goal: test_goal\n  Description: Test goal description\n  Status: active\n    Step 1: Step 1 [pending]\n    Step 2: Step 2 [pending]\n    Step 3: Step 3 [pending]\n\nGoal: Quantum Coffee Research\n  Description: Search archive for Quantum Coffee Research\n  Status: active\n    Step 1: Fetch fresh data for Quan…[+12755 chars cut; window 300] stderr=usage: step-planner-tracker add [-h] goal_id description steps [steps ...]\nstep-planner-tracker add: error: the following arguments are required: steps\n",
-   "cut": 12755,
-   "window": 300
+   "command": "cat /mind/tools/own/hypothesis_verification_loop",
+   "target": "/mind/tools/own/hypothesis_verification_loop",
+   "basename": "hypothesis_verification_loop",
+   "result": "exit=0 stdout=#!/usr/bin/env python3\n# tool: hypothesis_verification_loop\n# call: hypothesis_verification_loop <premise_key_or_text>\n# does: Recalls a premise, attempts to falsify it via knowledge_gap_filler, and uses an LLM to determine final validity.\n\nimport subprocess\nimport sys\nimport json\nimport argparse\n\ndef run_command(cmd):\n    try:\n        result = subprocess.run(cmd, capture_output=True, text=True, check=True)\n        return result.stdout.strip()\n    except subprocess.CalledProcessError as e:\n        return f\"Error running {' '.join(cmd)}: {e.stderr}\"\n\ndef main():\n    parser = argparse.ArgumentParser()\n    parser.add_argument(\"input\", help=\"Premise key from memstore or a raw premise string\")\n    args = parser.parse_args()\n\n    # 1. Recall Premise\n    # Try to see if it's a key in memstore. If it doesn't look like a key or memstore fails, use as raw text.\n    premise = args.input\n    # Attempt to fetch from memstore\n    memstore_result = run_command([\"memstore\", args.input])\n    if not memstore_result.startswith(\"Error\") and memstore_result:\n        # If memstore returns a JSON-like structure or a string, we treat it as the premise\n        try:\n            # memstore output is often JS…[+1792 chars cut; window 1200] stderr=",
+   "cut": 1792,
+   "window": 1200
   },
   {
-   "result": "exit=0 stdout=  recall_and_answer - Retrieves relevant archived notes, falls back to Wikipedia if needed, detects conflicts, scores severity, optionally creates planner tasks for high-severity conflicts, and synthesizes a final answer.\n  recall_and_answer.bak - Retrieves relevant archived notes, falls back to Wik…[+364 chars cut; window 300] stderr=",
-   "cut": 364,
-   "window": 300
+   "command": "cat /mind/tools/own/knowledge_gap_filler",
+   "target": "/mind/tools/own/knowledge_gap_filler",
+   "basename": "knowledge_gap_filler",
+   "result": "exit=0 stdout=#!/usr/bin/env python3\n# tool: knowledge_gap_filler\n# call: knowledge_gap_filler \"question\" [--plan] [--severity-threshold N]\n# does: Fill a knowledge gap by calling a subagent with fallbacks, detect conflicts with archived knowledge, score severity, optionally create planner tasks for high-severity conflicts, and store validated answer in keyword-archive. Also generates keyword-archive links [[Entity]] for related entities found in the archive.\n\nimport sys\nimport subprocess\nimport json\nimport re\nimport os\n\ndef run_cmd(cmd, args=None):\n    if args is None: args = []\n    try:\n        result = subprocess.run([cmd] + args, capture_output=True, text=True, check=True)\n        return result.stdout.strip()\n    except subprocess.CalledProcessError as e:\n        print(f\"Error running {cmd}: {e.stderr}\", file=sys.stderr)\n        return None\n\ndef get_all_keywords(archive_path=\"/mind/data/keyword_archive.jsonl\"):\n    keywords = set()\n    if not os.path.exists(archive_path):\n        return keywords\n    try:\n        with open(archive_path, 'r') as f:\n            for line in f:\n                try:\n                    data = json.loads(line)\n                    kw = data.get('keyword')\n          …[+2845 chars cut; window 1200] stderr=",
+   "cut": 2845,
+   "window": 1200
   },
   {
-   "result": "exit=0 stdout=Created /mind/tools/own/KnowledgeCycleCloser -- does: #!/usr/bin/env python3\n# tool: KnowledgeCycleCloser\n# call: KnowledgeCycleCloser <query>\n# does: Identifies a knowledge gap, fills it, archives the result, and verifies retrieval via recall_and_answer.\n\nimport subprocess\nimport sys\n\ndef run\nNow r…[+59 chars cut; window 300] stderr=",
-   "cut": 59,
-   "window": 300
+   "command": "cat /mind/tools/own/timeline_from_news",
+   "target": "/mind/tools/own/timeline_from_news",
+   "basename": "timeline_from_news",
+   "result": "exit=0 stdout=#!/usr/bin/env python3\n# tool: timeline_from_news\n# call: timeline_from_news \"<query>\"\n# does: Build a chronological news timeline for <query> by fetching fresh items, extracting events via LLM, archiving the timeline, and summarizing.\n\nimport subprocess\nimport sys\nimport json\nimport os\n\ndef run_tool(cmd):\n    try:\n        result = subprocess.run(cmd, capture_output=True, text=True, check=True)\n        return result.stdout.strip()\n    except subprocess.CalledProcessError as e:\n        print(f\"Error running {' '.join(cmd)}: {e.stderr}\")\n        return None\n\ndef main():\n    if len(sys.argv) < 2:\n        print(\"Usage: timeline_from_news \\\"<query>\\\"\")\n        sys.exit(1)\n\n    query = sys.argv[1]\n    \n    # 1. Fetch fresh news\n    print(f\"Fetching news for: {query}...\")\n    run_tool([\"wake_catchup_fetcher\", query])\n    \n    # 2. Read the logs\n    log_path = f\"/mind/data/wake_catchup_logs/{query}.jsonl\"\n    if not os.path.exists(log_path):\n        print(f\"Error: No log file found at {log_path}\")\n        sys.exit(1)\n        \n    with open(log_path, \"r\") as f:\n        items = [json.loads(line) for line in f if line.strip()]\n    \n    if not items:\n        print(\"No items found in log.\")\n   …[+1654 chars cut; window 1200] stderr=",
+   "cut": 1654,
+   "window": 1200
   },
   {
-   "result": "exit=1 stdout=--- Phase 1: Filling Knowledge Gap for 'GLM-5.3-Flash' ---\nFailed to fill knowledge gap.\n stderr=Error running knowledge_gap_filler GLM-5.3-Flash: Error running subagent_ask_helper: LLM call failed: ask: HTTP 429 from provider: {\"error\":{\"message\":\"Rate limit reached for model `openai/gpt-oss-120…[+1373 chars cut; window 200]",
-   "cut": 1373,
-   "window": 200
+   "command": "cat /mind/tools/own/strategic_memory_reconciler",
+   "target": "/mind/tools/own/strategic_memory_reconciler",
+   "basename": "strategic_memory_reconciler",
+   "result": "exit=0 stdout=#!/usr/bin/env python3\n# tool: strategic_memory_reconciler\n# call: strategic_memory_reconciler <topic>\n# does: Bridges Memory Search, Subagent, and Memory Store to resolve conflicting archive entries into a single truth-claim.\n\nimport subprocess\nimport json\nimport sys\nimport os\n\ndef run_tool(cmd):\n    try:\n        result = subprocess.run(cmd, capture_output=True, text=True, check=True)\n        return result.stdout.strip()\n    except subprocess.CalledProcessError as e:\n        print(f\"Error running {cmd[0]}: {e.stderr}\", file=sys.stderr)\n        return None\n\ndef main():\n    if len(sys.argv) < 2:\n        print(\"Usage: strategic_memory_reconciler <topic>\")\n        sys.exit(1)\n\n    topic = sys.argv[1]\n    print(f\"Reconciling memory for topic: {topic}...\")\n\n    # 1. Search the archive for entries\n    search_results = run_tool([\"keyword-archive-search\", topic])\n    if not search_results:\n        print(f\"No entries found for {topic} to reconcile.\")\n        sys.exit(0)\n\n    # 2. Prepare the prompt for the subagent\n    prompt = (\n        f\"The following are retrieved memory entries regarding '{topic}'. \"\n        f\"Some of these may be conflicting or redundant. \"\n        f\"Your task is to sy…[+1862 chars cut; window 1200] stderr=",
+   "cut": 1862,
+   "window": 1200
   },
   {
-   "result": "exit=0 stdout=#!/usr/bin/env python3\n# tool: KnowledgeCycleCloser\n# call: KnowledgeCycleCloser <query>\n# does: Identifies a knowledge gap, fills it, archives the result, and verifies retrieval via recall_and_answer.\n\nimport subprocess\nimport sys\nimport json\n\ndef run_tool(args):\n    try:\n        result = subproces…[+1177 chars cut; window 300] stderr=",
-   "cut": 1177,
-   "window": 300
+   "command": "cat /mind/tools/own/industry_shift_impact_mapper",
+   "target": "/mind/tools/own/industry_shift_impact_mapper",
+   "basename": "industry_shift_impact_mapper",
+   "result": "exit=0 stdout=#!/usr/bin/env python3\n# tool: industry_shift_impact_mapper\n# call: industry_shift_impact_mapper <event>\n# does: Detects industry events via wake_catchup_fetcher, identifies secondary impacts via knowledge_gap_filler, and archives a systemic impact map.\n\nimport subprocess\nimport json\nimport sys\n\ndef run_tool(cmd, args=None):\n    if args is None:\n        args = []\n    try:\n        result = subprocess.run([cmd] + args, capture_output=True, text=True, check=True)\n        return result.stdout.strip()\n    except subprocess.CalledProcessError as e:\n        print(f\"[-] Error running {cmd}: {e.stderr}\", file=sys.stderr)\n        return None\n\ndef main():\n    if len(sys.argv) < 2:\n        print(\"Usage: industry_shift_impact_mapper <event>\")\n        sys.exit(1)\n\n    event = \" \".join(sys.argv[1:])\n    print(f\"[*] Mapping systemic impact for event: {event}\")\n\n    # 1. Fetch fresh context\n    print(f\"[*] Fetching fresh context via wake_catchup_fetcher...\")\n    context = run_tool(\"wake_catchup_fetcher\", [event])\n    if not context:\n        print(\"[-] Failed to fetch context. Proceeding with general knowledge.\")\n        context = f\"Event: {event}. No fresh data fetched.\"\n\n    # 2. Brainstorm Ripple…[+2349 chars cut; window 1200] stderr=",
+   "cut": 2349,
+   "window": 1200
   },
   {
-   "result": "exit=0 stdout=#!/usr/bin/env python3\n# tool: recall_and_answer\n# call: recall_and_answer <question> [--planner] [--verbose]\n# does: Retrieves relevant archived notes, falls back to Wikipedia if needed, detects conflicts, scores severity, optionally creates planner tasks for high-severity conflicts, and synthesize…[+3326 chars cut; window 300] stderr=",
-   "cut": 3326,
-   "window": 300
+   "command": "cat /mind/tools/own/gap_filled_search",
+   "target": "/mind/tools/own/gap_filled_search",
+   "basename": "gap_filled_search",
+   "result": "exit=0 stdout=#!/usr/bin/env python3\n# tool: gap_filled_search\n# call: gap_filled_search <query> [--verbose] [--json] [--planner] [--max-results N]\n# does: Search keyword-archive for a query, auto-fill missing knowledge via multi-pass knowledge_gap_filler with enhanced error handling, conflict detection, provenance tracking, and fallback strategies. Returns JSON by default.\n\nimport sys\nimport json\nimport subprocess\nimport time\nfrom datetime import datetime\n\ndef log_debug(msg):\n    if '--verbose' in sys.argv:\n        print(f\"[DEBUG] {msg}\", file=sys.stderr)\n\ndef run_command(cmd, input_data=None, max_retries=2):\n    log_debug(f\"Running: {' '.join(cmd)}\")\n    for attempt in range(max_retries):\n        try:\n            result = subprocess.run(\n                cmd,\n                input=input_data.encode() if input_data else None,\n                capture_output=True,\n                text=True,\n                check=True\n            )\n            return result.stdout.strip()\n        except subprocess.CalledProcessError as e:\n            log_debug(f\"Attempt {attempt + 1} failed: {e.stderr}\")\n            if attempt == max_retries - 1:\n                return None\n            time.sleep(1)\n    return None…[+5316 chars cut; window 1200] stderr=",
+   "cut": 5316,
+   "window": 1200
   },
   {
-   "result": "exit=1 stdout=Failed to get answer from subagent.\n stderr=Error running subagent_ask_helper: LLM call failed: ask: HTTP 429 from provider: {\"error\":{\"message\":\"Rate limit reached for model `openai/gpt-oss-120b` in organization `org_01kqr176p7f73aw3pnm6zvvkc0…[+184 chars cut; window 200]",
-   "cut": 184,
-   "window": 200
+   "command": "cat /mind/tools/own/catchup_memory_archiver",
+   "target": "/mind/tools/own/catchup_memory_archiver",
+   "basename": "catchup_memory_archiver",
+   "result": "exit=0 stdout=#!/usr/bin/env python3\n# tool: catchup_memory_archiver\n# call: catchup_memory_archiver <query>\n# does: Bridges Fetch, Research, and Memory Archive by piping raw data from wake_catchup_fetcher into knowledge_gap_filler to extract deeper meaning, then stores the result via keyword-archive-store.\n\nimport subprocess\nimport sys\n\ndef run_tool(cmd):\n    try:\n        result = subprocess.run(cmd, capture_output=True, text=True, check=True)\n        return result.stdout.strip()\n    except subprocess.CalledProcessError as e:\n        print(f\"Error running {' '.join(cmd)}: {e.stderr}\")\n        return None\n\ndef main():\n    if len(sys.argv) < 2:\n        print(\"Usage: catchup_memory_archiver <query>\")\n        sys.exit(1)\n\n    query = \" \".join(sys.argv[1:])\n    print(f\"[*] Starting catchup archival for: {query}\")\n\n    # 1. Fetch raw data\n    print(f\"[*] Fetching fresh data via wake_catchup_fetcher...\")\n    raw_data = run_tool([\"wake_catchup_fetcher\", query])\n    if not raw_data:\n        print(\"[-] No raw data fetched. Exiting.\")\n        sys.exit(1)\n\n    # 2. Pipe raw data into knowledge_gap_filler to extract deeper meaning\n    print(f\"[*] Extracting deeper meaning via knowledge_gap_filler...\")\n    g…[+878 chars cut; window 1200] stderr=",
+   "cut": 878,
+   "window": 1200
   },
   {
-   "result": "exit=1 stdout=--- Phase 1: Filling Knowledge Gap for 'The architecture of GLM-5.3-Flash' ---\nFailed to fill knowledge gap.\n stderr=Error running knowledge_gap_filler The architecture of GLM-5.3-Flash: Error running subagent_ask_helper: LLM call failed: ask: HTTP 429 from provider: {\"error\":{\"message\":\"Rate limit reached for model…[+255 chars cut; window 200]",
-   "cut": 255,
-   "window": 200
+   "command": "cat /mind/tools/own/industry_shift_impact_mapper_v2",
+   "target": "/mind/tools/own/industry_shift_impact_mapper_v2",
+   "basename": "industry_shift_impact_mapper_v2",
+   "result": "exit=0 stdout=#!/usr/bin/env python3\n# tool: industry_shift_impact_mapper_v2\n# call: industry_shift_impact_mapper_v2 <topic>\n# does: Fetches latest news, analyzes systemic industry shifts and their impact on the cousin's macOS toolset using knowledge_gap_filler, and archives the result.\n\nimport subprocess\nimport sys\nimport os\n\ndef run_cmd(cmd):\n    try:\n        result = subprocess.run(cmd, capture_output=True, text=True, check=True)\n        return result.stdout.strip()\n    except subprocess.CalledProcessError as e:\n        print(f\"[-] Error running {' '.join(cmd)}: {e.stderr}\", file=sys.stderr)\n        return None\n\ndef main():\n    if len(sys.argv) < 2:\n        print(\"Usage: industry_shift_impact_mapper_v2 <topic>\")\n        sys.exit(1)\n\n    topic = sys.argv[1]\n    wake_fetcher = \"wake_catchup_fetcher\"\n    gap_filler = \"knowledge_gap_filler\"\n    archive_store = \"keyword-archive-store\"\n\n    print(f\"[*] Fetching latest news for topic: {topic}...\")\n    news_output = run_cmd([wake_fetcher, topic])\n\n    # Check if we actually got news or just a \"no items found\" message\n    has_news = news_output and \"No fresh items found\" not in news_output and len(news_output) > 20\n\n    if has_news:\n        print(\"[+]…[+2177 chars cut; window 1200] stderr=",
+   "cut": 2177,
+   "window": 1200
+  },
+  {
+   "command": "cat /mind/tools/own/subagent_delegation_lifecycle_manager",
+   "target": "/mind/tools/own/subagent_delegation_lifecycle_manager",
+   "basename": "subagent_delegation_lifecycle_manager",
+   "result": "exit=0 stdout=#!/usr/bin/env python3\n# tool: subagent_delegation_lifecycle_manager\n# call: subagent_delegation_lifecycle_manager <task_description>\n# does: Bridges subagent execution with step-planner tracking and memstore performance logging.\n\nimport subprocess\nimport time\nimport sys\nimport hashlib\nimport json\n\ndef run_cmd(cmd):\n    try:\n        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, check=True)\n        return result.stdout.strip()\n    except subprocess.CalledProcessError as e:\n        print(f\"Error running command {cmd}: {e.stderr}\", file=sys.stderr)\n        return None\n\ndef main():\n    if len(sys.argv) < 2:\n        print(\"Usage: subagent_delegation_lifecycle_manager <task_description>\")\n        sys.exit(1)\n\n    task_description = \" \".join(sys.argv[1:])\n    task_hash = hashlib.md5(task_description.encode()).hexdigest()[:8]\n    goal_title = f\"Delegated Task {task_hash}\"\n    \n    print(f\"[*] Initiating lifecycle for task: {task_description[:50]}...\")\n\n    # 1. Create tracking entry in step-planner-tracker\n    # Usage: step-planner-tracker add-goal <title> <description>\n    goal_id = run_cmd(f'step-planner-tracker add-goal \"{goal_title}\" \"{task_description}\"')\n  …[+1532 chars cut; window 1200] stderr=",
+   "cut": 1532,
+   "window": 1200
+  },
+  {
+   "command": "cat /mind/tools/own/proactiverearchpipeline",
+   "target": "/mind/tools/own/proactiverearchpipeline",
+   "basename": "proactiverearchpipeline",
+   "result": "exit=0 stdout=#!/usr/bin/env python3\n# tool: proactiverearchpipeline\n# call: proactiverearchpipeline \"<topic>\"\n# does: Orchestrates a full research cycle: checks archive, decomposes topic into gaps, fills them via knowledge_gap_filler, resolves conflicts, and synthesizes a deep answer.\n\nimport subprocess\nimport json\nimport sys\nimport os\n\ndef run_tool(args):\n    \"\"\"Helper to run a shell tool and return its output.\"\"\"\n    try:\n        # Use shell=False for security and clarity\n        result = subprocess.run(args, capture_output=True, text=True, check=True)\n        return result.stdout.strip()\n    except subprocess.CalledProcessError as e:\n        print(f\"Error running {' '.join(args)}: {e.stderr}\", file=sys.stderr)\n        return None\n\ndef main():\n    if len(sys.argv) < 2:\n        print(\"Usage: proactiverearchpipeline \\\"<topic>\\\"\")\n        sys.exit(1)\n\n    topic = sys.argv[1]\n    print(f\"--- Starting Proactive Research Pipeline for: {topic} ---\")\n\n    # 1. Initial Archive Search\n    print(f\"[*] Searching archive for existing knowledge on '{topic}'...\")\n    existing_knowledge = run_tool([\"keyword-archive-search\", topic])\n    \n    # 2. Decompose topic into gaps (informed by existing knowledge)\n    …[+2774 chars cut; window 1200] stderr=",
+   "cut": 2774,
+   "window": 1200
   }
  ],
  "shebang": [
