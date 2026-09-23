@@ -921,7 +921,99 @@ journalctl --user -u growing-spine --since "2 hours ago"
 
 ---
 
-## 8. State — 2026-09-23 00:50
+## 8. State — 2026-09-23 18:05
+
+**gs-bug-daily 2026-09-23 18:05 (17.0 h since this morning's run, NO gaps).**
+235 served at **13.1/h**, 310 exec, **4 skips**, **13 errors and ALL 13 are
+guard rails** (6 cannot_start, 4 false-completion, 3 upgrade-no-change). Zero
+provider, zero unclassified, zero provider-shaped failures under other kinds.
+Truncation **12.8%** (up from 7.6%). Library **743**, `cannot_start` **20 →
+21**. Funnel: 18 tools at 3.0 rounds, 19 done-marks / 13 refused / **6
+accepted (32%)**. Gates: **laptop 537 PASS, PC 531 PASS**.
+
+**THIS MORNING'S FIX FOUND THE BUG UNDERNEATH IT WITHIN ONE WINDOW, and that
+is the whole story of the day.** The GONE line was corrected at 00:44 to quote
+the provider instead of asserting a hardcoded `"(404 from the provider)"`. By
+17:51 it had caught this, twice:
+
+> `cloudflare: model @cf/... reported GONE by classify_error -- no models left
+> on this rung -- walling it. Provider said: HTTP 429: {"errors":[{"message":
+> "AiError: you have used up your daily free allocation of 10,000 neurons...`
+
+**An HTTP 429 classified as GONE.** The cause is the hazard §8 named on
+2026-08-27 and gave a trigger: `classify_error` matched **bare digits anywhere
+in the error body** (`"404" in err`), and **Cloudflare puts a UUID in every
+error**. The live body ends `...continue usage. (d008a44d-` — a UUID, cut at
+`body[:200]`. Two of those UUIDs contained `404`. The old prediction was ~0.7%
+per error; cloudflare errored ~498 times in the window, so ~3 hits expected
+and **2 observed**.
+
+**Fixed `16389bb`. Invariant: A NUMBER IS EVIDENCE ONLY WHERE THE PROTOCOL PUT
+IT.** `classify_error` now parses the status once, from the front where
+`prov.call` writes it, and every digit rule reads that and nothing else; words
+still match the body; an error with no parseable status fires no numeric rule
+at all. `5035` is a BODY code so it is pinned to its HTTP 403. **17 checks, the
+load-bearing one being the real captured body, mutation-proved** — restoring
+`"404" in err` fails that one check and nothing else.
+
+**What that chain says about method, and it is worth more than the fix.**
+Yesterday I fixed a diagnostic for lying about *what it observed*. That fix
+had no behavioural effect at all — it only changed a log line. **Within
+seventeen hours it exposed a live classification bug that had been retiring
+healthy rungs silently for a month.** A false diagnostic does not merely
+mislead; it hides the thing underneath it. The order was forced and I had it
+backwards in yesterday's entry: I wrote that status-separation had to come
+first to unblock widening. In fact the honest MESSAGE had to come first,
+because nothing else could have shown which errors were being misread.
+
+**The three fixes from this morning are all VERIFIED in production.**
+- **The done-gate comment fix:** 4 false-completion blocks since 00:44 and
+  **0 of 4 quote a comment**, against **142 of 279 (51%)** before. They read
+  `` `step-planner-tracker list` ``, `` `ls -l /workspace/knowledge/` `` — real
+  commands.
+- **The GONE line:** quoting the provider, and it caught the bug above.
+- **The WALLED-as line:** 2,531 lines in 17 h, and it answers questions no log
+  could answer before. Full split: `gemini_flash/quota` 616,
+  `mistral/quota` 503, `cloudflare/quota` 498, `google_gemma/quota` 324,
+  **`groq_oss120/too_large` 301**, `groq_oss120/quota` 287.
+
+**`groq_oss120` is confirmed as a pure tax: 301 `too_large` walls, 0 cycles
+served, from a slot ABOVE the workhorse.** Every cycle pays a reach and a hop
+for it. That is now three windows of zero. **Next `gs-ladder`: move it below
+`google_gemma` or retire it** — it cannot take a wake-sized prompt at 8,000
+TPM and never could.
+
+**The retryDelay fix is now UNBLOCKED.** Yesterday's entry said the order was
+forced — separate status from body, then widen `prov.call`'s `body[:200]`,
+then honour the `retryDelay: 41s` the provider asks for instead of sleeping
+120 s. The first link shipped today, so widening is safe now. 139 quota sleeps
+in this window. **Named trigger: 2026-09-25, top item.**
+
+**`cannot_start` 20 → 21, and the guard caught most of what caused it.** The
+done-gate's `cannot_start` block fired **6 times** — the first real activity
+from that guard in weeks — and the broken-tool warning was mentioned in **19**
+records, against 0 last window, so the set changed and the creature was told.
+One tool leaked through: `memory_archive_search_helper`, *"line 86: f-string
+expression part cannot include a backslash"* — the backslash family, one of
+§5's three LLM-file-corruption classes, unchanged since 08-19.
+
+**Throughput is flat at 13.1/h** against 12.8, still under the 15/h floor, with
+**61% of 604 `think_start`s finding no rung**. Ladder: `google_gemma` 198,
+`cloudflare` 27, `gemini_flash` 10, `groq_oss120` 0, `mistral` 0. `cloudflare`
+dropped off the SERIOUS list today, so only `mistral` remains there.
+
+**Everything else from the 00:50 entry stands**, including the mistral repoint
+(the account is alive; only `mistral-large-latest` is 403 `tier_not_allowed`),
+gemma's real limit of **16,000 input tokens per minute**, `did-i` at 0 calls
+with its **2026-09-25** trigger two days out, and the cloudflare FLATLINE
+firing by construction (**2026-09-27**).
+
+**Blank pass: none.** Item 19, added this morning, would have caught the
+`groq_oss120` zero-serve — and did.
+
+---
+
+### Previous state — 2026-09-23 00:50
 
 **gs-bug-daily 2026-09-23 (31.3 h, NO gaps, 32 hours with records).** 408
 served at **12.8/h** — down from 17.1 — 520 exec, **7 skips** (all truncation),
