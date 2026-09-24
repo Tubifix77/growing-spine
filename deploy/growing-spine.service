@@ -3,6 +3,21 @@ Description=Growing Spine creature (executive loop)
 # Don't fight the user manager; just keep the brain alive.
 After=docker.service
 Wants=docker.service
+# Don't give up after N fast restarts -- but DO leave a trail. A genuine
+# crash-loop (e.g. a bad self-edit) is caught by the boot-time rollback check
+# inside main.py (Layer 3), not by systemd giving up.
+#
+# THIS LIVES IN [Unit]. It sat in [Service] from the beginning, where systemd
+# IGNORES it -- and said so on every single reload, 10 times in the last week
+# alone, unread. The effective setting was therefore the DEFAULT: burst 5
+# within 10s. With Restart=always and RestartSec=3 a brain that dies slowly
+# never trips it, which is why nothing was ever noticed; a brain that dies
+# INSTANTLY (bad self-edit, import error) exhausts the burst and systemd
+# gives up -- precisely the case this line was written to prevent, and
+# precisely when the immortal-brain layer matters most. Found 2026-09-24.
+# Verify by asking systemd, never by reading this file:
+#   systemctl --user show growing-spine -p StartLimitIntervalUSec
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -11,10 +26,6 @@ ExecStart=/usr/bin/python3 -u %h/growing-spine/main.py
 # THE IMMORTAL-BRAIN LAYER: if the executive dies, bring it back.
 Restart=always
 RestartSec=3
-# Don't give up after N fast restarts -- but DO leave a trail. A genuine
-# crash-loop (e.g. a bad self-edit) is caught by the boot-time rollback check
-# inside main.py (Layer 3), not by systemd giving up.
-StartLimitIntervalSec=0
 # Log to the journal: timestamped, auto-rotating, time-scopable via
 # `journalctl --user -u growing-spine --since "6 hours ago"`. The flat
 # ~/growing-spine.log is frozen as history (append: stripped timestamps).
