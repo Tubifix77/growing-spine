@@ -936,6 +936,11 @@ without it.** That is the 09-25 baseline again, unchanged, and the 10-02
   what is true: text the creature READS is repair, benched before it ships; what
   is SENT in chat is §2.7's.
 
+**§9 (end-of-session reports) is RETIRED, on Tue's instruction.** I wrote it
+myself on 2026-08-08 (`8db7f92`); he never asked for it, and in practice the
+series stopped around 08-19. **This §8 is the record.** Do not re-add a report
+ritual.
+
 **The Growing Cousin handoff is sent** (Tue relayed a ten-line note, not the
 file). **Standing obligation until they report back: hold the spine's page
 size and retry timing still** — their before/after on the shared
@@ -3480,31 +3485,3 @@ tool header without `#`, so obedient files died with `tool:: command not found`)
 Next due early September. Ask for symptoms, never causes, and **with a time
 window**: every item it named came from June, because recent state lives in a
 five-slot register that overwrites each cycle.
-
----
-
-## 9. Session reports
-
-End each working session with one report, published as a **private artifact** —
-never a file in this repo. Same reason `audit/` and `DEV-LEDGER.md` are
-gitignored: it is a file-and-line map of a running system's failure modes, and
-this repo is public. Find earlier ones with the artifact tool's `list` action;
-No. 1 is 2026-08-08.
-
-One report per session, not per day, and it is written for Tue rather than for
-the next session — §8 is what the next session reads. Structure that has worked:
-
-- **What it did** — delta against the previous census, productive work first.
-  The creature has good days and a report that only lists faults misrepresents it.
-- **Findings** — severity-marked, each with the instrument that produced it.
-- **What we built** — and for whom. An instrument only we can read makes us
-  better caretakers; only something the creature receives makes it more
-  independent. Say which you built.
-- **For the next session** — what is unresolved, and the *specific measurement*
-  that will settle it. "Does `wake_catchup_fetcher` move off 358 b" beats
-  "check whether it worked".
-
-Name the instrument behind every number, and when a number was wrong, print the
-correction and the discarded method rather than quietly replacing it — the
-methods that produce plausible wrong answers are worth more to Tue than the
-answers.
