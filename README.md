@@ -2,15 +2,15 @@
 
 A self-improvement creature in a box. Descended from [Spine Reborn](https://github.com/Tubifix77/spine-reborn).
 
-**Status:** Live. First boot 2026-06-03. Re-architected to the *toolsmith* design 2026-06-21 (v0.6). Self-restart capability added 2026-06-21 (v0.7). Composition/depth mode added 2026-06-23 (v0.8). Batched ideation + pipeline hygiene 2026-06-25 → 07-02 (v0.9.x). Systematic rut detection 2026-07-03 (v0.10). Planning-level batch idea-gate + a real news horizon 2026-07-10 (v0.11). Embedding idea-gate — paraphrase-proof dedup — 2026-07-14 (v0.12). Four-provider keychain (OpenRouter joined 2026-07-17 ahead of Cerebras's free-tier retirement) with per-provider dashboard chips. The idea gate went ACTIVE 2026-07-30 after 16 shadow days — covered ideas now serve an upgrade-or-go-new choice — on a nine-window keychain across five model families. Running on a dedicated Debian laptop under a systemd supervisor, thinking via a free-tier API keychain, never touching the operator's main PC.
+**Status:** Live. First boot 2026-06-03. Re-architected to the *toolsmith* design 2026-06-21 (v0.6). Self-restart capability added 2026-06-21 (v0.7). Composition/depth mode added 2026-06-23 (v0.8). Batched ideation + pipeline hygiene 2026-06-25 → 07-02 (v0.9.x). Systematic rut detection 2026-07-03 (v0.10). Planning-level batch idea-gate + a real news horizon 2026-07-10 (v0.11). Embedding idea-gate — paraphrase-proof dedup — 2026-07-14 (v0.12). Four-provider keychain (OpenRouter joined 2026-07-17 ahead of Cerebras's free-tier retirement) with per-provider dashboard chips. The idea gate went ACTIVE 2026-07-30 after 16 shadow days — covered ideas now serve an upgrade-or-go-new choice — on a nine-window keychain across five model families. The body became observable and the headline metric — edges per tool — got its own instrument 2026-09-21 (v0.16). The ladder stopped misreading its own errors, and the framework stopped seeding the subagent pattern, 2026-09-26 (v0.17); the ladder is now four free rungs. Running on a dedicated Debian laptop under a systemd supervisor, thinking via a free-tier API keychain, never touching the operator's main PC.
 
 ---
 
 ## What this is (in one breath)
 
-An LLM-based creature lives alone in a Linux container. Every couple of minutes it wakes, reads its own memory and recent history, thinks (via a rotating free-tier API), runs shell commands in its container, and goes back to sleep. No human drives it. It is given a purpose, the ability to build its own tools, and persistent memory — and then it is watched, over days, to see what it does.
+An LLM-based creature lives alone in a Linux container. It wakes on a loop — seconds apart when it has budget, sleeping through quota walls when it has none — reads its own memory and recent history, thinks (via a rotating free-tier API), runs shell commands in its container, and goes back to sleep. No human drives it. It is given a purpose, the ability to build its own tools, and persistent memory — and then it is watched, over days, to see what it does.
 
-The current purpose is **to build itself a better body**: a coherent toolkit of small programs that make its own next round of work smarter, faster, and less forgetful — fetchers that pull information, archives that store and recall knowledge, planners that survive across cycles, even helpers that offload sub-tasks to other free LLMs. Each tool it builds is meant to make the *next* tool easier to build. That is the experiment: **can an LLM-based agent recursively improve its own substrate, and does the capability actually compound?**
+The current purpose is **to build itself a better body**: a coherent toolkit of small programs that make its own next round of work smarter, faster, and less forgetful — fetchers that pull information, archives that store and recall knowledge, planners that survive across cycles. Each tool it builds is meant to make the *next* tool easier to build. That is the experiment: **can an LLM-based agent recursively improve its own substrate, and does the capability actually compound?**
 
 If you are reading this cold, two years from now, the rest of this document rebuilds the whole picture: where the project came from, why the design looks the way it does, how to run it, and — honestly — what works and what we tried that didn't.
 
@@ -59,6 +59,50 @@ knowledge-gap fillers to its own pre-edit backup habit, indexed by what each
 tool claims to do and how often it actually ran in the last fortnight. The
 interactive [framework map](docs/framework-map.html) shows the machinery —
 every LLM prompt verbatim, every gate in place — that shaped this growth.
+
+## Current status (2026-09-26, v0.17) — the ladder tells the truth, and we stop seeding subagents
+
+**749 own tools, 1.60 dependency edges per tool** (live static scan, 2026-09-26). Compounding had cooled from
+1.68 on 09-21 before anything below landed, which matters for reading what
+comes next.
+
+**The creature's thinking ran on an error classifier that read digits out of
+error bodies.** A new log line — one per walled provider, where before a wall
+printed nothing — showed within seventeen hours a Cloudflare *429 out of
+allowance* being classified as *model gone*, because the request UUID in the
+body happened to contain `404`. So a live rung was being retired, silently,
+by chance. Digits are now read only from the HTTP status. The same line then
+showed the loop sleeping a flat two minutes while Google's own reply said
+*retry in 41 s*. It now waits the delay the provider states, clamped so it
+can only ever shorten a sleep. Every quota sleep since has been
+provider-stated, 5–27 s. The workhorse's real limit turned out to be **16,000
+input tokens per minute**, read from the provider's 429 body, not the
+14,400 requests a day in our config. The ladder is four free rungs, honestly
+labelled: two retired providers had moved behind paywalls, and free tier only
+is permanent.
+
+**We had been seeding the subagent pattern ourselves.** About 400 of the
+creature's tools route through one helper that sends a question to another
+LLM. A review by the sibling project, Growing Cousin, found that the
+framework had put that idea there in ten places: the starter map, the
+prompt's own example of good growth, a coverage category, the composition
+example, all three fallbacks, and two judges' mission lines. All ten are
+replaced with chains of real tools that involve no model. The creature's
+built-in `ask` is now described by its facts alone: a fresh model with no
+memory of you, on a daily budget. Nothing the creature built was touched. The
+baseline to judge it against is 1.60 edges per tool, 21% of edges pointing
+into that one helper, and 1.26 per tool without it. If the average falls,
+read it both ways before calling it a regression.
+
+**Text the creature reads now gets tested before it ships.** Wording is the one
+class of fix in this project that has ever recurred after being "fixed". A
+bench now puts the old and new wording of a message, over real cases from the
+journal, to a local model of the same family as the creature's, and reports
+which one it acts on correctly. On its first uses it verified one message
+(1 in 5 → 4 in 5), showed that two others made no measurable difference, and
+stopped a change we would have shipped as obviously right that scored
+*worse* than the text it replaced. It is a bench only. A local model never
+becomes a rung.
 
 ## Current status (2026-09-21, v0.16) — the headline metric finally has an instrument
 

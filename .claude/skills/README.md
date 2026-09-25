@@ -245,10 +245,14 @@ body, which touches nothing durable.
 **Our code: fix the obvious, up front, and declare it.** `executive/`,
 `keychain/`, `volume/`, `scripts/`. Obvious means: small, you can name the
 invariant it restores, it ships with a test that fails without it, and the gate
-passes on both machines. Never a directive or prompt change (Tue's call), never
-config or a provider rung, never `framework-tools/`, and never anything you would
-have to argue for — if it needs an argument it is a finding with a dated trigger,
-not a fix.
+passes on both machines. Text the creature READS (prompt, warning, marker) is
+repair like any other code and held to the same standard — name the invariant,
+ship a test that fails without it, and bench it on `scripts/text_bench.py`
+before it ships (`CLAUDE.md` §8, 2026-09-23). What is SENT to it in chat is
+different: §2.7, *"World-RULE changes are announced in Tue's voice and are Tue's
+call."* Never config or a provider rung, never `framework-tools/`, and never
+anything you would have to argue for — if it needs an argument it is a finding
+with a dated trigger, not a fix.
 
 Everything repaired must appear in the run's executive summary. Nothing gets
 fixed silently; that is what keeps this from becoming the whim the original rule

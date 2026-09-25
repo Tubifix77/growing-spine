@@ -1,11 +1,4 @@
-So the block is
-the missing payment method — and since this ladder is free-tier-only and always
-will be, that makes cerebras **defunct for us**, not merely dark. **Retired
-2026-08-26** (`enabled: false`, dated comment naming the migration): the rung
-entry is kept rather than deleted, `CEREBRAS_API_KEY` is now withheld from the
-container (verified 0 tools reference it), and the walled-rung probe and its
-permanent `SERIOUS` both stop. I first put this to Tue as a money decision; it
-never was one, and his standing free-tier constraint had already answered it.# CLAUDE.md — working on Growing Spine
+# CLAUDE.md — working on Growing Spine
 
 You are working on a live autonomous creature, not a codebase at rest. It runs
 24/7 on the Debian laptop, writes its own tools, and cannot be paused politely.
@@ -90,7 +83,7 @@ It is meant to stand alone, permanently, with nobody watching. So:
 | `audit/RE-INSPECTION-2026-08-06.md` | both machines, **gitignored** | Per-finding verdict record for all 67 static-audit findings. |
 | Assistant memory | `D:\AI\claude-memory\memory.md`, section "Growing Spine" | Doctrine, scars, standing decisions. Read that section, not the whole file. |
 | `growing-spine-architecture.md` | this repo | Design + version history. |
-| `.claude/skills/README.md` | this repo | The eight `/gs-*` standing inspections and the rule that keeps them from drifting out of sync with this file. |
+| `.claude/skills/README.md` | this repo | The eight `/gs-*` standing inspections, the standalone `gs-fan-diagnostic`, and the rule that keeps them from drifting out of sync with this file. |
 
 `audit/` and `DEV-LEDGER.md` are gitignored deliberately: **this repo is public**,
 and those files are a file-and-line map of a running system's failure modes.
@@ -100,7 +93,8 @@ Never commit them. Never commit `config.yaml` — it holds API keys.
 
 **The `/gs-*` skills carry PROCEDURE; this file carries DOCTRINE.** Eight standing
 inspections live in `.claude/skills/` — `gs-bug-daily`, `gs-products`, `gs-vitals`,
-`gs-ladder`, `gs-data`, `gs-instruments`, `gs-directives`, `gs-secrets`. Each one
+`gs-ladder`, `gs-data`, `gs-instruments`, `gs-directives`, `gs-secrets` — plus
+`gs-fan-diagnostic`, which stands alone and fires on any report of noise or heat. Each one
 mandates exactly what must be inspected, so a check is never the whim of the day,
 and each ends with a pointed open pass plus one blank pass, because a pure
 checklist is blind to whatever it was written before: on 2026-08-19 three
@@ -921,7 +915,39 @@ journalctl --user -u growing-spine --since "2 hours ago"
 
 ---
 
-## 8. State — 2026-09-25 23:45
+## 8. State — 2026-09-26
+
+**v0.17 CLOSED: the docs are synced to the code.** `README.md` (status line,
+purpose paragraph, a v0.17 status section) and `growing-spine-architecture.md`
+(retitled v0.17, with *As of 2026-09-26* notes on the keychain and cycle, the
+done-gate's five checks, the file map, and v0.16 + v0.17 history entries) no
+longer describe a nine-window ladder or a subagent seed category. Live figures
+for the README, taken by static scan on the laptop today: **749 tools, 1,200
+edges, 1.60/tool; 261 edges (22%) into `subagent_ask_helper`; 1.25/tool
+without it.** That is the 09-25 baseline again, unchanged, and the 10-02
+`gs-products` reads against it. Two stale-doc faults fixed on the way:
+- **`CLAUDE.md` began with a 562-char orphan paragraph** — the cerebras
+  retirement text from `6d6e829` (08-26), prepended to the file instead of
+  replacing the sentence it was written for. So for a month every session
+  opened on a fragment. It is now spliced into the 08-19 ladder paragraph it
+  belonged to.
+- **`.claude/skills/README.md` still carried the paraphrase §5 retracted on
+  08-27** — *"Never a directive or prompt change (Tue's call)"*. It now says
+  what is true: text the creature READS is repair, benched before it ships; what
+  is SENT in chat is §2.7's.
+
+**The Growing Cousin handoff is sent** (Tue relayed a ten-line note, not the
+file). **Standing obligation until they report back: hold the spine's page
+size and retry timing still** — their before/after on the shared
+`gemma-4-31b-it` budget compares against the spine's clean window (09-24 08:00
+→ 09-25 23:59: 14.5 gemma-served/h, 0.62 429s per attempt), and a change on
+our side would contaminate it. Expected result if their page shrinks: gemma
+served/h up and 429s per attempt down on our side, modestly, since our own
+page is most of a minute's 16k.
+
+---
+
+### Previous state — 2026-09-25 23:45
 
 **THE FRAMEWORK NO LONGER SEEDS THE SUBAGENT PATTERN (`37d0e44`).** Tue's
 call, Growing Cousin concurring, from a proposal the Cousin session wrote after
@@ -3012,11 +3038,13 @@ tab.","type":"payment_required_error","param":"quota"}`. **It cannot self-heal o
 any date**: the ladder has re-probed it roughly 1,200 times over 8.4 days, across
 every hour, and not one landed — a resetting daily quota would have let one
 through, and a spent quota answers 429, not 402 `payment_required`. So the block is
-the missing payment method, and the only things that change it are **Tue adding one
-(a one-time $5 credit, expiring 30 days) or retiring the rung and replacing the
-account.** Money decision, his alone; leaving it walled is the third option and
-costs a probe per 10 min plus a permanent `SERIOUS` that trains us to ignore the
-alarm. Checked in advance because retiring `groq` taught it:
+the missing payment method — and since this ladder is free-tier-only and always
+will be, that makes cerebras **defunct for us**, not merely dark. **Retired
+2026-08-26** (`enabled: false`, dated comment naming the migration): the rung
+entry is kept rather than deleted, `CEREBRAS_API_KEY` is now withheld from the
+container (verified 0 tools reference it), and the walled-rung probe and its
+permanent `SERIOUS` both stop. I first put this to Tue as a money decision; it
+never was one, and his standing free-tier constraint had already answered it. Checked in advance because retiring `groq` taught it:
 `cerebras` IS a `LEGACY_KEY_ALIAS`, so disabling deletes `CEREBRAS_API_KEY` from
 the container — but **no tool in `tools/own/` references it**, so retirement is
 safe. Carrying load until month-end: `google_gemma`, `gemini_flash`,
