@@ -1002,8 +1002,9 @@ recorded because the corrections change what anyone should do next:
   argument -- a helper spends the quota the creature needs to think -- is false
   here; `ask` is genuinely additional capacity. **The flip side is sharper:
   the spine alone already saturates Groq's 200,000 tokens/day** ("Used 200000"
-  logged 7 times), so **Growing Cousin needs its own Groq account, not a share
-  of this one.**
+  logged 7 times), which takes the Cousin JUDGE's first-choice rung -- it falls
+  through to Gemini, by the Cousin's own acceptance. (I first wrote that the
+  Cousin needs its own account; retracted below -- sharing is Tue's decision.)
 - **Use was already deciding.** Of the 398 dependents, **58 were used in the
   last 7 days and 337 were quiet**; of 54 tools named subagent/persona/
   orchestrator, 15 were live. Use by dependents peaked in August (11,855) and
@@ -1022,36 +1023,73 @@ edges/tool with and without the hub against the 1.60 / 1.26 baseline; how
 many NEW tools route through `subagent_ask_helper` against the 58-of-398 live
 share; `ask` calls per month.
 
-**THE TWO CREATURES ARE ONE BUDGET, and this corrects my 09-16 entry.**
-Tue proposed that Growing Cousin do its no-context runs on its own side rather
-than on Groq. Checked read-only, comparing key fingerprints in memory and
-printing only match/no-match: **every one of the Cousin's four rungs uses the
-SAME account key as a spine rung** -- Groq (`groq_oss120`, what `ask` uses),
-Google `gemma-4-31b-it` (`google_gemma` AND `gemini_flash`, the workhorse and
-the floor), Cloudflare `llama-3.3-70b` (`cloudflare`), and OpenRouter. So there
-is no "Cousin side" to move to: wherever a Cousin call lands, it spends a spine
-budget. Two consequences, both structural rather than measured as costs:
-- **Groq is the LEAST bad shared account from the spine's side** -- the spine's
-  ladder serves zero cycles there -- **but the Cousin CREATURE's ladder puts
-  Groq FIRST** (`rungs.cousin.local.json`), and the spine's `ask` alone
-  saturates Groq's 200,000 tokens/day. So the coupling runs both ways: the
-  spine's `ask` is likely starving the Cousin's first rung.
-- **Google gemma's binding limit is per ACCOUNT per MINUTE** (16,000 input
-  tokens), and the Cousin's engine ladder puts that account first. The Cousin
-  ran **857 thinks in the last 7 days** and journalled **11,775
-  `rung_declined`** records, about 1,700 a day, mostly on that shared account.
-  I have NOT attributed the spine's throughput swings to it: the Cousin started
-  in earnest on 09-19, and the spine read 16-17/h on 09-19..21 and 12.8-13.1/h
-  on 09-22..23, which is not a clean correlation either way.
-**The 09-16 entry below says the Cousin "runs alongside costing nothing
-visible. It is ladder exhaustion."** That measured the host -- CPU and load --
-while the contended resource was provider quota on accounts the two creatures
-share. **Rule, for the next time a neighbour runs on this box: measure the
-resource that is actually contended, not the one that is easy to read.** The
-fix is Tue's and free-tier-compatible (section 6: *"Prefer a NEW account over a
-second model on one we already hold"*): separate free accounts for the Cousin.
-Until then any comparison between the two creatures is partly a comparison of
-who reached the shared quota first.
+**THE TWO CREATURES SHARE ONE BUDGET -- BY TUE'S DECISION, and I had that
+wrong twice.** Every one of Growing Cousin's rungs uses the identical account
+key to a spine rung (checked 2026-09-25 by fingerprint, in memory, printing
+only match/no-match): Groq, Google `gemma-4-31b-it`, Cloudflare, OpenRouter.
+**That is deliberate.** Tue decided on **2026-09-12** that both projects run on
+the same laptop, network and free-tier accounts, because it is the only setup
+in which comparing them means anything, and the Cousin's docs have said since
+then that **throughput is not comparable between the two, while verdict quality
+and cost per cycle still are.** I recommended separate accounts as "the fix"
+twice today and wrote it here; **retracted -- that would reverse his decision.**
+The memory index now carries it so the next session does not repeat it.
+**Contention is reduced from each side's usage, never by splitting accounts.**
+
+Corrections supplied by the Cousin session, all checked against its files:
+- **The Cousin has no `ask` and no key inside either of its boxes.** Its only
+  model calls are the creature's thinks and the cousin's verdicts, both through
+  its engine's ladder. (Tue's "no-context runs on the Cousin side" was loose.)
+- **I had the two ladders swapped.** `rungs.local.json` is the Cousin
+  CREATURE's ladder -- Gemini, OpenRouter, Groq, Cloudflare, so Groq is third.
+  `rungs.cousin.local.json` is its JUDGE's, and that one puts Groq first. So the
+  spine's `ask` saturating Groq takes the **judge's** first choice, which falls
+  through to Gemini; the Cousin accepts that.
+
+**The 16,000/minute figure, sourced -- because the Cousin asked, and it now
+steers a decision on their side.** It is the **provider's own 429 body**, read
+in full by a raw call on 2026-09-23 (1,382 chars): `quotaId:
+GenerateContentInputTokensPerModelPerMinute-FreeTier`, `quotaMetric:
+generativelanguage.googleapis.com/generate_content_free_tier_input_token_count`,
+`quotaValue: 16000`, and the message *"Quota exceeded for metric: ... limit:
+16000, model: gemma-4-31b"*. Not docs, not a list. It was triggered by a
+deliberately oversized probe (~30k tokens), so it is the provider STATING the
+limit, not a throughput measurement to it. **Its scope, from the quotaId: per
+MODEL, per minute, on one project** -- so it binds `gemma-4-31b-it` only, which
+both creatures use; the spine's `gemini_flash` is `gemini-2.5-flash` under a
+separate per-model quota the Cousin never touches. The journalled 429s since
+then are cut at 160 chars and never show the limit, but carry the same message
+shape with provider-stated retry delays of 29-49 s. **Not re-probed today, on
+purpose:** a probe spends the shared budget inside the Cousin's measurement
+window. The spine's own page was last measured at **10,295 input tokens on
+2026-08-27** (a Cloudflare call's usage) and has grown since; the spine does
+not journal prompt tokens per call, so there is no current figure -- and a
+~14,000-token Cousin page is 87% of a minute's budget on its own.
+
+**Baseline handed to the Cousin for its before/after**, `journal.jsonl` by
+epoch `ts` for thinks and journald for walls (the only place walls are logged,
+and only since 2026-09-23 00:37):
+
+| window | h on | thinks/h | gemma served/h | attempts/h | gemma 429/h | per attempt |
+|---|---|---|---|---|---|---|
+| 09-23 00-17, before my retry change | 18 | 13.7 | 11.6 | 35.4 | 18.4 | 0.52 |
+| **09-24 08:00 -> 09-25 23:59, clean** | 40 | **16.2** | **14.5** | 47.0 | 29.3 | 0.62 |
+
+**The confound that would have wrecked their comparison is mine:** at 09-23
+18:29 the loop began honouring the provider's retry delay, so naps went from
+120 s to 5-27 s and **attempts rose from ~36/h to ~48/h. Gemma 429s per hour
+rose from ~19 to ~30 without demand changing at all.** Hence the clean window
+starts after it, and the numbers to compare are **gemma served per hour** and
+**429s per attempt**, never raw 429s per hour. `gemini_flash` 429s (~47/h,
+about one per attempt) are the spine's own, under a quota the Cousin does not
+use, and must be excluded. **I will hold the spine's page size and retry timing
+still during the Cousin's measurement window** -- gs-bug-daily item 15 exists
+because a change to either would contaminate a before/after.
+
+**Spine-side observation, NOT acted on:** `gemini_flash` draws roughly one 429
+per think attempt -- it is first in the ladder and is re-probed from the top on
+every wake after a quota sleep. The rejection is cheap and on its own
+per-model quota, so no measured cost; recorded so it is not rediscovered.
 
 **Deployed and verified live.** Laptop gate **579 PASS**, PC **573 PASS**;
 brain restarted 23:37:19; the prompt the loaded code hands the creature holds
