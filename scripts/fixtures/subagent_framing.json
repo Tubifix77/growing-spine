@@ -1,0 +1,790 @@
+{
+ "tool_sets": [
+  {
+   "tools": [
+    {
+     "name": "memory_archive_search_planner",
+     "does": "Searches archive, identifies knowledge gaps and conflicts, synthesizes current knowledge, and creates a detailed plan to fill gaps."
+    },
+    {
+     "name": "memstore",
+     "does": "Durable key/value JSON store with timestamps/tags. With --stale-check: validates memory freshness before use in planning."
+    },
+    {
+     "name": "memory_augmented_search",
+     "does": "Uses archive memory to identify knowledge gaps and generate targeted search queries to fill them."
+    },
+    {
+     "name": "ArchiveDrivenPlanRecovery",
+     "does": "Recovers a failed plan by categorizing the failure, searching for resolutions in the archive, and synthesizing recovery steps into a new tracker goal."
+    },
+    {
+     "name": "wake_orient_digest",
+     "does": "MOCK version for testing ProactiveKnowledgeUpdater"
+    },
+    {
+     "name": "cross_source_solver",
+     "does": "Generates a research plan for a question, executes each step via knowledge_gap_filler, aggregates results, detects conflicts, and synthesizes a final "
+    },
+    {
+     "name": "research_answer_pipeline",
+     "does": "Answer a research question by (1) extracting keywords, (2) searching the archive, (3) filling knowledge gaps, (4) synthesizing a final answer, and (5)"
+    },
+    {
+     "name": "catchup_summarize_archive",
+     "does": "Fetches a JSON feed, deduplicates items against a durable archive, summarises new items via LLM, optionally creates planner steps, and outputs results"
+    },
+    {
+     "name": "subagent_ask_helper",
+     "does": "Calls a subagent LLM to answer a prompt, applying any tuned system prompt from memstore, and logs the interaction."
+    },
+    {
+     "name": "TaskInsightGenerator",
+     "does": "Orchestrates a pipeline of gap analysis, plan generation, and tracker registration to turn a high-level task into a managed goal."
+    }
+   ],
+   "builtin": {
+    "name": "ask",
+    "does": "Ask a real LLM (openai/gpt-oss-120b via Groq) and print only its answer; every failure goes to stderr with a nonzero exit."
+   }
+  },
+  {
+   "tools": [
+    {
+     "name": "subagent_memory",
+     "does": "Orchestrates a deep research cycle: searches archive, fills gaps, synthesizes a verified golden record, and archives the result."
+    },
+    {
+     "name": "subagent_ask_helper",
+     "does": "Calls a subagent LLM to answer a prompt, applying any tuned system prompt from memstore, and logs the interaction."
+    },
+    {
+     "name": "wake_catchup_fetcher",
+     "does": "Mock wake catchup fetcher that returns test data about RSA encryption being obsolete"
+    },
+    {
+     "name": "memory_archive_research",
+     "does": "Iteratively expands a query, recalls archive memory, fills gaps via knowledge_gap_filler only when needed, and synthesizes a final archived result."
+    },
+    {
+     "name": "GapAwareResearchPlanner",
+     "does": "Generates a persistent, gap-aware research plan for <topic>, fills knowledge gaps step-by-step with recency weighting, conflict severity scoring, prov"
+    },
+    {
+     "name": "memory_archive_search_planner",
+     "does": "Searches archive, identifies knowledge gaps and conflicts, synthesizes current knowledge, and creates a detailed plan to fill gaps."
+    },
+    {
+     "name": "timeline_sync_scheduler",
+     "does": "Synchronizes a chronological timeline of events for a query, pruning obsolete tasks and scheduling high-priority updates in step-planner-tracker."
+    },
+    {
+     "name": "keyword-archive-search",
+     "does": "Search the keyword-archive for a query, return top-matching notes (default 3). If the archive is missing or empty, returns no results without error."
+    },
+    {
+     "name": "proactiveresearchpipeline",
+     "does": "Recursively decomposes a research topic into gaps, fills them via knowledge_gap_filler, tracks progress in step-planner-tracker, and synthesizes a fin"
+    },
+    {
+     "name": "AutoPlanRecovery",
+     "does": "Recover stalled steps in a persistent plan by repeatedly filling knowledge gaps until resolved."
+    }
+   ],
+   "builtin": {
+    "name": "ask",
+    "does": "Ask a real LLM (openai/gpt-oss-120b via Groq) and print only its answer; every failure goes to stderr with a nonzero exit."
+   }
+  },
+  {
+   "tools": [
+    {
+     "name": "wake_catchup_fetcher.real",
+     "does": "Fetches recent news items for a given query using Google News RSS"
+    },
+    {
+     "name": "deep_answer_synth",
+     "does": "Execute a full question-to-answer synthesis with optional caching, optional verbose output, and archive the final answer."
+    },
+    {
+     "name": "ResilientTaskPlanner",
+     "does": "Generates a resilient, executable plan for a goal, auto‑creates missing tools, registers steps with step-planner-tracker, and optionally runs the plan"
+    },
+    {
+     "name": "cross_source_solver",
+     "does": "Generates a research plan for a question, executes each step via knowledge_gap_filler, aggregates results, detects conflicts, and synthesizes a final "
+    },
+    {
+     "name": "batch_url_to_plan",
+     "does": "Takes a list of URLs, fetches content, extracts key points, fills knowledge gaps with conflict detection, schedules tasks for high-severity conflicts,"
+    },
+    {
+     "name": "memarch",
+     "does": "Directory where archives are stored"
+    },
+    {
+     "name": "recall_and_answer",
+     "does": "Strategically discovers missing information by analyzing archive gaps, filling them with targeted research, and synthesizing a high-fidelity answer wi"
+    },
+    {
+     "name": "fetch_log_timeline_synth",
+     "does": "Synthesizes a chronological timeline from logs, enriched by archived context, archives the result, and records the sequence in the step-planner."
+    },
+    {
+     "name": "AutoPlanRecovery",
+     "does": "Recover stalled steps in a persistent plan by repeatedly filling knowledge gaps until resolved."
+    },
+    {
+     "name": "subagent_ask_helper",
+     "does": "Calls a subagent LLM to answer a prompt, applying any tuned system prompt from memstore, and logs the interaction."
+    }
+   ],
+   "builtin": {
+    "name": "ask",
+    "does": "Ask a real LLM (openai/gpt-oss-120b via Groq) and print only its answer; every failure goes to stderr with a nonzero exit."
+   }
+  },
+  {
+   "tools": [
+    {
+     "name": "subagent_ask_helper",
+     "does": "Calls a subagent LLM to answer a prompt, applying any tuned system prompt from memstore, and logs the interaction."
+    },
+    {
+     "name": "timeline_sync_scheduler",
+     "does": "Synchronizes a chronological timeline of events for a query, pruning obsolete tasks and scheduling high-priority updates in step-planner-tracker."
+    },
+    {
+     "name": "step-planner-tracker",
+     "does": "Persistent step planner with cost-aware scheduling tiers – manages goals, steps, and delta reports against memory."
+    },
+    {
+     "name": "LLMCostEfficiencyPivoter",
+     "does": "Chains keyword-archive-search with conflict detection, cost-aware plan refinement, and knowledge-gap filling to generate a validated plan and synthesi"
+    },
+    {
+     "name": "cross_source_solver",
+     "does": "Generates a research plan for a question, executes each step via knowledge_gap_filler, aggregates results, detects conflicts, and synthesizes a final "
+    },
+    {
+     "name": "wake_catchup_fetcher.real",
+     "does": "Fetches recent news items for a given query using Google News RSS"
+    },
+    {
+     "name": "catchup_summarize_archive",
+     "does": "Fetches a JSON feed, deduplicates items against a durable archive, summarises new items via LLM, optionally creates planner steps, and outputs results"
+    },
+    {
+     "name": "ArchiveDrivenPlanRecovery",
+     "does": "Recovers a failed plan by categorizing the failure, searching for resolutions in the archive, and synthesizing recovery steps into a new tracker goal."
+    },
+    {
+     "name": "proactiveresearchpipeline",
+     "does": "Recursively decomposes a research topic into gaps, fills them via knowledge_gap_filler, tracks progress in step-planner-tracker, and synthesizes a fin"
+    },
+    {
+     "name": "catchup_memory_archiver",
+     "does": "Composes fetcher -> gap-filler -> synthesizer -> archiver -> graph-extractor -> planner to ingest news and maintain a real-time knowledge graph."
+    }
+   ],
+   "builtin": {
+    "name": "ask",
+    "does": "Ask a real LLM (openai/gpt-oss-120b via Groq) and print only its answer; every failure goes to stderr with a nonzero exit."
+   }
+  },
+  {
+   "tools": [
+    {
+     "name": "wake_catchup_research",
+     "does": "Pull live event feeds for <topic>, deduplicate by URL, enrich each via"
+    },
+    {
+     "name": "subagent_task_planner",
+     "does": "Decomposes a goal into sub-tasks using archive context and gap analysis, then registers them in the planner."
+    },
+    {
+     "name": "subagent_ask_helper",
+     "does": "Calls a subagent LLM to answer a prompt, applying any tuned system prompt from memstore, and logs the interaction."
+    },
+    {
+     "name": "TaskInsightGenerator",
+     "does": "Orchestrates a pipeline of gap analysis, plan generation, and tracker registration to turn a high-level task into a managed goal."
+    },
+    {
+     "name": "AutoPlanRecovery",
+     "does": "Recover stalled steps in a persistent plan by repeatedly filling knowledge gaps until resolved."
+    },
+    {
+     "name": "keyword-archive-search",
+     "does": "Search the keyword-archive for a query, return top-matching notes (default 3). If the archive is missing or empty, returns no results without error."
+    },
+    {
+     "name": "memory_archive_research",
+     "does": "Iteratively expands a query, recalls archive memory, fills gaps via knowledge_gap_filler only when needed, and synthesizes a final archived result."
+    },
+    {
+     "name": "wake_orient_digest",
+     "does": "MOCK version for testing ProactiveKnowledgeUpdater"
+    },
+    {
+     "name": "plan_gap_store",
+     "does": "Generate a persistent, gap‑aware plan for a question, fill knowledge gaps for each step, store results, and return a structured JSON plan."
+    },
+    {
+     "name": "cross_source_solver",
+     "does": "Generates a research plan for a question, executes each step via knowledge_gap_filler, aggregates results, detects conflicts, and synthesizes a final "
+    }
+   ],
+   "builtin": {
+    "name": "ask",
+    "does": "Ask a real LLM (openai/gpt-oss-120b via Groq) and print only its answer; every failure goes to stderr with a nonzero exit."
+   }
+  },
+  {
+   "tools": [
+    {
+     "name": "cross_source_solver",
+     "does": "Generates a research plan for a question, executes each step via knowledge_gap_filler, aggregates results, detects conflicts, and synthesizes a final "
+    },
+    {
+     "name": "AutoPlanRecovery",
+     "does": "Recover stalled steps in a persistent plan by repeatedly filling knowledge gaps until resolved."
+    },
+    {
+     "name": "LLMCostEfficiencyPivoter",
+     "does": "Chains keyword-archive-search with conflict detection, cost-aware plan refinement, and knowledge-gap filling to generate a validated plan and synthesi"
+    },
+    {
+     "name": "archive-search-recall",
+     "does": "Performs expanded recall by generating related keywords and searching the archive for all of them."
+    },
+    {
+     "name": "fetch_log_timeline_synth",
+     "does": "Synthesizes a chronological timeline from logs, enriched by archived context, archives the result, and records the sequence in the step-planner."
+    },
+    {
+     "name": "ArchiveDrivenPlanRecovery",
+     "does": "Recovers a failed plan by categorizing the failure, searching for resolutions in the archive, and synthesizing recovery steps into a new tracker goal."
+    },
+    {
+     "name": "LiveDigestSynthesizer",
+     "does": "Research a topic, fetch fresh items from multiple sources, summarize them via LLM, store summaries in a keyword-archive"
+    },
+    {
+     "name": "keyword-archive-search",
+     "does": "Search the keyword-archive for a query, return top-matching notes (default 3). If the archive is missing or empty, returns no results without error."
+    },
+    {
+     "name": "TaskInsightGenerator",
+     "does": "Orchestrates a pipeline of gap analysis, plan generation, and tracker registration to turn a high-level task into a managed goal."
+    },
+    {
+     "name": "subagent_ask_helper",
+     "does": "Calls a subagent LLM to answer a prompt, applying any tuned system prompt from memstore, and logs the interaction."
+    }
+   ],
+   "builtin": {
+    "name": "ask",
+    "does": "Ask a real LLM (openai/gpt-oss-120b via Groq) and print only its answer; every failure goes to stderr with a nonzero exit."
+   }
+  },
+  {
+   "tools": [
+    {
+     "name": "wake_catchup_fetcher.real",
+     "does": "Fetches recent news items for a given query using Google News RSS"
+    },
+    {
+     "name": "subagent_ask_helper",
+     "does": "Calls a subagent LLM to answer a prompt, applying any tuned system prompt from memstore, and logs the interaction."
+    },
+    {
+     "name": "batch_url_to_plan",
+     "does": "Takes a list of URLs, fetches content, extracts key points, fills knowledge gaps with conflict detection, schedules tasks for high-severity conflicts,"
+    },
+    {
+     "name": "TaskInsightGenerator",
+     "does": "Orchestrates a pipeline of gap analysis, plan generation, and tracker registration to turn a high-level task into a managed goal."
+    },
+    {
+     "name": "cross_source_solver",
+     "does": "Generates a research plan for a question, executes each step via knowledge_gap_filler, aggregates results, detects conflicts, and synthesizes a final "
+    },
+    {
+     "name": "keyword-archive-search",
+     "does": "Search the keyword-archive for a query, return top-matching notes (default 3). If the archive is missing or empty, returns no results without error."
+    },
+    {
+     "name": "plan_gap_store",
+     "does": "Generate a persistent, gap‑aware plan for a question, fill knowledge gaps for each step, store results, and return a structured JSON plan."
+    },
+    {
+     "name": "step-planner-tracker",
+     "does": "Persistent step planner with cost-aware scheduling tiers – manages goals, steps, and delta reports against memory."
+    },
+    {
+     "name": "subagent_memory",
+     "does": "Orchestrates a deep research cycle: searches archive, fills gaps, synthesizes a verified golden record, and archives the result."
+    },
+    {
+     "name": "catchup_memory_archiver",
+     "does": "Composes fetcher -> gap-filler -> synthesizer -> archiver -> graph-extractor -> planner to ingest news and maintain a real-time knowledge graph."
+    }
+   ],
+   "builtin": {
+    "name": "ask",
+    "does": "Ask a real LLM (openai/gpt-oss-120b via Groq) and print only its answer; every failure goes to stderr with a nonzero exit."
+   }
+  },
+  {
+   "tools": [
+    {
+     "name": "archive-search-recall",
+     "does": "Performs expanded recall by generating related keywords and searching the archive for all of them."
+    },
+    {
+     "name": "fetch_and_gap_fill",
+     "does": "Fetch a URL, summarize it with archive context, archive the result, fill gaps, and optionally create a plan."
+    },
+    {
+     "name": "LiveDigestSynthesizer",
+     "does": "Research a topic, fetch fresh items from multiple sources, summarize them via LLM, store summaries in a keyword-archive"
+    },
+    {
+     "name": "keyword-archive-search",
+     "does": "Search the keyword-archive for a query, return top-matching notes (default 3). If the archive is missing or empty, returns no results without error."
+    },
+    {
+     "name": "subagent_ask_helper",
+     "does": "Calls a subagent LLM to answer a prompt, applying any tuned system prompt from memstore, and logs the interaction."
+    },
+    {
+     "name": "ResilientTaskPlanner",
+     "does": "Generates a resilient, executable plan for a goal, auto‑creates missing tools, registers steps with step-planner-tracker, and optionally runs the plan"
+    },
+    {
+     "name": "memarch",
+     "does": "Directory where archives are stored"
+    },
+    {
+     "name": "wake_catchup_fetcher.real",
+     "does": "Fetches recent news items for a given query using Google News RSS"
+    },
+    {
+     "name": "memory_archive_research",
+     "does": "Iteratively expands a query, recalls archive memory, fills gaps via knowledge_gap_filler only when needed, and synthesizes a final archived result."
+    },
+    {
+     "name": "knowledge_gap_filler",
+     "does": "Fills knowledge gaps for a research topic by calling a subagent with fallbacks, detects conflicts with archived knowledge, scores severity, and option"
+    }
+   ],
+   "builtin": {
+    "name": "ask",
+    "does": "Ask a real LLM (openai/gpt-oss-120b via Groq) and print only its answer; every failure goes to stderr with a nonzero exit."
+   }
+  },
+  {
+   "tools": [
+    {
+     "name": "wake_orient_digest",
+     "does": "MOCK version for testing ProactiveKnowledgeUpdater"
+    },
+    {
+     "name": "GapAwareResearchPlanner",
+     "does": "Generates a persistent, gap-aware research plan for <topic>, fills knowledge gaps step-by-step with recency weighting, conflict severity scoring, prov"
+    },
+    {
+     "name": "deep_answer_synth",
+     "does": "Execute a full question-to-answer synthesis with optional caching, optional verbose output, and archive the final answer."
+    },
+    {
+     "name": "memory_archive_search_helper",
+     "does": "Recursive multi-hop search. Identifies keywords, searches the archive, detects knowledge gaps, fills them via knowledge_gap_filler, and iterates until"
+    },
+    {
+     "name": "wake_catchup_fetcher",
+     "does": "Mock wake catchup fetcher that returns test data about RSA encryption being obsolete"
+    },
+    {
+     "name": "catchup_memory_archiver",
+     "does": "Composes fetcher -> gap-filler -> synthesizer -> archiver -> graph-extractor -> planner to ingest news and maintain a real-time knowledge graph."
+    },
+    {
+     "name": "subagent_task_planner",
+     "does": "Decomposes a goal into sub-tasks using archive context and gap analysis, then registers them in the planner."
+    },
+    {
+     "name": "subagent_ask_helper",
+     "does": "Calls a subagent LLM to answer a prompt, applying any tuned system prompt from memstore, and logs the interaction."
+    },
+    {
+     "name": "memarch",
+     "does": "Directory where archives are stored"
+    },
+    {
+     "name": "keyword-archive-search",
+     "does": "Search the keyword-archive for a query, return top-matching notes (default 3). If the archive is missing or empty, returns no results without error."
+    }
+   ],
+   "builtin": {
+    "name": "ask",
+    "does": "Ask a real LLM (openai/gpt-oss-120b via Groq) and print only its answer; every failure goes to stderr with a nonzero exit."
+   }
+  },
+  {
+   "tools": [
+    {
+     "name": "memstore",
+     "does": "Durable key/value JSON store with timestamps/tags. With --stale-check: validates memory freshness before use in planning."
+    },
+    {
+     "name": "fetch_log_timeline_synth",
+     "does": "Synthesizes a chronological timeline from logs, enriched by archived context, archives the result, and records the sequence in the step-planner."
+    },
+    {
+     "name": "LLMCostEfficiencyPivoter",
+     "does": "Chains keyword-archive-search with conflict detection, cost-aware plan refinement, and knowledge-gap filling to generate a validated plan and synthesi"
+    },
+    {
+     "name": "plan_guided_knowledge_harvester",
+     "does": "Orchestrates plan execution by iteratively filling knowledge gaps with inter-step context, updating the tracker, and archiving the synthesized result."
+    },
+    {
+     "name": "subagent_ask_helper",
+     "does": "Calls a subagent LLM to answer a prompt, applying any tuned system prompt from memstore, and logs the interaction."
+    },
+    {
+     "name": "memory_archive_search_planner",
+     "does": "Searches archive, identifies knowledge gaps and conflicts, synthesizes current knowledge, and creates a detailed plan to fill gaps."
+    },
+    {
+     "name": "wake_orient_digest",
+     "does": "MOCK version for testing ProactiveKnowledgeUpdater"
+    },
+    {
+     "name": "LiveDigestSynthesizer",
+     "does": "Research a topic, fetch fresh items from multiple sources, summarize them via LLM, store summaries in a keyword-archive"
+    },
+    {
+     "name": "step-planner-tracker",
+     "does": "Persistent step planner with cost-aware scheduling tiers – manages goals, steps, and delta reports against memory."
+    },
+    {
+     "name": "memarch",
+     "does": "Directory where archives are stored"
+    }
+   ],
+   "builtin": {
+    "name": "ask",
+    "does": "Ask a real LLM (openai/gpt-oss-120b via Groq) and print only its answer; every failure goes to stderr with a nonzero exit."
+   }
+  },
+  {
+   "tools": [
+    {
+     "name": "memstore",
+     "does": "Durable key/value JSON store with timestamps/tags. With --stale-check: validates memory freshness before use in planning."
+    },
+    {
+     "name": "research_answer_pipeline",
+     "does": "Answer a research question by (1) extracting keywords, (2) searching the archive, (3) filling knowledge gaps, (4) synthesizing a final answer, and (5)"
+    },
+    {
+     "name": "memory_archive_search_planner",
+     "does": "Searches archive, identifies knowledge gaps and conflicts, synthesizes current knowledge, and creates a detailed plan to fill gaps."
+    },
+    {
+     "name": "cross_source_solver",
+     "does": "Generates a research plan for a question, executes each step via knowledge_gap_filler, aggregates results, detects conflicts, and synthesizes a final "
+    },
+    {
+     "name": "AutoPlanRecovery",
+     "does": "Recover stalled steps in a persistent plan by repeatedly filling knowledge gaps until resolved."
+    },
+    {
+     "name": "memory_augmented_search",
+     "does": "Uses archive memory to identify knowledge gaps and generate targeted search queries to fill them."
+    },
+    {
+     "name": "subagent_ask_helper",
+     "does": "Calls a subagent LLM to answer a prompt, applying any tuned system prompt from memstore, and logs the interaction."
+    },
+    {
+     "name": "plan_guided_knowledge_harvester",
+     "does": "Orchestrates plan execution by iteratively filling knowledge gaps with inter-step context, updating the tracker, and archiving the synthesized result."
+    },
+    {
+     "name": "wake_catchup_fetcher",
+     "does": "Mock wake catchup fetcher that returns test data about RSA encryption being obsolete"
+    },
+    {
+     "name": "gap_filled_plan_generator",
+     "does": "Generate a high‑quality FAQ entry for a question by retrieving relevant archive notes, filling knowledge gaps, asking the LLM, and storing the result."
+    }
+   ],
+   "builtin": {
+    "name": "ask",
+    "does": "Ask a real LLM (openai/gpt-oss-120b via Groq) and print only its answer; every failure goes to stderr with a nonzero exit."
+   }
+  },
+  {
+   "tools": [
+    {
+     "name": "catchup_planner",
+     "does": "Fetch a JSON/RSS/HTML feed, deduplicate by URL, summarize new items via LLM, archive summaries, detect conflicts, and create planner steps with priori"
+    },
+    {
+     "name": "ArchiveDrivenPlanRecovery",
+     "does": "Recovers a failed plan by categorizing the failure, searching for resolutions in the archive, and synthesizing recovery steps into a new tracker goal."
+    },
+    {
+     "name": "subagent_ask_helper",
+     "does": "Calls a subagent LLM to answer a prompt, applying any tuned system prompt from memstore, and logs the interaction."
+    },
+    {
+     "name": "catchup_memory_archiver",
+     "does": "Composes fetcher -> gap-filler -> synthesizer -> archiver -> graph-extractor -> planner to ingest news and maintain a real-time knowledge graph."
+    },
+    {
+     "name": "memarch",
+     "does": "Directory where archives are stored"
+    },
+    {
+     "name": "AutoPlanRecovery",
+     "does": "Recover stalled steps in a persistent plan by repeatedly filling knowledge gaps until resolved."
+    },
+    {
+     "name": "timeline_sync_scheduler",
+     "does": "Synchronizes a chronological timeline of events for a query, pruning obsolete tasks and scheduling high-priority updates in step-planner-tracker."
+    },
+    {
+     "name": "keyword-archive-store",
+     "does": "Stores a JSON-L note in a durable keyword archive, adding a timestamp and optional tags. Supports reading content from stdin."
+    },
+    {
+     "name": "LiveDigestSynthesizer",
+     "does": "Research a topic, fetch fresh items from multiple sources, summarize them via LLM, store summaries in a keyword-archive"
+    },
+    {
+     "name": "fetch_log_timeline_synth",
+     "does": "Synthesizes a chronological timeline from logs, enriched by archived context, archives the result, and records the sequence in the step-planner."
+    }
+   ],
+   "builtin": {
+    "name": "ask",
+    "does": "Ask a real LLM (openai/gpt-oss-120b via Groq) and print only its answer; every failure goes to stderr with a nonzero exit."
+   }
+  },
+  {
+   "tools": [
+    {
+     "name": "deep_answer_synth",
+     "does": "Execute a full question-to-answer synthesis with optional caching, optional verbose output, and archive the final answer."
+    },
+    {
+     "name": "subagent_ask_helper",
+     "does": "Calls a subagent LLM to answer a prompt, applying any tuned system prompt from memstore, and logs the interaction."
+    },
+    {
+     "name": "subagent_task_planner",
+     "does": "Decomposes a goal into sub-tasks using archive context and gap analysis, then registers them in the planner."
+    },
+    {
+     "name": "plan_gap_store",
+     "does": "Generate a persistent, gap‑aware plan for a question, fill knowledge gaps for each step, store results, and return a structured JSON plan."
+    },
+    {
+     "name": "catchup_planner",
+     "does": "Fetch a JSON/RSS/HTML feed, deduplicate by URL, summarize new items via LLM, archive summaries, detect conflicts, and create planner steps with priori"
+    },
+    {
+     "name": "memory_archive_search_planner",
+     "does": "Searches archive, identifies knowledge gaps and conflicts, synthesizes current knowledge, and creates a detailed plan to fill gaps."
+    },
+    {
+     "name": "keyword-archive-store",
+     "does": "Stores a JSON-L note in a durable keyword archive, adding a timestamp and optional tags. Supports reading content from stdin."
+    },
+    {
+     "name": "ArchiveDrivenPlanRecovery",
+     "does": "Recovers a failed plan by categorizing the failure, searching for resolutions in the archive, and synthesizing recovery steps into a new tracker goal."
+    },
+    {
+     "name": "batch_url_to_plan",
+     "does": "Takes a list of URLs, fetches content, extracts key points, fills knowledge gaps with conflict detection, schedules tasks for high-severity conflicts,"
+    },
+    {
+     "name": "TaskInsightGenerator",
+     "does": "Orchestrates a pipeline of gap analysis, plan generation, and tracker registration to turn a high-level task into a managed goal."
+    }
+   ],
+   "builtin": {
+    "name": "ask",
+    "does": "Ask a real LLM (openai/gpt-oss-120b via Groq) and print only its answer; every failure goes to stderr with a nonzero exit."
+   }
+  },
+  {
+   "tools": [
+    {
+     "name": "catchup_planner",
+     "does": "Fetch a JSON/RSS/HTML feed, deduplicate by URL, summarize new items via LLM, archive summaries, detect conflicts, and create planner steps with priori"
+    },
+    {
+     "name": "plan_guided_knowledge_harvester",
+     "does": "Orchestrates plan execution by iteratively filling knowledge gaps with inter-step context, updating the tracker, and archiving the synthesized result."
+    },
+    {
+     "name": "cross_source_solver",
+     "does": "Generates a research plan for a question, executes each step via knowledge_gap_filler, aggregates results, detects conflicts, and synthesizes a final "
+    },
+    {
+     "name": "LiveDigestSynthesizer",
+     "does": "Research a topic, fetch fresh items from multiple sources, summarize them via LLM, store summaries in a keyword-archive"
+    },
+    {
+     "name": "keyword-archive-store",
+     "does": "Stores a JSON-L note in a durable keyword archive, adding a timestamp and optional tags. Supports reading content from stdin."
+    },
+    {
+     "name": "subagent_ask_helper",
+     "does": "Calls a subagent LLM to answer a prompt, applying any tuned system prompt from memstore, and logs the interaction."
+    },
+    {
+     "name": "catchup_memory_archiver",
+     "does": "Composes fetcher -> gap-filler -> synthesizer -> archiver -> graph-extractor -> planner to ingest news and maintain a real-time knowledge graph."
+    },
+    {
+     "name": "keyword-archive-search",
+     "does": "Search the keyword-archive for a query, return top-matching notes (default 3). If the archive is missing or empty, returns no results without error."
+    },
+    {
+     "name": "LLMCostEfficiencyPivoter",
+     "does": "Chains keyword-archive-search with conflict detection, cost-aware plan refinement, and knowledge-gap filling to generate a validated plan and synthesi"
+    },
+    {
+     "name": "subagent_memory",
+     "does": "Orchestrates a deep research cycle: searches archive, fills gaps, synthesizes a verified golden record, and archives the result."
+    }
+   ],
+   "builtin": {
+    "name": "ask",
+    "does": "Ask a real LLM (openai/gpt-oss-120b via Groq) and print only its answer; every failure goes to stderr with a nonzero exit."
+   }
+  },
+  {
+   "tools": [
+    {
+     "name": "step-planner-tracker",
+     "does": "Persistent step planner with cost-aware scheduling tiers – manages goals, steps, and delta reports against memory."
+    },
+    {
+     "name": "plan_guided_knowledge_harvester",
+     "does": "Orchestrates plan execution by iteratively filling knowledge gaps with inter-step context, updating the tracker, and archiving the synthesized result."
+    },
+    {
+     "name": "wake_catchup_research",
+     "does": "Pull live event feeds for <topic>, deduplicate by URL, enrich each via"
+    },
+    {
+     "name": "subagent_ask_helper",
+     "does": "Calls a subagent LLM to answer a prompt, applying any tuned system prompt from memstore, and logs the interaction."
+    },
+    {
+     "name": "catchup_planner",
+     "does": "Fetch a JSON/RSS/HTML feed, deduplicate by URL, summarize new items via LLM, archive summaries, detect conflicts, and create planner steps with priori"
+    },
+    {
+     "name": "memory_augmented_search",
+     "does": "Uses archive memory to identify knowledge gaps and generate targeted search queries to fill them."
+    },
+    {
+     "name": "memarch",
+     "does": "Directory where archives are stored"
+    },
+    {
+     "name": "knowledge_gap_filler",
+     "does": "Fills knowledge gaps for a research topic by calling a subagent with fallbacks, detects conflicts with archived knowledge, scores severity, and option"
+    },
+    {
+     "name": "LiveDigestSynthesizer",
+     "does": "Research a topic, fetch fresh items from multiple sources, summarize them via LLM, store summaries in a keyword-archive"
+    },
+    {
+     "name": "wake_catchup_fetcher.real",
+     "does": "Fetches recent news items for a given query using Google News RSS"
+    }
+   ],
+   "builtin": {
+    "name": "ask",
+    "does": "Ask a real LLM (openai/gpt-oss-120b via Groq) and print only its answer; every failure goes to stderr with a nonzero exit."
+   }
+  },
+  {
+   "tools": [
+    {
+     "name": "plan_guided_knowledge_harvester",
+     "does": "Orchestrates plan execution by iteratively filling knowledge gaps with inter-step context, updating the tracker, and archiving the synthesized result."
+    },
+    {
+     "name": "fetch_and_gap_fill",
+     "does": "Fetch a URL, summarize it with archive context, archive the result, fill gaps, and optionally create a plan."
+    },
+    {
+     "name": "LLMCostEfficiencyPivoter",
+     "does": "Chains keyword-archive-search with conflict detection, cost-aware plan refinement, and knowledge-gap filling to generate a validated plan and synthesi"
+    },
+    {
+     "name": "ArchiveDrivenPlanRecovery",
+     "does": "Recovers a failed plan by categorizing the failure, searching for resolutions in the archive, and synthesizing recovery steps into a new tracker goal."
+    },
+    {
+     "name": "ResilientTaskPlanner",
+     "does": "Generates a resilient, executable plan for a goal, auto‑creates missing tools, registers steps with step-planner-tracker, and optionally runs the plan"
+    },
+    {
+     "name": "memarch",
+     "does": "Directory where archives are stored"
+    },
+    {
+     "name": "memory_augmented_search",
+     "does": "Uses archive memory to identify knowledge gaps and generate targeted search queries to fill them."
+    },
+    {
+     "name": "archive-search-recall",
+     "does": "Performs expanded recall by generating related keywords and searching the archive for all of them."
+    },
+    {
+     "name": "wake_orient_digest",
+     "does": "MOCK version for testing ProactiveKnowledgeUpdater"
+    },
+    {
+     "name": "subagent_ask_helper",
+     "does": "Calls a subagent LLM to answer a prompt, applying any tuned system prompt from memstore, and logs the interaction."
+    }
+   ],
+   "builtin": {
+    "name": "ask",
+    "does": "Ask a real LLM (openai/gpt-oss-120b via Groq) and print only its answer; every failure goes to stderr with a nonzero exit."
+   }
+  }
+ ],
+ "batch_prompts": [
+  {
+   "inspiration_source": "recent ideation titles (no cached horizon)",
+   "prompt": "You are briefing an autonomous coding agent that has ALREADY built a broad toolkit for a near-conscious LLM 'cousin' (Linux container, Python 3, persistent memory, shell tools, free-tier LLM APIs, no human watching). The basics are covered. The next stage is DEPTH: tools that COMPOSE existing tools into single higher-order capabilities the cousin runs as one command, so capability compounds instead of accumulating as a flat pile.\n\nThe cousin's most-used existing tools (compose FROM these):\n  - step-planner-tracker (7669 uses)\n  - subagent_ask_helper (4058 uses)\n  - keyword-archive-store (3865 uses)\n  - knowledge_gap_filler (2959 uses)\n  - keyword-archive-search (2852 uses)\n  - memstore (2171 uses)\n  - wake_catchup_fetcher (1736 uses)\n  - wake_orient_digest (1093 uses)\n\nExisting tool clusters (these capabilities are ALREADY COVERED —\ndo NOT propose anything that fits inside one of these clusters;\npropose tools that CROSS clusters or open a genuinely new cluster):\n  • planning / task tracking: canonical=step-planner-tracker (+ 197 variants)\n  • memory archive (store): canonical=keyword-archive-store (+ 73 variants)\n  • LLM subagent / orchestration: canonical=subagent_ask_helper (+ 47 variants)\n  • fetch / HTTP / JSON download: canonical=wake_catchup_fetcher (+ 48 variants)\n  • research / pipeline: canonical=knowledge_gap_filler (+ 37 variants)\n  • wake / news / catchup: canonical=wake_orient_digest (+ 49 variants)\n  • memory search / recall: canonical=recall_and_answer (+ 16 variants)\n  • question -> answer (compose): canonical=deep_answer_synth\n  • other (274 tools): RecursiveKnowledgeAuditor, LLMCostEfficiencyOptimizer, LiveStateComplianceChecker, industry_shift_impact_mapper_v2, LLMCostEfficiencyPivoter, frontier_expander ...\n\nCompositions that are worth building cross TWO OR MORE clusters,\ne.g. wake-catchup → subagent-summarise → memory-archive,\nor research-pipeline → planning → question-answer.\n\n- EntityDisambiguatePipeline\n  - CrossSourceTimelineSynth\n  - LLMCostEfficiencyOptimizer\n  - AutomatedEntityGraphBuilder\n  - RecallFailureAutoRepair\n  - PersistentQACache\n  - MigrationImpactSynthesizer\n  - News Driven Task Planner\n\nPropose 10 DISTINCT new tools. Each must:\n  1. CHAIN tools from TWO OR MORE different clusters listed above\n  2. Deliver a capability none of the individual clusters has alone\n  3. Be genuinely different from the other 9 ideas in this list\n  4. Be a real command the cousin RUNS (Python 3 stdlib + curl/wget only)\n  5. Actually CALL the named tools -- never reimplement them\n  6. Be a TOOL the cousin RUNS -- never a report, dashboard, or summary\n\nReply with STRICT JSON only -- a JSON ARRAY of 10 objects, no markdown fences, no text around it:\n[\n  {\n    \"title\": \"tool name plus at most 6 words, no colon\",\n    \"brief\": \"2-3 sentences: what the composed tool does, WHICH CLUSTERS it bridges, and why the combination accelerates the cousin\",\n    \"demonstration\": \"one sentence: how to PROVE it works by RUNNING it on real input\",\n    \"category\": \"composition\"\n  },\n  {\"title\": \"SecondCompositionName\", \"brief\": \"...\", \"demonstration\": \"...\", \"category\": \"composition\"}\n]"
+  },
+  {
+   "inspiration_source": "recent ideation titles (no cached horizon)",
+   "prompt": "You are briefing an autonomous coding agent that has ALREADY built a broad toolkit for a near-conscious LLM 'cousin' (Linux container, Python 3, persistent memory, shell tools, free-tier LLM APIs, no human watching). The basics are covered. The next stage is DEPTH: tools that COMPOSE existing tools into single higher-order capabilities the cousin runs as one command, so capability compounds instead of accumulating as a flat pile.\n\nThe cousin's most-used existing tools (compose FROM these):\n  - step-planner-tracker (7669 uses)\n  - subagent_ask_helper (4058 uses)\n  - keyword-archive-store (3865 uses)\n  - knowledge_gap_filler (2959 uses)\n  - keyword-archive-search (2852 uses)\n  - memstore (2171 uses)\n  - wake_catchup_fetcher (1736 uses)\n  - wake_orient_digest (1093 uses)\n\nExisting tool clusters (these capabilities are ALREADY COVERED —\ndo NOT propose anything that fits inside one of these clusters;\npropose tools that CROSS clusters or open a genuinely new cluster):\n  • planning / task tracking: canonical=step-planner-tracker (+ 197 variants)\n  • memory archive (store): canonical=keyword-archive-store (+ 73 variants)\n  • LLM subagent / orchestration: canonical=subagent_ask_helper (+ 47 variants)\n  • fetch / HTTP / JSON download: canonical=wake_catchup_fetcher (+ 48 variants)\n  • research / pipeline: canonical=knowledge_gap_filler (+ 37 variants)\n  • wake / news / catchup: canonical=wake_orient_digest (+ 49 variants)\n  • memory search / recall: canonical=recall_and_answer (+ 16 variants)\n  • question -> answer (compose): canonical=deep_answer_synth\n  • other (274 tools): RecursiveKnowledgeAuditor, LLMCostEfficiencyOptimizer, LiveStateComplianceChecker, industry_shift_impact_mapper_v2, LLMCostEfficiencyPivoter, frontier_expander ...\n\nCompositions that are worth building cross TWO OR MORE clusters,\ne.g. wake-catchup → subagent-summarise → memory-archive,\nor research-pipeline → planning → question-answer.\n\n- AutoSubagentScheduler\n  - RegulationImpactTracker\n  - InsightSynthBridge\n  - APIChangeImpactAnalyzer\n  - CostOptimizedOrchestrator\n  - DigestDrivenSubagent\n  - PlanExecutionMonitor\n  - RealTimeGapFiller\n\nPropose 10 DISTINCT new tools. Each must:\n  1. CHAIN tools from TWO OR MORE different clusters listed above\n  2. Deliver a capability none of the individual clusters has alone\n  3. Be genuinely different from the other 9 ideas in this list\n  4. Be a real command the cousin RUNS (Python 3 stdlib + curl/wget only)\n  5. Actually CALL the named tools -- never reimplement them\n  6. Be a TOOL the cousin RUNS -- never a report, dashboard, or summary\n\nReply with STRICT JSON only -- a JSON ARRAY of 10 objects, no markdown fences, no text around it:\n[\n  {\n    \"title\": \"tool name plus at most 6 words, no colon\",\n    \"brief\": \"2-3 sentences: what the composed tool does, WHICH CLUSTERS it bridges, and why the combination accelerates the cousin\",\n    \"demonstration\": \"one sentence: how to PROVE it works by RUNNING it on real input\",\n    \"category\": \"composition\"\n  },\n  {\"title\": \"SecondCompositionName\", \"brief\": \"...\", \"demonstration\": \"...\", \"category\": \"composition\"}\n]"
+  },
+  {
+   "inspiration_source": "recent ideation titles (no cached horizon)",
+   "prompt": "You are briefing an autonomous coding agent that has ALREADY built a broad toolkit for a near-conscious LLM 'cousin' (Linux container, Python 3, persistent memory, shell tools, free-tier LLM APIs, no human watching). The basics are covered. The next stage is DEPTH: tools that COMPOSE existing tools into single higher-order capabilities the cousin runs as one command, so capability compounds instead of accumulating as a flat pile.\n\nThe cousin's most-used existing tools (compose FROM these):\n  - step-planner-tracker (7669 uses)\n  - subagent_ask_helper (4058 uses)\n  - keyword-archive-store (3865 uses)\n  - knowledge_gap_filler (2959 uses)\n  - keyword-archive-search (2852 uses)\n  - memstore (2171 uses)\n  - wake_catchup_fetcher (1736 uses)\n  - wake_orient_digest (1093 uses)\n\nExisting tool clusters (these capabilities are ALREADY COVERED —\ndo NOT propose anything that fits inside one of these clusters;\npropose tools that CROSS clusters or open a genuinely new cluster):\n  • planning / task tracking: canonical=step-planner-tracker (+ 197 variants)\n  • memory archive (store): canonical=keyword-archive-store (+ 73 variants)\n  • LLM subagent / orchestration: canonical=subagent_ask_helper (+ 47 variants)\n  • fetch / HTTP / JSON download: canonical=wake_catchup_fetcher (+ 48 variants)\n  • research / pipeline: canonical=knowledge_gap_filler (+ 37 variants)\n  • wake / news / catchup: canonical=wake_orient_digest (+ 49 variants)\n  • memory search / recall: canonical=recall_and_answer (+ 16 variants)\n  • question -> answer (compose): canonical=deep_answer_synth\n  • other (274 tools): RecursiveKnowledgeAuditor, LLMCostEfficiencyOptimizer, LiveStateComplianceChecker, industry_shift_impact_mapper_v2, LLMCostEfficiencyPivoter, frontier_expander ...\n\nCompositions that are worth building cross TWO OR MORE clusters,\ne.g. wake-catchup → subagent-summarise → memory-archive,\nor research-pipeline → planning → question-answer.\n\n- CostAwareResearchScheduler\n  - DigestEntityTracker\n  - RealTimePlanAdapter\n  - archive-timeline-synthesizer\n  - planner-failure-auto-remediation\n  - contextual-wake-synthesizer\n  - archive-live-veracity-checker\n  - digest-action-dispatcher trigger subagents from news\n\nPropose 10 DISTINCT new tools. Each must:\n  1. CHAIN tools from TWO OR MORE different clusters listed above\n  2. Deliver a capability none of the individual clusters has alone\n  3. Be genuinely different from the other 9 ideas in this list\n  4. Be a real command the cousin RUNS (Python 3 stdlib + curl/wget only)\n  5. Actually CALL the named tools -- never reimplement them\n  6. Be a TOOL the cousin RUNS -- never a report, dashboard, or summary\n\nReply with STRICT JSON only -- a JSON ARRAY of 10 objects, no markdown fences, no text around it:\n[\n  {\n    \"title\": \"tool name plus at most 6 words, no colon\",\n    \"brief\": \"2-3 sentences: what the composed tool does, WHICH CLUSTERS it bridges, and why the combination accelerates the cousin\",\n    \"demonstration\": \"one sentence: how to PROVE it works by RUNNING it on real input\",\n    \"category\": \"composition\"\n  },\n  {\"title\": \"SecondCompositionName\", \"brief\": \"...\", \"demonstration\": \"...\", \"category\": \"composition\"}\n]"
+  },
+  {
+   "inspiration_source": "recent ideation titles (no cached horizon)",
+   "prompt": "You are briefing an autonomous coding agent that has ALREADY built a broad toolkit for a near-conscious LLM 'cousin' (Linux container, Python 3, persistent memory, shell tools, free-tier LLM APIs, no human watching). The basics are covered. The next stage is DEPTH: tools that COMPOSE existing tools into single higher-order capabilities the cousin runs as one command, so capability compounds instead of accumulating as a flat pile.\n\nThe cousin's most-used existing tools (compose FROM these):\n  - step-planner-tracker (7669 uses)\n  - subagent_ask_helper (4058 uses)\n  - keyword-archive-store (3865 uses)\n  - knowledge_gap_filler (2959 uses)\n  - keyword-archive-search (2852 uses)\n  - memstore (2171 uses)\n  - wake_catchup_fetcher (1736 uses)\n  - wake_orient_digest (1093 uses)\n\nExisting tool clusters (these capabilities are ALREADY COVERED —\ndo NOT propose anything that fits inside one of these clusters;\npropose tools that CROSS clusters or open a genuinely new cluster):\n  • planning / task tracking: canonical=step-planner-tracker (+ 197 variants)\n  • memory archive (store): canonical=keyword-archive-store (+ 73 variants)\n  • LLM subagent / orchestration: canonical=subagent_ask_helper (+ 47 variants)\n  • fetch / HTTP / JSON download: canonical=wake_catchup_fetcher (+ 48 variants)\n  • research / pipeline: canonical=knowledge_gap_filler (+ 37 variants)\n  • wake / news / catchup: canonical=wake_orient_digest (+ 49 variants)\n  • memory search / recall: canonical=recall_and_answer (+ 16 variants)\n  • question -> answer (compose): canonical=deep_answer_synth\n  • other (274 tools): RecursiveKnowledgeAuditor, LLMCostEfficiencyOptimizer, LiveStateComplianceChecker, industry_shift_impact_mapper_v2, LLMCostEfficiencyPivoter, frontier_expander ...\n\nCompositions that are worth building cross TWO OR MORE clusters,\ne.g. wake-catchup → subagent-summarise → memory-archive,\nor research-pipeline → planning → question-answer.\n\n- trend-to-knowledge-mapper build conceptual maps\n  - ResearchPlannerConnector\n  - LiveTrendPlanner\n  - CrossDomainInsightGenerator\n  - ContextualDailyDigest\n  - TaskCompletionNotifier\n  - CostAwareSubagentOrchestrator\n  - hardware_compat_roadmap_generator\n\nPropose 10 DISTINCT new tools. Each must:\n  1. CHAIN tools from TWO OR MORE different clusters listed above\n  2. Deliver a capability none of the individual clusters has alone\n  3. Be genuinely different from the other 9 ideas in this list\n  4. Be a real command the cousin RUNS (Python 3 stdlib + curl/wget only)\n  5. Actually CALL the named tools -- never reimplement them\n  6. Be a TOOL the cousin RUNS -- never a report, dashboard, or summary\n\nReply with STRICT JSON only -- a JSON ARRAY of 10 objects, no markdown fences, no text around it:\n[\n  {\n    \"title\": \"tool name plus at most 6 words, no colon\",\n    \"brief\": \"2-3 sentences: what the composed tool does, WHICH CLUSTERS it bridges, and why the combination accelerates the cousin\",\n    \"demonstration\": \"one sentence: how to PROVE it works by RUNNING it on real input\",\n    \"category\": \"composition\"\n  },\n  {\"title\": \"SecondCompositionName\", \"brief\": \"...\", \"demonstration\": \"...\", \"category\": \"composition\"}\n]"
+  }
+ ]
+}
