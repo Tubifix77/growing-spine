@@ -1022,6 +1022,37 @@ edges/tool with and without the hub against the 1.60 / 1.26 baseline; how
 many NEW tools route through `subagent_ask_helper` against the 58-of-398 live
 share; `ask` calls per month.
 
+**THE TWO CREATURES ARE ONE BUDGET, and this corrects my 09-16 entry.**
+Tue proposed that Growing Cousin do its no-context runs on its own side rather
+than on Groq. Checked read-only, comparing key fingerprints in memory and
+printing only match/no-match: **every one of the Cousin's four rungs uses the
+SAME account key as a spine rung** -- Groq (`groq_oss120`, what `ask` uses),
+Google `gemma-4-31b-it` (`google_gemma` AND `gemini_flash`, the workhorse and
+the floor), Cloudflare `llama-3.3-70b` (`cloudflare`), and OpenRouter. So there
+is no "Cousin side" to move to: wherever a Cousin call lands, it spends a spine
+budget. Two consequences, both structural rather than measured as costs:
+- **Groq is the LEAST bad shared account from the spine's side** -- the spine's
+  ladder serves zero cycles there -- **but the Cousin CREATURE's ladder puts
+  Groq FIRST** (`rungs.cousin.local.json`), and the spine's `ask` alone
+  saturates Groq's 200,000 tokens/day. So the coupling runs both ways: the
+  spine's `ask` is likely starving the Cousin's first rung.
+- **Google gemma's binding limit is per ACCOUNT per MINUTE** (16,000 input
+  tokens), and the Cousin's engine ladder puts that account first. The Cousin
+  ran **857 thinks in the last 7 days** and journalled **11,775
+  `rung_declined`** records, about 1,700 a day, mostly on that shared account.
+  I have NOT attributed the spine's throughput swings to it: the Cousin started
+  in earnest on 09-19, and the spine read 16-17/h on 09-19..21 and 12.8-13.1/h
+  on 09-22..23, which is not a clean correlation either way.
+**The 09-16 entry below says the Cousin "runs alongside costing nothing
+visible. It is ladder exhaustion."** That measured the host -- CPU and load --
+while the contended resource was provider quota on accounts the two creatures
+share. **Rule, for the next time a neighbour runs on this box: measure the
+resource that is actually contended, not the one that is easy to read.** The
+fix is Tue's and free-tier-compatible (section 6: *"Prefer a NEW account over a
+second model on one we already hold"*): separate free accounts for the Cousin.
+Until then any comparison between the two creatures is partly a comparison of
+who reached the shared quota first.
+
 **Deployed and verified live.** Laptop gate **579 PASS**, PC **573 PASS**;
 brain restarted 23:37:19; the prompt the loaded code hands the creature holds
 the new composition example and the `ask` paragraph and names no subagent,
