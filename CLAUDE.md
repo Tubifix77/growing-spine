@@ -921,7 +921,117 @@ journalctl --user -u growing-spine --since "2 hours ago"
 
 ---
 
-## 8. State — 2026-09-23 19:50
+## 8. State — 2026-09-25 23:45
+
+**THE FRAMEWORK NO LONGER SEEDS THE SUBAGENT PATTERN (`37d0e44`).** Tue's
+call, Growing Cousin concurring, from a proposal the Cousin session wrote after
+reading this repo read-only. **The headline finding was not the Cousin's and
+it reframes the whole thing: the creature did not invent subagents -- we seeded
+them, in ten places.** A starter-map entry (*"subagent orchestration --
+spawning helper LLM calls over the free-tier APIs to offload sub-tasks"*) and
+the need it answered (*"it does everything itself with no way to offload
+work"*); the protected prompt's own example of good growth (*"a planner that
+calls your subagent helper"*); a coverage category with a hint, a classifier
+line, keywords and a stub spec literally titled *"subagent ask helper"*; the
+composition oracle's example chain; all three composition fallbacks; and the
+basin and retro judges' mission statements. All removed or replaced with chains
+of real seed tools that involve no model. **By the method at the top of this
+file -- fix the machine that produced the fault -- that is the fix; a line in a
+starter map would not have been.**
+
+**Nothing the creature built is touched.** 398 of its tools reach
+`subagent_ask_helper` (`_tool_dependencies`, transitive; the Cousin counted
+396) and every one keeps working. `TOOL_CLUSTERS` keeps its *"LLM subagent /
+orchestration"* group because it labels tools the creature already built, many
+literally named `subagent_*`, and is not a build suggestion. The 63 old counts
+under the removed category stay in `ideation_state.json`, ignored rather than
+deleted; every reader of those tables already uses `.get()` with a default,
+and every category sits far above `COMPOSITION_THRESHOLD = 3` (the lowest,
+`memory_recall`, has 60), so removing one cannot change the mode.
+
+**`ask` is now described by what it IS, every claim bound by test to its own
+source:** one question to a fresh model with no memory of you, your tools or
+any earlier `ask` (it sends exactly `[{"role": "user", "content": prompt}]`);
+a daily budget that resets at 00:00 UTC (its own message). It names **no
+mechanism to avoid** -- §5, *"Name the invariant it must hold, never the
+mechanism to avoid"*: told "don't use `jq -n`" the creature rebuilt the fault
+by heredoc in 36 h -- and a negative test holds that.
+
+**Benched before shipping** (`scripts/text_bench.py --bench subagent`,
+`gemma4:12b`, real fixtures, zero UNKNOWN, every prompt under ~850 tokens):
+
+| surface | n | old | new | reading |
+|---|---|---|---|---|
+| starter map: proposes no delegation tool | 16 | 16 | 15 | noise -- the flip reproduced as OK |
+| composition example: chain avoids the helper | 16 | 13 | 15 | right direction, small n |
+| oracle ideas routed through the helper | 40 | 12 | 9 | right direction, small n |
+| `ask` facts (authored probes) | 12 | 12 | 12 | ceiling |
+
+**Nothing got worse; the two steering surfaces moved the intended way by amounts
+too small to call verified.** The honest summary is *no harm, plausible help*,
+and the change rests on the agreed principle rather than on the bench.
+
+**CORRECTION TO THE 09-23 ENTRIES BELOW: temperature 0 is NOT deterministic on
+this bench.** They say a difference is *"the wording rather than the dice"*.
+Measured today: a starter case scored MISS in the run and OK when reproduced
+minutes later, with a different reply both times -- GPU non-determinism, and
+another Claude session on this PC shares the local model. So **a single case
+flipping is noise, and only a difference larger than about a tenth of n means
+anything.** The bench's own docstring made the same false claim and is fixed.
+
+**BASELINE for the metric this change will move, taken BEFORE it shipped:**
+749 tools, 1,201 edges, **1.60 edges/tool**; **256 edges (21%) point into
+`subagent_ask_helper`**; **1.26/tool without that hub**. Our prompt named the
+hub as the model of composition, so edges/tool will probably fall -- **read it
+with and without the hub, or it will look like a regression when it is the
+metric becoming honest.** And compounding had **already cooled on its own**
+before this landed (1.68 on 09-21 -> 1.60; marginal 4.12 -> 2.14), so a
+further dip must not be pinned on this change without separating the two.
+
+**What the Cousin's proposal got wrong about the spine, measured here** --
+recorded because the corrections change what anyone should do next:
+- **Option D (remove raw keys) is moot.** Their "4 raw-key tools" were two that
+  use `NEWSAPI_KEY` for news, not an LLM; `fetch_and_summarize`, which wants
+  `GROQ_API_KEY` -- withheld since `groq` was retired, so it is already
+  broken on that path; and `planify`, which wants `OPENAI_API_KEY`, a key that
+  has never existed in the creature's world. **Zero of 749 tools use any of the
+  five raw keys actually present, by name.**
+- **In the spine `ask` does NOT compete with thinking.** Over 7 days the ladder
+  served 2,109 cycles on `google_gemma`, 192 on `cloudflare`, 122 on
+  `gemini_flash` and **zero on Groq**, while `ask` runs on Groq. So the cost
+  argument -- a helper spends the quota the creature needs to think -- is false
+  here; `ask` is genuinely additional capacity. **The flip side is sharper:
+  the spine alone already saturates Groq's 200,000 tokens/day** ("Used 200000"
+  logged 7 times), so **Growing Cousin needs its own Groq account, not a share
+  of this one.**
+- **Use was already deciding.** Of the 398 dependents, **58 were used in the
+  last 7 days and 337 were quiet**; of 54 tools named subagent/persona/
+  orchestrator, 15 were live. Use by dependents peaked in August (11,855) and
+  fell to a ~5,580 September pace before anything changed. `ask` itself is
+  rising, 79 -> 167 a month. Measured from `journal.jsonl` by epoch `ts`, not
+  from `tool_usage.json`, which is cumulative and undated -- the trap already
+  recorded here (`health-summary-fixed` reading 378 from calls long stopped).
+
+**One instrument note worth keeping.** My first usage scan ran 400 separate
+regexes per line over the 222 MB journal and timed out the bridge -- the exact
+quadratic shape §5 records costing 28 s per wake. One compiled alternation did
+the same scan in 7.6 s.
+
+**Named measurements for the next `gs-products` (a week out, 2026-10-02):**
+edges/tool with and without the hub against the 1.60 / 1.26 baseline; how
+many NEW tools route through `subagent_ask_helper` against the 58-of-398 live
+share; `ask` calls per month.
+
+**Deployed and verified live.** Laptop gate **579 PASS**, PC **573 PASS**;
+brain restarted 23:37:19; the prompt the loaded code hands the creature holds
+the new composition example and the `ask` paragraph and names no subagent,
+orchestration or offloading; `TOOL_CATEGORIES` is the four remaining; a full
+cycle ran on the new code with zero crashes. Framework map rebuilt on the host
+(`e11d8a8`).
+
+---
+
+### Previous state — 2026-09-23 19:50
 
 **ALL FOUR REMAINING TEXT SURFACES ARE BENCHED. Two verify, one does not, one
 was the WRONG TEST and is retracted.** `scripts/text_bench.py --bench all`,
