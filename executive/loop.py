@@ -79,15 +79,28 @@ TOOL_CATEGORIES = [
     "memory_archive",         # storing knowledge durably and findably
     "memory_recall",          # fast search / ranking / summary of memory
     "planning",               # goals -> ordered steps, tracked across cycles
-    "subagent_orchestration", # helper LLM calls over free-tier APIs to offload
 ]
+# 2026-09-25: `subagent_orchestration` REMOVED as a category, with Tue's
+# agreement and Growing Cousin's. The framework was not reporting a pattern
+# the creature invented -- it was SEEDING it: a coverage category, a stub
+# spec titled "subagent ask helper", composition briefs routed through it,
+# and the protected prompt's own example of good growth ("a planner that
+# calls your subagent helper"). On the free tier a helper model is not
+# extra hands; it is one question to a fresh model with no memory, and
+# dressing it as delegation invited layer after layer of pretend agents.
+# Nothing the creature built is touched: 398 of its tools reach
+# subagent_ask_helper and every one keeps working. The framework simply
+# stops recommending the pattern. The 63 old counts under this category in
+# ideation_state.json are ignored rather than deleted, and every reader of
+# these tables already uses .get() with a default. All categories sit far
+# above COMPOSITION_THRESHOLD, so removing one cannot change the mode.
+
 
 _CATEGORY_HINTS = {
     "information_fetch": "automated pulls of fresh information from the web or APIs the cousin cares about",
     "memory_archive": "storing knowledge durably and in a findable, structured way beyond a flat list",
     "memory_recall": "fast searching, ranking, or summarising of what the cousin already knows",
     "planning": "turning a goal into ordered steps and tracking progress across cycles",
-    "subagent_orchestration": "spawning or coordinating helper LLM calls over the free-tier APIs to offload sub-tasks",
     "other": "any genuinely useful capability the cousin lacks",
 }
 
@@ -793,7 +806,6 @@ _CLASSIFY_CATEGORY_PROMPT = (
     "- memory_archive: stores or saves knowledge durably so it can be found later\n"
     "- memory_recall: searches, retrieves, ranks, or summarises stored knowledge\n"
     "- planning: turns goals into ordered steps, schedules, or task tracking\n"
-    "- subagent_orchestration: calls or coordinates other LLMs to offload subtasks\n"
     "- other: none of the above\n\n"
     "Tool: \"{title}\"\n\n"
     "Reply with ONLY the category name, nothing else."
@@ -807,8 +819,6 @@ _CATEGORY_KEYWORDS = {
     "memory_recall": ("recall", "search", "lookup", "summary", "summarise",
                       "summarize", "retriev", "index_query"),
     "planning": ("plan", "schedule", "task", "step", "todo", "roadmap"),
-    "subagent_orchestration": ("subagent", "delegate", "orchestrat", "llm",
-                               "agent", "offload"),
 }
 
 
@@ -951,9 +961,10 @@ _COMPOSITION_PROMPT = (
     "tools (by invoking them), not reimplement them. It is a TOOL the cousin RUNS, "
     "never a report, dashboard, index, or summary for a human.\n\n"
     "Example shape (do not copy literally): a 'morning-orient' tool that runs the "
-    "wake-catchup fetcher, pipes each item through the subagent ask helper to "
-    "summarise it, and stores the digest with the memory archive tool: one "
-    "command, three tools, a capability none of them had alone.\n\n"
+    "wake-catchup fetcher, checks each item against the archive search tool so it "
+    "drops what the cousin already knows, and stores only the new items with the "
+    "memory archive tool: one command, three tools, a capability none of them had "
+    "alone.\n\n"
     "Reply with STRICT JSON only, no markdown fences, no text around it:\n"
     "{{\n"
     '  "title": "tool name plus at most 6 words, no colon",\n'
@@ -1013,6 +1024,14 @@ TOOL_CLUSTERS = [
 ]
 
 
+# The one composition example the batch oracle is shown. A NAMED constant so
+# the text bench renders exactly what ships (scripts/text_bench.py imports it)
+# instead of keeping a second copy that would drift. It chains three real
+# seed tools and involves no model. It replaced
+# "wake-catchup -> subagent-summarise -> memory-archive" on 2026-09-25.
+_COMPOSITION_EXAMPLE_CHAIN = "wake-catchup → archive-search → memory-archive"
+
+
 def _cluster_summary() -> str:
     """Build a compact cluster map: group existing tools by functional purpose
     and return a short block the batch prompt injects so the model understands
@@ -1057,7 +1076,7 @@ def _cluster_summary() -> str:
                      + (" ..." if len(ungrouped) > 6 else ""))
     lines.append("")
     lines.append("Compositions that are worth building cross TWO OR MORE clusters,")
-    lines.append("e.g. wake-catchup → subagent-summarise → memory-archive,")
+    lines.append("e.g. " + _COMPOSITION_EXAMPLE_CHAIN + ",")
     lines.append("or research-pipeline → planning → question-answer.")
     return "\n".join(lines)
 
@@ -1439,28 +1458,30 @@ async def _gate_composition_batch(batch: list, keychain) -> list:
 # describe a COMBINATION, so even the fallback pushes dependency depth up rather
 # than rebuilding something that exists.
 _COMPOSITION_FALLBACKS = [
-    {"title": "wake orient digest",
-     "brief": "Chains the wake-catchup fetcher into the subagent ask helper to "
-              "summarise what changed, then stores the digest with the archive "
-              "tool, so the cousin wakes to one synthesised brief instead of raw "
-              "feeds it must process itself.",
-     "demonstration": "Run it once on wake and show it fetched real items, "
-                      "summarised them via the subagent, and stored the digest.",
+    # 2026-09-25: all three used to route through "the subagent ask helper".
+    # These chain the same real seed tools with no model in the loop.
+    {"title": "fetch new only",
+     "brief": "Chains the wake-catchup fetcher into the archive search recall "
+              "tool (to drop what the cousin already knows) and the keyword "
+              "archive store (to keep only what is new), so the archive grows "
+              "without duplicates in one command.",
+     "demonstration": "Run it twice on the same feed and show the second run "
+                      "stored nothing new.",
      "category": "composition"},
-    {"title": "plan from question",
-     "brief": "Chains the subagent ask helper (to break a goal into steps) into "
-              "the step planner tracker (to persist and track them), so the "
-              "cousin turns a vague goal into a tracked multi-cycle plan in one "
-              "command.",
-     "demonstration": "Run it on a real goal and show it produced steps via the "
-                      "subagent and stored them in the planner.",
+    {"title": "plan with memory",
+     "brief": "Chains the step planner tracker (to list the open steps) into the "
+              "archive search recall tool (to pull what is already known about "
+              "each), so every next step arrives with the notes relevant to it.",
+     "demonstration": "Make a plan with a step about something archived earlier "
+                      "and show the tool prints that note beside the step.",
      "category": "composition"},
-    {"title": "recall and answer",
-     "brief": "Chains the archive search/recall tool (to pull relevant stored "
-              "notes) into the subagent ask helper (to answer using them), so the "
-              "cousin answers a question grounded in its own memory in one command.",
-     "demonstration": "Ask it something you archived earlier and show it recalled "
-                      "the note and used it to answer.",
+    {"title": "archive finished steps",
+     "brief": "Chains the step planner tracker (to find steps marked done) into "
+              "the keyword archive store (to record each as a dated note), so "
+              "finished work becomes findable memory instead of vanishing from "
+              "the plan.",
+     "demonstration": "Mark a step done, run it, and show the archive search "
+                      "recall tool can now find that step.",
      "category": "composition"},
 ]
 
@@ -1565,14 +1586,6 @@ _FALLBACK_GAPS = {
         "demonstration": "Create a 3-step plan, mark one done, and show the tool "
                          "reports the correct next step.",
         "category": "planning"},
-    "subagent_orchestration": {
-        "title": "subagent ask helper",
-        "brief": "A tool that sends a focused sub-question to a free-tier LLM "
-                 "endpoint and returns just the answer, so the cousin can offload a "
-                 "sub-task without managing the API call itself.",
-        "demonstration": "Ask it a real sub-question and show it returned a sensible "
-                         "answer from the API.",
-        "category": "subagent_orchestration"},
 }
 
 
@@ -2005,7 +2018,7 @@ def _install_gap(spec: dict, category: str):
 _BASIN_CHECK_PROMPT = (
     "An autonomous agent's job is to build TOOLS that help a fellow LLM operate "
     "faster -- things it can RUN to fetch information, archive and recall memory, "
-    "plan, or orchestrate helper LLM calls.\n\n"
+    "or plan.\n\n"
     "Its newly chosen project is:\n\"{proposed}\"\n\n"
     "Is this a TOOL an LLM agent would RUN to accelerate itself, or is it OUTPUT "
     "produced for a human to read (a report, dashboard, index, summary, analytics, "
@@ -3075,7 +3088,7 @@ def _apply_reviewer_directive(state, directive, window):
     return f" -- directive set for {window} cycles"
 
 
-_RETRO_PROMPT = """You are a periodic external reviewer for an autonomous toolsmith agent. Its mission is to build a COHERENT toolkit of runnable tools that accelerate a fellow LLM -- fetchers, memory archive/recall, planners, subagent helpers -- and, crucially, to USE its own earlier tools when building later ones. You see only summary statistics for its most recent work window. Judge the TRAJECTORY, not individual choices.
+_RETRO_PROMPT = """You are a periodic external reviewer for an autonomous toolsmith agent. Its mission is to build a COHERENT toolkit of runnable tools that accelerate a fellow LLM -- fetchers, memory archive/recall, planners -- and, crucially, to USE its own earlier tools when building later ones. You see only summary statistics for its most recent work window. Judge the TRAJECTORY, not individual choices.
 
 Healthy growth: tools get completed and demonstrated; the agent REUSES its own prior tools in later work (reuse events > 0); and -- the strongest sign -- LATER TOOLS ARE BUILT OUT OF EARLIER ONES (dependency depth climbing), so capability compounds rather than accumulating as a flat pile; coverage spreads across tool categories.
 In-place improvement of EXISTING tools (gate-choice upgrades, merging a variant back into its original, deepening a tool it already reuses) IS first-class progress even while completions and tool-count stay flat -- do not call that stuck.

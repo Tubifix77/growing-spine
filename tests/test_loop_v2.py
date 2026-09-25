@@ -895,8 +895,8 @@ async def main():
           loop._parse_category("We need to classify. Answer: planning") == "planning")
     check("A parse: spaces instead of underscores",
           loop._parse_category("memory recall") == "memory_recall")
-    check("A parse: keyword backstop (delegate->subagent)",
-          loop._parse_category("a tool that delegates to another model") == "subagent_orchestration")
+    check("A parse: a delegating tool is no longer a category of its own",
+          loop._parse_category("a tool that delegates to another model") == "other")
     check("A parse: fetch keyword -> information_fetch",
           loop._parse_category("downloads json from a url") == "information_fetch")
     check("A parse: genuinely unknown -> other",
@@ -1308,6 +1308,73 @@ async def main():
           all(classify_error("HTTP %s: error code: %s" % (c, c))
               not in ("quota", "too_large", "gone")
               for c in ("520", "521", "522", "523", "524", "525", "526", "527")))
+
+    # ---- the framework no longer SEEDS the subagent pattern (2026-09-25) ----
+    # Tue and Growing Cousin agreed to stop the framework promoting subagents.
+    # It was not a pattern the creature invented: the framework seeded it in a
+    # starter-map entry, a coverage category, a stub spec, the composition
+    # oracle's example chain, three fallback briefs, two judges' mission
+    # statements, and the protected prompt's own example of good growth -- "a
+    # planner that calls your subagent helper". 398 of the creature's tools
+    # reach subagent_ask_helper and NONE is touched; only the recommendation
+    # goes. Benched on scripts/text_bench.py --bench subagent before shipping.
+    import io as _io_sa
+    _pp_sa = _io_sa.open(os.path.join(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__))), "protected-prompt.md"), encoding="utf-8").read()
+    _ask_sa = _io_sa.open(os.path.join(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__))), "framework-tools", "ask"), encoding="utf-8").read()
+
+    for _tbl_name in ("TOOL_CATEGORIES", "_CATEGORY_HINTS", "_CATEGORY_KEYWORDS",
+                      "_FALLBACK_GAPS"):
+        check("subagent_orchestration is gone from %s" % _tbl_name,
+              "subagent_orchestration" not in getattr(loop, _tbl_name))
+    for _p_name in ("_COMPOSITION_PROMPT", "_BASIN_CHECK_PROMPT", "_RETRO_PROMPT",
+                    "_CLASSIFY_CATEGORY_PROMPT", "_COMPOSITION_EXAMPLE_CHAIN"):
+        _p_txt = getattr(loop, _p_name).lower()
+        check("%s recommends no subagent or helper-LLM orchestration" % _p_name,
+              "subagent" not in _p_txt and "orchestrate helper" not in _p_txt)
+    check("no composition fallback routes through the subagent helper",
+          not any("subagent" in str(_f).lower() for _f in loop._COMPOSITION_FALLBACKS))
+    _seeds = ("wake-catchup fetcher", "archive search recall",
+              "keyword archive store", "step planner tracker")
+    check("every composition fallback still chains two or more REAL seed tools",
+          all(sum(_s in _f["brief"] for _s in _seeds) >= 2
+              for _f in loop._COMPOSITION_FALLBACKS))
+    check("the batch oracle's footer is built from the example-chain constant",
+          "_COMPOSITION_EXAMPLE_CHAIN" in inspect.getsource(loop._cluster_summary))
+
+    _pp_low = _pp_sa.lower()
+    check("the protected prompt no longer names subagents, orchestration or offloading",
+          "subagent" not in _pp_low and "orchestrat" not in _pp_low
+          and "offload" not in _pp_low)
+    check("the protected prompt still TEACHES composition (the paragraph was not gutted)",
+          "compose instead of starting from scratch" in _pp_sa
+          and "step tracker" in _pp_sa)
+
+    # The ask paragraph: the facts, each one checked against ask's own source.
+    # Section 5: "before shipping a message about an artifact, check the
+    # message against the artifact." If ask ever gains history or loses its
+    # daily reset, these fail -- and the prompt must change with it.
+    _ask_para = next((_l for _l in _pp_sa.splitlines()
+                      if _l.startswith("`ask` sends one question")), "")
+    check("the prompt describes ask", bool(_ask_para))
+    check("ask paragraph: states that the model starts fresh with no memory",
+          "starts fresh" in _ask_para and "no memory" in _ask_para)
+    check("...and ask really does send one bare user message, no history",
+          '"messages": [{"role": "user", "content": prompt}]' in _ask_sa)
+    check("ask paragraph: states the daily budget and when it resets",
+          "daily budget" in _ask_para and "00:00 UTC" in _ask_para)
+    check("...and ask's own source really does reset at 00:00 UTC",
+          "resets 00:00 UTC" in _ask_sa and "DAILY_CAP" in _ask_sa)
+    # THE LOAD-BEARING NEGATIVE TEST. Section 5: "Name the invariant it must
+    # hold, never the mechanism to avoid." Told "don't use jq -n" the creature
+    # rebuilt the same fault by heredoc in 36 h. A paragraph that said "ask is
+    # not an agent" or "do not build subagents" would be obeyed to the letter
+    # and routed around. It states what ask IS and nothing about what not to do.
+    _ban = ("not an agent", "do not build", "don't build", "never build",
+            "subagent", "should not", "must not", "avoid")
+    check("ask paragraph names NO mechanism to avoid -- facts only",
+          not any(_b in _ask_para.lower() for _b in _ban))
 
     # ---- the done-gate quotes the COMMAND, not the comment (2026-09-23) ----
     # `bad_cmd[:120]` is the whole exec block, and the creature opens most
