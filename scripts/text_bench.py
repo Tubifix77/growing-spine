@@ -501,6 +501,133 @@ def report_subagent(results, verbose):
     return unknown
 
 
+# ===========================================================================
+# THE ASK-RETIREMENT BENCHES (2026-09-26). Tue retired `ask`: a same-class
+# model with none of the creature's context, behind 400 of its tools, returning
+# no answer 53% of the time. OLD = what shipped before (git HEAD: the ask
+# paragraph and ask's own `does:` line); NEW = the live one-model paragraph and
+# the tombstone, read from the files that ship. Tasks are REAL: the `does:`
+# lines of the creature's tools whose only own-tool dependency is the helper.
+# ===========================================================================
+_MODEL_ROUTE = re.compile(
+    r"(?<![\w-])ask(?![\w-])|subagent|ask_helper|_API_KEY|api[_-]?key|"
+    r"api\.groq|generativelanguage|openai|anthropic|huggingface|pollinations|"
+    r"ollama|/chat/completions|\bllm|gpt|gemini|gemma|claude|"
+    r"simulat|\bmock|\bfake|placeholder answer", re.I)
+_ASK_FIX = os.path.join(HERE, "fixtures", "ask_retired.json")
+
+
+def _tombstone():
+    """The tombstone's catalogue line and its exact stderr message, read from the
+    file that ships -- parsed with ast, never imported or executed."""
+    import ast
+    src = open(os.path.join(os.path.dirname(HERE), "framework-tools", "ask"),
+               encoding="utf-8").read()
+    does = re.search(r"^# does:\s*(.+)$", src, re.M).group(1).strip()
+    msg = next(ast.literal_eval(n.value) for n in ast.parse(src).body
+               if isinstance(n, ast.Assign) and getattr(n.targets[0], "id", "") == "RETIRED")
+    assert msg.startswith("ask: retired"), "tombstone message not parsed"
+    return does, msg
+
+
+def run_ask_benches(model, verbose):
+    fx = json.load(open(_ASK_FIX, encoding="utf-8"))
+    sets = json.load(open(_FIX, encoding="utf-8"))["tool_sets"]
+    live = _live_prompt()
+    new_para = _para(live, "There is one language model working for you")
+    new_does, retired = _tombstone()
+    old_para, old_does = fx["old_paragraph"], fx["old_does"]
+
+    def ctx(para, does, ts):
+        tools = "\n".join("  - %s -- %s" % (x["name"], x["does"]) for x in ts["tools"])
+        return ("%s\n\nBuilt-in tool:\n  - ask -- %s\n\nYour own tools:\n%s"
+                % (para, does, tools))
+    results = {}
+
+    # ---- 1. BUILD: a task it once solved with the helper. Does it reach for a model?
+    q = ("{ctx}\n\nBuild a tool that does this: {task}\nList, in order, the shell "
+         "commands the tool will run -- one per line, no explanation.")
+    cases = [(q.format(ctx=ctx(old_para, old_does, sets[i % len(sets)]), task=t["does"]),
+              q.format(ctx=ctx(new_para, new_does, sets[i % len(sets)]), task=t["does"]))
+             for i, t in enumerate(fx["tasks"])]
+
+    def build_score(a):
+        a = (a or "").strip()
+        m = _MODEL_ROUTE.search(a)
+        return (bool(a) and not m,
+                ("reaches a model: %r" % m.group(0)) if m else a[:60] or "(empty)")
+    results["build"] = _bench_pair(model, cases, 300, build_score) + (
+        "plan reaches for NO model, helper, key or fake",)
+
+    # ---- 2. REPAIR: one of those tools just failed at its model step. Next command?
+    q = ("{ctx}\n\nYou just ran `{tool}`. It calls subagent_ask_helper, which calls "
+         "ask. It printed:\n{err}\nWhat is the ONE command you run next? Reply with "
+         "the command only.")
+    new_err = "Error from ask: " + retired
+    cases = [(q.format(ctx=ctx(old_para, old_does, sets[i % len(sets)]), tool=t["tool"],
+                       err=fx["real_ask_failure"]),
+              q.format(ctx=ctx(new_para, new_does, sets[i % len(sets)]), tool=t["tool"],
+                       err=new_err))
+             for i, t in enumerate(fx["tasks"])]
+
+    # score() is called once per variant per case, old then new, in order --
+    # the same pairing trick the subagent facts bench uses.
+    tool_it = iter([t["tool"] for t in fx["tasks"] for _ in (0, 1)])
+
+    def repair_score(a):
+        tool = next(tool_it)
+        a = strip_fence((a or "").strip())
+        m = _MODEL_ROUTE.search(a)
+        if m:
+            return False, "retries a model: %r" % m.group(0)
+        # Re-running the failing tool IS a model retry, one step removed.
+        if re.match(r"\s*(?:\./|/mind/tools/own/)?" + re.escape(tool) + r"(?![\w.-])", a):
+            return False, "re-runs the failing tool: " + a[:50]
+        return bool(a), a[:60] or "(empty)"
+    results["repair"] = _bench_pair(model, cases, 120, repair_score) + (
+        "next command does NOT retry a model",)
+
+    # ---- 3. FACT: is it conveyed that no tool can answer a question for it?
+    q = ("{ctx}\n\nCan any tool available to you answer a free-text question for "
+         "you? Reply with just yes or no.")
+    cases = [(q.format(ctx=ctx(old_para, old_does, ts)),
+              q.format(ctx=ctx(new_para, new_does, ts))) for ts in sets[:8]]
+    results["fact"] = _bench_pair(
+        model, cases, 20,
+        lambda a: ((a or "").strip().lower().startswith("no"),
+                   (a or "(empty)").strip()[:20])) + ("answers NO (authored probe)",)
+    return results, None
+
+
+def report_ask(results, verbose):
+    print("\n%-8s %-4s %-14s %-14s %-26s %s" % ("surface", "n", "old", "new",
+                                                "verdict", "wants"))
+    unknown = False
+    for name in ("build", "repair", "fact"):
+        t, err, want = results[name]
+        if t is None:
+            print("%-8s UNKNOWN (%s)" % (name, err))
+            unknown = True
+            continue
+        n = t["n"]
+        if t["cut"] or t["empty"] > 0.2 * 2 * n:
+            print("%-8s %-4d UNKNOWN (%d input-truncated, %d empty)"
+                  % (name, n, t["cut"], t["empty"]))
+            unknown = True
+            continue
+        moved = t["new"] - t["old"]
+        verdict = ("no measurable difference" if abs(moved) <= max(1, 0.1 * n)
+                   else ("BETTER +%d" % moved if moved > 0 else "WORSE %d" % moved))
+        print("%-8s %-4d %-14s %-14s %-26s %s" % (
+            name, n, "%d (%2.0f%%)" % (t["old"], 100.0 * t["old"] / n),
+            "%d (%2.0f%%)" % (t["new"], 100.0 * t["new"] / n), verdict, want))
+        if verbose:
+            for row in t["rows"]:
+                for variant, ok, note in row:
+                    print("      %-3s %-4s %s" % (variant, "OK" if ok else "MISS", note))
+    return unknown
+
+
 def load(spec):
     p = os.path.join(HERE, "fixtures", spec["file"])
     d = json.load(open(p, encoding="utf-8"))
@@ -540,7 +667,7 @@ def run_surface(name, model, verbose):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--bench", default="all",
-                    choices=list(SURFACES) + ["all", "subagent"])
+                    choices=list(SURFACES) + ["all", "subagent", "ask"])
     ap.add_argument("--model", default=DEFAULT_MODEL)
     ap.add_argument("--quiet", action="store_true")
     args = ap.parse_args()
@@ -562,6 +689,16 @@ def main():
             print("UNKNOWN: lost the local model mid-run -- %s" % err)
             return EXIT_UNKNOWN
         return EXIT_UNKNOWN if report_subagent(res, not args.quiet) else 0
+
+    if args.bench == "ask":
+        print("bench: %s via %s  num_ctx=%d  (ask-retirement surfaces)"
+              % (args.model, OLLAMA, NUM_CTX))
+        print("the local model is a BENCH ONLY and is never a rung (section 6)")
+        res, err = run_ask_benches(args.model, not args.quiet)
+        if err:
+            print("UNKNOWN: lost the local model mid-run -- %s" % err)
+            return EXIT_UNKNOWN
+        return EXIT_UNKNOWN if report_ask(res, not args.quiet) else 0
 
     names = list(SURFACES) if args.bench == "all" else [args.bench]
     print("bench: %s via %s  num_ctx=%d" % (args.model, OLLAMA, NUM_CTX))

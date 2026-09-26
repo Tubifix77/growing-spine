@@ -1,0 +1,72 @@
+{
+ "_provenance": "tasks: the `# does:` lines of the creature's tools whose ONLY own-tool dependency is subagent_ask_helper (50 such tools; 25 with a usable does: line; first 16), read live 2026-09-26. old_paragraph / old_does: git HEAD before the retirement. real_ask_failure: the last 'Error from ask' in the journal, as the creature's own wrapper surfaced it.",
+ "old_paragraph": "`ask` sends one question to a separate language model and prints only its answer. That model starts fresh every time: it has no memory of you, of your tools, or of any earlier `ask`, so everything it needs has to be in the question itself. Every `ask` draws on a limited daily budget; when it runs out, `ask` fails with an error instead of an answer until the budget resets at 00:00 UTC.",
+ "old_does": "Ask a real LLM (openai/gpt-oss-120b via Groq) and print only its answer; every failure goes to stderr with a nonzero exit.",
+ "real_ask_failure": "Error from ask: ask: unusable reply from provider: reply hit the 2048-token ceiling before finishing -- ask a narrower question\nNo new knowledge was successfully retrieved.",
+ "tasks": [
+  {
+   "tool": "AutoFAQBuilder",
+   "does": "Harvests FAQ-style queries for a topic, plans answers, synthesizes them, and archives them as an FAQ database. -- CATEGORY: composition"
+  },
+  {
+   "tool": "ContextualAnswerSynthesizer",
+   "does": "Answers a question by gathering relevant notes from one or more keyword archives, synthesizing a comprehensive answer with conflict detection, confidence scoring, and optional persistent storage."
+  },
+  {
+   "tool": "CrossDomainInsightGenerator",
+   "does": "Synthesizes a non-obvious insight by connecting two different domains using news, archives, and gap-filling."
+  },
+  {
+   "tool": "CrossSourceKnowledgeGraph",
+   "does": "Builds / updates a unified knowledge graph from a list of feed items by extracting triples."
+  },
+  {
+   "tool": "LLMCostEfficiencyOptimizer",
+   "does": "Ranks a list of URLs by estimated cost-efficiency, fetches the top-ranked items via wake_catchup_fetcher, and archives them via keyword-archive-store."
+  },
+  {
+   "tool": "ProactiveAlertSynthesizerPlus",
+   "does": "Synthesizes a concise, high-impact alert from a JSON list of news items, identifying the core crisis and suggesting immediate actions."
+  },
+  {
+   "tool": "WakePlanDigest.py",
+   "does": "Pulls latest news, filters for high-value actions, enriches them via gap-filling, and schedules them in the planner."
+  },
+  {
+   "tool": "archive-pattern-extractor",
+   "does": "Identifies recurring themes and longitudinal trends across date-stamped archive entries for a given topic."
+  },
+  {
+   "tool": "archive_aware_refactorer",
+   "does": "Retrieve successful coding patterns from the archive to plan a refactor of messy code."
+  },
+  {
+   "tool": "catchup_memory_archiver",
+   "does": "Composes fetcher -> gap-filler -> synthesizer -> archiver -> graph-extractor -> planner to ingest news and maintain a real-time knowledge graph."
+  },
+  {
+   "tool": "cross_ref_fact_verifier",
+   "does": "Verifies if internal memory claims are stale by cross-referencing them with fresh external data and automatically updates the archive if corrections are needed."
+  },
+  {
+   "tool": "crossclusterdigestscheduler",
+   "does": "Orchestrates the knowledge lifecycle for a topic: either performs a delta-aware ingest (digest) or merges fragmented archive entries into a canonical record (canonicalize)."
+  },
+  {
+   "tool": "gap_to_plan_executor",
+   "does": "Identifies knowledge gaps for an entity, generates a sequenced research plan to fill them, and registers/augments it in the step-planner-tracker."
+  },
+  {
+   "tool": "industry_shift_impact_mapper",
+   "does": "Maps the systemic ripple effects of an industry event using a multi-stage analysis and archives the resulting impact map."
+  },
+  {
+   "tool": "insight_synthesis_archiver",
+   "does": "Gathers fragmented data for a keyword, synthesizes a high-level insight, and archives it as a canonical entry."
+  },
+  {
+   "tool": "interface_ergonomics_generator",
+   "does": "Researches keyboard-driven GUI patterns and generates a JSON shortcut map for the most used tools."
+  }
+ ]
+}

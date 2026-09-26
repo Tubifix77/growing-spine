@@ -814,11 +814,11 @@ or a path literal that already exists elsewhere, stop.
   send decisions of this shape back to him; he is the idea guy.
 - **A defunct model is removed the moment it is detected** — Tue's standing
   practice, stated 2026-08-17; do not queue it for his decision. Set
-  `enabled: false` with a dated comment naming what happened. Check first whether
-  the rung's key is carried into the container as a LEGACY ALIAS
-  (`sandbox.py: LEGACY_KEY_ALIASES`): disabled rungs' keys are withheld from the
-  body, so retiring a rung can delete an env var the creature's tools rely on.
-  Deploy the code that stops depending on it BEFORE flipping the config.
+  `enabled: false` with a dated comment naming what happened. (Until 2026-09-26
+  you also had to check whether the rung's key reached the container as a legacy
+  alias, because retiring a rung withheld its key from the body. Since then **no
+  provider key enters the body at all**, so a rung is purely the keychain's
+  business; if a key ever goes back into the body, this check comes back with it.)
   Then **find a replacement rather than shrinking the ladder** — Tue, 2026-08-17:
   "we must find a new one next time we run out." Prefer a NEW account over a
   second model on one we already hold: `groq` and `groq_oss120` shared a bucket,

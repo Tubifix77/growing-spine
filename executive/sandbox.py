@@ -5,59 +5,6 @@ CONTAINER_NAME = "growing-spine-body"
 IMAGE_NAME = "growing-spine"
 
 
-# Legacy env names the creature's OWN tools already reference by hand. Renaming
-# these would silently break its world, so they are emitted as aliases forever.
-LEGACY_KEY_ALIASES = {
-    "groq":         "GROQ_API_KEY",
-    "cerebras":     "CEREBRAS_API_KEY",
-    "gemini_flash": "GEMINI_API_KEY",
-}
-
-
-def _complain(msg: str):
-    """Say it on stdout AND in the creature's journal. A keyless body is a silent
-    disability otherwise: every provider call from inside the container just fails."""
-    print(f"[sandbox] {msg}")
-    try:
-        from executive import journal as _j
-        _j.append(os.path.expanduser("~/growing-spine-mind"), "error",
-                  f"sandbox: {msg}")
-    except Exception:
-        pass
-
-
-def env_name_for(provider_key: str) -> str:
-    """Canonical container env var name for a config provider key."""
-    # str(): a bare off/on/yes/no key arrives from YAML as a bool ("Norway problem").
-    safe = "".join(c if c.isalnum() else "_" for c in str(provider_key))
-    return safe.upper() + "_API_KEY"
-
-
-def container_api_env(cfg: dict) -> dict:
-    """Env vars carrying provider keys into the body, so bash tools can call an
-    API without Python or the keychain.
-
-    Was a hardcoded three-entry map keyed on "groq"/"gemini"/"cerebras" while the
-    config keys are gemini_flash/groq/groq_oss120/cerebras/google_gemma/
-    openrouter_* -- so exactly TWO of thirteen providers ever reached the body,
-    and gemini_flash missed by a suffix (2026-08-06). Now derived from the config,
-    so a rung added tomorrow arrives the day it lands.
-
-    DISABLED providers are deliberately excluded: a benched key has no business
-    inside the container.
-    """
-    out = {}
-    for prov in cfg.get("providers", []):
-        key, api_key = str(prov.get("key", "")), prov.get("api_key", "")
-        if not key or not api_key or not prov.get("enabled", True):
-            continue
-        out[env_name_for(key)] = api_key
-        alias = LEGACY_KEY_ALIASES.get(key)
-        if alias:
-            out[alias] = api_key
-    return out
-
-
 def build_image(dockerfile_dir: str = "."):
     subprocess.run(["docker", "build", "-t", IMAGE_NAME, dockerfile_dir], check=True)
 
@@ -85,30 +32,19 @@ def start(dockerfile_dir: str = "."):
     host_ws = os.path.expanduser("~/growing-spine-workspace")
     os.makedirs(host_mind, exist_ok=True)
     os.makedirs(host_ws, exist_ok=True)
-    # Read API keys from config so bash tools inside the container can use them
-    # without needing Python or the keychain module.
-    # Audit P1-F15: this hardcoded ~/growing-spine/config.yaml and swallowed every
-    # failure with a bare `pass`, so a moved checkout or a YAML typo produced a body
-    # with NO api keys, in total silence, and the creature's own tools would fail to
-    # call any provider with no way to find out why. Derive the path from this file,
-    # and say so loudly when the keys do not make it in.
-    _api_env = []
-    _cfg_path = os.path.join(os.path.dirname(os.path.dirname(
-        os.path.abspath(__file__))), "config.yaml")
-    try:
-        import yaml as _yaml
-        with open(_cfg_path, encoding="utf-8") as _cf:
-            _cfg = _yaml.safe_load(_cf)
-        _keys = container_api_env(_cfg)
-        for _name, _val in _keys.items():
-            _api_env += ["-e", f"{_name}={_val}"]
-        if not _keys:
-            _complain(f"config at {_cfg_path} yielded NO provider keys -- the body "
-                      f"starts unable to call any API")
-    except Exception as _ce:
-        _complain(f"could not read {_cfg_path} ({type(_ce).__name__}: {_ce}) -- the "
-                  f"body starts with NO api keys")
-
+    # NO PROVIDER KEY ENTERS THE BODY (2026-09-26, Tue's decision). Until then
+    # every enabled rung's key was injected as an env var so the creature's bash
+    # tools could call an API without the keychain. The one thing in the body
+    # still using them was the framework's own `ask`, which put a second model of the
+    # same class as its own -- with none of its context -- behind 400 of its
+    # tools; 53% of those calls returned no answer in September. `ask` is now a
+    # tombstone (framework-tools/ask). Withholding the keys is the other half:
+    # with `ask` gone and a key in reach, the illusion is one curl away, and a
+    # direct call to google_gemma spends the 16,000 tokens/minute the creature
+    # THINKS with. Verified before shipping: no tool of its own reads any of the
+    # five keys that were present (GEMINI_API_KEY, GEMINI_FLASH_API_KEY,
+    # GOOGLE_GEMMA_API_KEY, CLOUDFLARE_API_KEY, GROQ_OSS120_API_KEY).
+    # Keys stay on the host, in config.yaml, read only by the keychain.
     subprocess.run([
         "docker", "run", "-d",
         "--name", CONTAINER_NAME,
@@ -132,7 +68,6 @@ def start(dockerfile_dir: str = "."):
         # `docker inspect` still reported Running=true. --init puts tini at PID 1
         # (sleep infinity becomes its child) and tini reaps.
         "--init",
-    ] + _api_env + [
         IMAGE_NAME,
         "sleep", "infinity"
     ], check=True)

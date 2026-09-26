@@ -1,140 +1,42 @@
 #!/usr/bin/env python3
-"""Ask a real language model and print only its answer. Usage: ask "<prompt>"  (or pipe: echo "<prompt>" | ask)"""
+"""ask was retired on 2026-09-26. It always fails, saying why on stderr."""
 # tool: ask
-# call: ask "<prompt>"   (or:  echo "<prompt>" | ask)
-# does: Ask a real LLM (openai/gpt-oss-120b via Groq) and print only its answer; every failure goes to stderr with a nonzero exit.
+# call: ask "<prompt>"
+# does: RETIRED 2026-09-26 -- there is no second model to ask; it always fails, saying so on stderr.
 #
-# CONTRACT, the reason this tool exists in the framework:
-#   - stdout carries the model's answer and NOTHING else, ever.
-#   - every failure -> reason on stderr, nonzero exit, stdout stays EMPTY.
-#   An error printed answer-shaped to stdout is how 4,309 junk records reached
-#   the keyword archive over 2026-08-09..11: a helper with no engine behind it
-#   kept exiting 0 with answer-shaped output, and downstream tools stored the
-#   failure text as knowledge. Output that merely restates its input is not an
-#   answer; a tool that cannot reach a capability must say so and exit nonzero.
+# WHY IT IS A TOMBSTONE AND NOT A DELETION (Tue's decision, 2026-09-26).
+# `ask` sent a question to openai/gpt-oss-120b on Groq: a model of the same
+# class as the creature's own gemma-4-31b, starting cold with none of its
+# context -- no tools, no archive, no task. Measured over September: of 731
+# exec blocks that ran ask or subagent_ask_helper, 342 (47%) returned anything
+# answer-shaped; 35% errors, 12% empty, 6% rate or budget. 400 of 750 tools
+# depended on it, and 56% of the last week's authoring went into them. A
+# "helper" no stronger than the thinker and without its context is an
+# illusion of a second mind; the framework built it (2026-08-14) and the
+# framework retires it.
 #
-# The model. openai/gpt-oss-120b, served by Groq on the key the framework
-# already injects into this container (GROQ_API_KEY). Free-tier bucket:
-# 30 RPM / 1,000 RPD / 8,000 TPM / 200,000 TPD
-# (console.groq.com/docs/rate-limits, retrieved 2026-08-14). Chosen over
-# llama-3.3-70b-versatile, which Groq retires for free tier on 2026-08-16
-# (console.groq.com/docs/deprecations, retrieved 2026-08-14) -- and it is
-# already a rung in the executive's own ladder, so it clears the quality floor
-# by definition.
-import json, os, sys, time, urllib.request, urllib.error
+# Deleting the file would leave every caller with "command not found", which
+# names nothing. The tombstone keeps ask's own contract -- stdout empty,
+# reason on stderr, nonzero exit -- so every one of the 400 dependents fails
+# honestly AND is told the fact at the moment it fails. The provider keys are
+# withheld from the body at the same time (executive/sandbox.py), or the same
+# illusion could be rebuilt by calling a provider directly -- which would also
+# spend the budget the creature thinks with.
+#
+# It never reads stdin (a pipe into it must not block) and imports nothing
+# that can reach a network.
+import sys
 
-API_URL = "https://api.groq.com/openai/v1/chat/completions"
-MODEL = "openai/gpt-oss-120b"
-# One Groq account, two env names for the same secret. sandbox.py emits
-# GROQ_API_KEY only as a LEGACY ALIAS of the `groq` config rung, and deliberately
-# withholds the keys of DISABLED rungs -- so retiring `groq` (its model was
-# withdrawn 2026-08-17) deletes GROQ_API_KEY from the container while
-# GROQ_OSS120_API_KEY, the rung this tool's model actually belongs to, survives.
-# Try both, or a provider retirement silently disarms the creature's only
-# inference primitive. Order puts the canonical rung name first.
-ENV_KEYS = ("GROQ_OSS120_API_KEY", "GROQ_API_KEY")
-STATE = "/mind/state/ask_quota.json"   # your remaining budget is readable here
-DAILY_CAP = 500     # half the published 1,000/day: the other half stays reserved
-                    # for the executive's ladder, which shares this bucket
-                    # (its measured use of it: 0 calls over 2026-08-10..14).
-MAX_TOKENS = 2048   # gpt-oss spends tokens reasoning before answering; a lower
-                    # ceiling turns long answers into truncation failures.
-TIMEOUT_S = 60
+RETIRED = ("ask: retired on 2026-09-26. The only language model working for "
+           "you is the one doing your thinking; there is no second one to ask. "
+           "Your tools can fetch, store, search and transform text, but none "
+           "of them can answer a question for you. Nothing was sent, and there "
+           "is no answer.")
 
 
-def fail(msg, code):
-    print("ask: " + msg, file=sys.stderr)
-    sys.exit(code)
-
-
-def read_prompt(argv):
-    if len(argv) > 1:
-        return " ".join(argv[1:]).strip()
-    if not sys.stdin.isatty():
-        return sys.stdin.read().strip()
-    return ""
-
-
-def spend_budget(now=None):
-    """Count this attempt against today's budget. Returns (used, cap).
-
-    Counts ATTEMPTS, not successes -- a failing call in a retry loop must still
-    exhaust the budget, or a broken caller can hammer the provider unmetered.
-    Atomic write (tmp + os.replace): a truncating write here once cost another
-    state file its whole history. Approximate under concurrency; the provider's
-    own 429 is the hard wall. A corrupt or missing file starts a fresh day --
-    it is derived state.
-    """
-    day = time.strftime("%Y-%m-%d", time.gmtime(now or time.time()))
-    st = {}
-    try:
-        with open(STATE, encoding="utf-8") as f:
-            st = json.load(f)
-    except Exception:
-        st = {}
-    if not isinstance(st, dict) or st.get("day") != day:
-        st = {"day": day, "used": 0}
-    st["used"] = int(st.get("used", 0)) + 1
-    try:
-        os.makedirs(os.path.dirname(STATE), exist_ok=True)
-        tmp = STATE + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(st, f)
-        os.replace(tmp, STATE)
-    except OSError as e:
-        # Refusing beats running unmetered: an uncountable call is the seed of
-        # every runaway this system has had.
-        fail("cannot record budget (%s) -- refusing to call unmetered" % e, 4)
-    return st["used"], DAILY_CAP
-
-
-def extract_answer(body):
-    """The model's answer text, or a ValueError naming what is wrong with it."""
-    d = json.loads(body)
-    choice = (d.get("choices") or [{}])[0]
-    text = ((choice.get("message") or {}).get("content") or "").strip()
-    if not text:
-        raise ValueError("empty completion (the reply carried no answer text)")
-    if choice.get("finish_reason") == "length":
-        raise ValueError("reply hit the %d-token ceiling before finishing -- "
-                         "ask a narrower question" % MAX_TOKENS)
-    return text
-
-
-def main(argv):
-    prompt = read_prompt(argv)
-    if not prompt:
-        fail('usage: ask "<prompt>"   (or pipe the prompt on stdin)', 2)
-    key = next((os.environ[n] for n in ENV_KEYS if os.environ.get(n)), "")
-    if not key:
-        fail("none of %s is in the environment -- no provider key, no call"
-             % ", ".join(ENV_KEYS), 3)
-    used, cap = spend_budget()
-    if used > cap:
-        fail("daily budget spent (%d/%d used; resets 00:00 UTC)" % (cap, cap), 4)
-    payload = json.dumps({"model": MODEL,
-                          "messages": [{"role": "user", "content": prompt}],
-                          "max_tokens": MAX_TOKENS}).encode()
-    req = urllib.request.Request(API_URL, data=payload, headers={
-        "Content-Type": "application/json",
-        "Authorization": "Bearer " + key,
-        "User-Agent": "growing-spine-ask/1.0"})
-    try:
-        with urllib.request.urlopen(req, timeout=TIMEOUT_S) as r:
-            body = r.read()
-    except urllib.error.HTTPError as e:
-        detail = ""
-        try:
-            detail = " " + e.read(300).decode("utf-8", "replace")
-        except Exception:
-            pass
-        fail("HTTP %d from provider:%s" % (e.code, detail), 5)
-    except Exception as e:
-        fail("network failure: %s: %s" % (type(e).__name__, e), 6)
-    try:
-        print(extract_answer(body))
-    except Exception as e:
-        fail("unusable reply from provider: %s" % e, 7)
+def main(argv=None):
+    print(RETIRED, file=sys.stderr)
+    sys.exit(1)
 
 
 if __name__ == "__main__":

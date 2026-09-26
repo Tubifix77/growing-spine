@@ -88,8 +88,15 @@ framework had put that idea there in ten places: the starter map, the
 prompt's own example of good growth, a coverage category, the composition
 example, all three fallbacks, and two judges' mission lines. All ten are
 replaced with chains of real tools that involve no model. The creature's
-built-in `ask` is now described by its facts alone: a fresh model with no
-memory of you, on a daily budget. Nothing the creature built was touched. The
+built-in `ask` was first described by its facts alone, and then, the next
+day, **retired**. It sent questions to a second model of the same class as the
+creature's own, starting cold with none of its context, and in September 53%
+of the calls that reached it returned no answer. `ask` is now a tombstone that
+fails with one plain sentence ("there is no second one to ask"), and no model
+provider's key enters the creature's container any more, so the illusion of a
+helper mind cannot be rebuilt by calling a provider directly. Nothing the
+creature built was touched: about 400 of its tools now fail honestly at their
+model step, and what to do with them is its call. The
 baseline to judge it against is 1.60 edges per tool, 21% of edges pointing
 into that one helper, and 1.26 per tool without it. If the average falls,
 read it both ways before calling it a regression.

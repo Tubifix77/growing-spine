@@ -1351,21 +1351,30 @@ async def main():
           "compose instead of starting from scratch" in _pp_sa
           and "step tracker" in _pp_sa)
 
-    # The ask paragraph: the facts, each one checked against ask's own source.
-    # Section 5: "before shipping a message about an artifact, check the
-    # message against the artifact." If ask ever gains history or loses its
-    # daily reset, these fail -- and the prompt must change with it.
+    # The one-model paragraph (2026-09-26, replacing the ask description when ask
+    # was retired). Every claim is bound to the artifact it describes -- section
+    # 5: "before shipping a message about an artifact, check the message against
+    # the artifact." If ask comes back, or a key re-enters the body, these fail
+    # and the prompt must change with it.
     _ask_para = next((_l for _l in _pp_sa.splitlines()
-                      if _l.startswith("`ask` sends one question")), "")
-    check("the prompt describes ask", bool(_ask_para))
-    check("ask paragraph: states that the model starts fresh with no memory",
-          "starts fresh" in _ask_para and "no memory" in _ask_para)
-    check("...and ask really does send one bare user message, no history",
-          '"messages": [{"role": "user", "content": prompt}]' in _ask_sa)
-    check("ask paragraph: states the daily budget and when it resets",
-          "daily budget" in _ask_para and "00:00 UTC" in _ask_para)
-    check("...and ask's own source really does reset at 00:00 UTC",
-          "resets 00:00 UTC" in _ask_sa and "DAILY_CAP" in _ask_sa)
+                      if _l.startswith("There is one language model working for you")), "")
+    check("the prompt states that its own thinking is the only model working for it",
+          bool(_ask_para) and "the one doing your thinking" in _ask_para)
+    check("...and that its tools cannot answer a question for it",
+          "none of them can answer a question for you" in _ask_para)
+    check("the prompt says ask was retired and always fails",
+          "`ask` was retired on 2026-09-26 and now always fails" in _ask_para)
+    check("...and the tombstone really does carry that date and always fail",
+          "retired on 2026-09-26" in _ask_sa and ("sys." + "exit(1)") in _ask_sa
+          and "urllib" not in _ask_sa)
+    from executive import sandbox as _sb_sa
+    check("the prompt says no provider key is in the container",
+          "no longer holds any model provider's key" in _ask_para)
+    check("...and the body launch really injects none",
+          '"-e"' not in inspect.getsource(_sb_sa.start)
+          and not hasattr(_sb_sa, "container_api_env"))
+    check("the old ask description is gone from the prompt",
+          "`ask` sends one question" not in _pp_sa and "separate language model" not in _pp_sa)
     # THE LOAD-BEARING NEGATIVE TEST. Section 5: "Name the invariant it must
     # hold, never the mechanism to avoid." Told "don't use jq -n" the creature
     # rebuilt the same fault by heredoc in 36 h. A paragraph that said "ask is
@@ -2581,24 +2590,48 @@ async def main():
     check("crash-net: a stale arm disarms, never reverts an hours-old change",
           _r is False and _rest == [] and _armed is False)
 
-    # ---- A leftovers (2026-08-06): container keys + a sensor that can fail ----
+    # ---- NO provider key enters the body (2026-09-26) ----
+    # Until 2026-09-26 every enabled rung's key was injected so bash tools could
+    # call a provider directly. With `ask` retired, a key left in reach is the
+    # same illusion one curl away -- and a direct google_gemma call spends the
+    # budget the creature thinks with. CONTRACT, asserted on the real launch
+    # path: the `docker run` that creates the body carries no env var at all,
+    # and nothing in it names a key -- even with a config full of keys on disk.
     from executive import sandbox as _sb
-    _cfgk = {"providers": [
-        {"key": "gemini_flash", "api_key": "k1", "enabled": True},
-        {"key": "groq", "api_key": "k2", "enabled": True},
-        {"key": "google_gemma", "api_key": "k3", "enabled": True},
-        {"key": "openrouter_super", "api_key": "k4", "enabled": True},
-        {"key": "openrouter_gemma", "api_key": "k5", "enabled": False},
-        {"key": "nokey", "api_key": "", "enabled": True}]}
-    _env = _sb.container_api_env(_cfgk)
-    check("container keys: every ENABLED provider reaches the body (was 2 of 13)",
-          _env.get("GEMINI_FLASH_API_KEY") == "k1"
-          and _env.get("GOOGLE_GEMMA_API_KEY") == "k3"
-          and _env.get("OPENROUTER_SUPER_API_KEY") == "k4")
-    check("container keys: legacy names the creature's own tools use still resolve",
-          _env.get("GROQ_API_KEY") == "k2" and _env.get("GEMINI_API_KEY") == "k1")
-    check("container keys: benched providers and keyless entries stay out",
-          "OPENROUTER_GEMMA_API_KEY" not in _env and "NOKEY_API_KEY" not in _env)
+    _runs = []
+
+    class _R:
+        returncode, stdout, stderr = 0, "", ""
+
+    def _fake_run(args, *a, **k):
+        _runs.append(list(args))
+        return _R()
+    # start() also makes the host dirs and reads the uid: stub both, so the test
+    # creates nothing in the real home and runs on the PC (no os.getuid there).
+    _saved_sb = (_sb.subprocess.run, _sb.is_running, _sb.time.sleep, os.makedirs,
+                 getattr(os, "getuid", None), getattr(os, "getgid", None))
+    _sb.subprocess.run, _sb.is_running, _sb.time.sleep = _fake_run, (lambda: False), (lambda s: None)
+    os.makedirs = lambda *a, **k: None
+    os.getuid = os.getgid = lambda: 1000
+    try:
+        _sb.start()
+    finally:
+        _sb.subprocess.run, _sb.is_running, _sb.time.sleep, os.makedirs = _saved_sb[:4]
+        for _nm, _fn in (("getuid", _saved_sb[4]), ("getgid", _saved_sb[5])):
+            if _fn is None:
+                delattr(os, _nm)
+            else:
+                setattr(os, _nm, _fn)
+    _drun = next((r for r in _runs if r[:2] == ["docker", "run"]), None)
+    check("body launch: the docker run for the body was actually reached", _drun is not None)
+    check("body launch: no -e/--env flag, so no provider key can enter the body",
+          _drun is not None and "-e" not in _drun and "--env" not in _drun
+          and not any(str(x).startswith("--env") for x in _drun))
+    check("body launch: nothing in the command names an API key",
+          _drun is not None and not any("_API_KEY" in str(x) or "api_key" in str(x).lower()
+                                        for x in _drun))
+    check("body launch: the key-injection helpers are gone, not merely unused",
+          not hasattr(_sb, "container_api_env") and not hasattr(_sb, "LEGACY_KEY_ALIASES"))
 
     _ladder = {"providers": [
         {"key": "gemini_flash", "enabled": True}, {"key": "groq", "enabled": True},
@@ -2615,9 +2648,8 @@ async def main():
     # YAML's Norway problem: a bare off/on/yes/no key parses as a BOOLEAN, and the
     # suite's own flatline fixture has `key: off`. Both readers must survive it.
     _norway = {"providers": [{"key": False, "api_key": "k", "enabled": True}]}
-    check("config keys: a YAML-bool key (off/on/no) does not crash either reader",
-          _H.primary_rungs(_norway) == {"False"}
-          and _sb.container_api_env(_norway).get("FALSE_API_KEY") == "k")
+    check("config keys: a YAML-bool key (off/on/no) does not crash the health reader",
+          _H.primary_rungs(_norway) == {"False"})
 
     check("retro hysteresis: first strike watches, second fires",
           _f1 is False and _st.get("stuck_pending") is False and _f2 is True)
@@ -3243,12 +3275,13 @@ async def main():
           loop._stuck_state_worsened({"tools": {}}, _prev)
           and loop._format_stuck_warning([]) == "")
 
-    # ---- ask: the framework inference primitive (2026-08-14) ----
-    # The creature held seven live provider keys while rebuilding echo simulators,
-    # because the one worked example (llm_ask_helper) died in /tmp on 23 June.
-    # `ask` lives in framework-tools so it is re-materialised every wake and can
-    # never be lost the same way. Its contract is the anti-echo contract: stdout
-    # carries an answer or nothing; every failure is stderr + nonzero exit.
+    # ---- ask is a TOMBSTONE (2026-09-26, Tue's decision) ----
+    # ask was the framework's inference primitive from 2026-08-14: one question to
+    # openai/gpt-oss-120b, a model of the creature's own class with none of its
+    # context. In September 53% of the calls that ran it returned no answer, and
+    # 400 of 750 tools had come to depend on it. It keeps ask's own contract --
+    # stdout EMPTY, reason on stderr, nonzero exit -- so every dependent fails
+    # honestly and is told the fact at the moment it fails.
     #
     # Loaded from a TMP COPY: never import (or py_compile) framework-tools in
     # place -- a planted __pycache__ there once emptied the toolset for four days.
@@ -3256,56 +3289,21 @@ async def main():
     import importlib.machinery as _ilm
     import importlib.util as _ilu2
     import io as _io
+    import re as _re_ask
     _ask_src = os.path.join("framework-tools", "ask")
+    _ask_txt = open(_ask_src, encoding="utf-8").read()
     _ask_tmp = os.path.join(TMP, "ask_copy.py")
     shutil.copyfile(_ask_src, _ask_tmp)
     _spec = _ilu2.spec_from_loader("askmod", _ilm.SourceFileLoader("askmod", _ask_tmp))
     askmod = _ilu2.module_from_spec(_spec)
     _spec.loader.exec_module(askmod)
-    askmod.STATE = os.path.join(TMP, "ask_quota_probe.json")
-    check("ask: test budget file is repointed into TMP, never /mind",
-          TMP in askmod.STATE)  # the quota_state lesson: assert the repoint
+    # getattr, not attribute access: a regression back to a working ask must
+    # FAIL these checks, not crash the suite and hide every check after them.
+    _ret = getattr(askmod, "RETIRED", "")
 
-    # The answer path. Fixture shape is the OpenAI-compatible reply the
-    # production parser in keychain/provider.py already consumes live.
-    _ok = json.dumps({"choices": [{"message": {"content": " ALIVE \n"},
-                                   "finish_reason": "stop"}]})
-    check("ask: extracts exactly the answer text", askmod.extract_answer(_ok) == "ALIVE")
-    _trunc = json.dumps({"choices": [{"message": {"content": "half an ans"},
-                                      "finish_reason": "length"}]})
-    try:
-        askmod.extract_answer(_trunc); _raised = False
-    except ValueError as e:
-        _raised = "ceiling" in str(e)
-    check("ask: a truncated reply is a FAILURE, never a silent partial", _raised)
-    _empty = json.dumps({"choices": [{"message": {"content": "",
-                                                  "reasoning": "mused a lot"},
-                                      "finish_reason": "stop"}]})
-    try:
-        askmod.extract_answer(_empty); _raised = False
-    except ValueError:
-        _raised = True
-    check("ask: a reasoning-only/empty reply is a failure, not an empty answer", _raised)
-
-    # The budget. Attempts counted, UTC rollover, corrupt file = fresh day.
-    check("ask: first spend of the day is 1 of cap",
-          askmod.spend_budget(now=1000000000) == (1, askmod.DAILY_CAP))
-    check("ask: attempts accumulate", askmod.spend_budget(now=1000000000)[0] == 2)
-    check("ask: the day rolls over at 00:00 UTC and the counter resets",
-          askmod.spend_budget(now=1000000000 + 86400)[0] == 1)
-    with open(askmod.STATE, "w", encoding="utf-8") as _f:
-        _f.write("{corrupt json")
-    check("ask: a corrupt budget file starts a fresh day rather than crashing",
-          askmod.spend_budget(now=1000000000)[0] == 1)
-
-    # The anti-echo contract, end to end: every failure path leaves stdout EMPTY.
-    def _run_main(argv, stdin_text="", env_key=None, env_name="GROQ_API_KEY"):
+    def _run_ask(argv, stdin_text=""):
         out, err = _io.StringIO(), _io.StringIO()
-        old_stdin = sys.stdin
-        saved = {n: os.environ.pop(n, None) for n in askmod.ENV_KEYS}
-        if env_key is not None:
-            os.environ[env_name] = env_key
-        sys.stdin = _io.StringIO(stdin_text)
+        old_stdin, sys.stdin = sys.stdin, _io.StringIO(stdin_text)
         code = None
         try:
             with _ctx.redirect_stdout(out), _ctx.redirect_stderr(err):
@@ -3315,36 +3313,22 @@ async def main():
                     code = e.code
         finally:
             sys.stdin = old_stdin
-            for n in askmod.ENV_KEYS:
-                os.environ.pop(n, None)
-            for n, v in saved.items():
-                if v is not None:
-                    os.environ[n] = v
         return code, out.getvalue(), err.getvalue()
 
-    _c, _o, _e = _run_main(["ask"])
-    check("ask: no prompt -> exit 2, stdout empty, usage on stderr",
-          _c == 2 and _o == "" and "usage" in _e)
-    _c, _o, _e = _run_main(["ask", "hello"])
-    check("ask: no provider key -> exit 3, stdout empty, names the missing env vars",
-          _c == 3 and _o == "" and "GROQ_API_KEY" in _e
-          and "GROQ_OSS120_API_KEY" in _e)
-    # Retiring the `groq` rung deletes the GROQ_API_KEY alias from the container
-    # (sandbox.py withholds disabled rungs' keys). The tool's own rung name must
-    # be enough on its own, or a provider retirement disarms inference silently.
-    with open(askmod.STATE, "w", encoding="utf-8") as _f:
-        json.dump({"day": time.strftime("%Y-%m-%d", time.gmtime()),
-                   "used": askmod.DAILY_CAP}, _f)
-    for _n in askmod.ENV_KEYS:
-        _c, _o, _e = _run_main(["ask", "hello"], env_key="fake", env_name=_n)
-        check("ask: %s alone satisfies the key requirement" % _n,
-              _c == 4 and "budget" in _e)   # reached the budget gate => key accepted
-    with open(askmod.STATE, "w", encoding="utf-8") as _f:
-        json.dump({"day": time.strftime("%Y-%m-%d", time.gmtime()),
-                   "used": askmod.DAILY_CAP}, _f)
-    _c, _o, _e = _run_main(["ask", "hello"], env_key="fake-key-never-sent")
-    check("ask: budget spent -> exit 4 BEFORE any network call, stdout empty",
-          _c == 4 and _o == "" and "budget" in _e)
+    for _argv, _in in ((["ask", "What is 2+2?"], ""), (["ask"], "piped question"), (["ask"], "")):
+        _c, _o, _e = _run_ask(_argv, _in)
+        check("ask tombstone %r: nonzero exit, stdout EMPTY, the reason on stderr" % (_argv[1:] or "stdin"),
+              _c not in (0, None) and _o == "" and bool(_ret) and _ret in _e)
+    check("ask tombstone: states the invariant -- no second model, tools cannot answer",
+          "no second one to ask" in _ret
+          and "none of them can answer a question" in _ret)
+    check("ask tombstone: cannot reach a network (imports nothing that could)",
+          not _re_ask.search(r"^\s*(?:import|from)\s+[^\n]*\b(?:urllib|http|socket|requests|subprocess)\b",
+                        _ask_txt, _re_ask.M))
+    check("ask tombstone: never reads stdin, so a pipe into it cannot block",
+          "stdin.read" not in _ask_txt and "input(" not in _ask_txt)
+    check("ask tombstone: its catalogue line says RETIRED, so the wake listing is true",
+          _re_ask.search(r"^# does: RETIRED 2026-09-26", _ask_txt, _re_ask.M) is not None)
 
     # ---- load-bearing tools: the blast radius of a name ----
     _dep = loop._dependency_summary()
