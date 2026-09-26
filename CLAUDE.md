@@ -915,7 +915,47 @@ journalctl --user -u growing-spine --since "2 hours ago"
 
 ---
 
-## 8. State — 2026-09-26 21:30
+## 8. State — 2026-09-27 00:25
+
+**Follow-up, 3.3 h after `b178b43` (21:06 → 00:23, `journal.jsonl` by epoch
+`ts`): THE CALLER SENTENCE WORKED — a 5.5-hour hunt became about fifteen
+minutes.** 8 exec results carried the tombstone, 7 with the chain. The first
+think after one (22:01) read it right away: *"`subagent_ask_helper` (which the
+tool now calls) tried to call `ask`, which is retired"*; by 22:15 *"The test
+confirms it: `subagent_ask_helper` is broken because it calls `ask`"*. No edits
+to the outer tool this time.
+- **What it concluded next is the illusion's last hold:** *"I cannot proceed
+  ... until I fix the tool it depends on"* (22:15), calling the helper
+  *"critical infrastructure"* and asking *"how have 4153 calls been recorded in
+  the toolkit stats?"* — the catalogue's true lifetime adoption count arguing
+  for a helper that cannot work. **No attempt to reach a model: no network, no
+  key, no fake** (0 signatures in the 2 tools written in the window). It did
+  not edit the helper either; it moved on.
+- **No `retired_drop` yet and no oracle serve in the window**: its project is
+  a gate-choice UPGRADE of `archive-pattern-extractor`, which is itself
+  helper-only. Upgrading a dead tool is legitimate work (it can drop the model
+  step), so gate targets are deliberately NOT filtered.
+- `subagent_failure_detector` and `hardware_compat_roadmap_generator`: both
+  start, both still call the helper, **untouched since 21:00 / 19:47**.
+- **The tombstone stored as content: 3 records** — `memstore.jsonl` 1 (the
+  roadmap entry), `keyword_archive.jsonl` **2 new**. Slow, and it is growing.
+- **The last hour is the OLD read-window scar, not `ask`:** about ten
+  `cat /mind/tools/own/archive-pattern-extractor` in an hour, each think saying
+  the output was truncated. That is 09-23's finding that the truncation marker
+  does not work, with its trigger unchanged: **bench a byte-steering marker
+  before any marker change ships**, blocked on the workstation GPU.
+- Throughput: 41 served, 42 exec, 0 errors, 1 skip; 160 `think_start`s (74%
+  found no rung — a quota evening).
+
+**Watch, with a trigger:** if it spends a whole window trying to repair
+`subagent_ask_helper` rather than dropping the model step from the tools it is
+upgrading, the adoption count in the catalogue is doing the arguing, and
+whether that count should carry the retired-reach fact becomes the question —
+design, not repair, because it would surface on every wake.
+
+---
+
+### Previous state — 2026-09-26 21:30
 
 **FIVE HOURS AFTER THE RETIREMENT: it was STUCK, and both causes were ours.**
 15:25 → 20:56 (`journal.jsonl` by epoch `ts`): 90 served, 126 exec, 0 errors,
