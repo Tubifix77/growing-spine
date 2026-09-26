@@ -200,6 +200,14 @@ PY
     dependency was the helper have been rewritten, retired, or left failing.
     **This reading reaches us only**; the creature's own channel is the
     tombstone's stderr at the moment of each call.
+    **And count the tombstone stored AS CONTENT.** Verified live on 09-26: the
+    creature's own `subagent_ask_helper` re-emits the tombstone on STDOUT as
+    `Error: ask: retired on 2026-09-26...` and exits **0** -- §5's
+    error-as-value class -- so its dependents receive our sentence as an
+    answer, and the 08-09..11 precedent is 4,309 failure records stored as
+    knowledge. The string is ours and exact by construction, so the count is
+    exact: records in `/mind/data/**` and the creature's stores containing
+    `ask: retired on 2026-09-26`, per run. Its tool, never ours to fix.
 
 18. **Deltas against the previous run of this skill**, from the history file.
 

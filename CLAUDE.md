@@ -915,7 +915,90 @@ journalctl --user -u growing-spine --since "2 hours ago"
 
 ---
 
-## 8. State — 2026-09-26 14:50
+## 8. State — 2026-09-26 15:40
+
+**`ask` IS RETIRED AND NO PROVIDER KEY ENTERS THE BODY (`b5cf3ba`). Tue's
+decision, and the reason is his: as long as the creature has `ask` it keeps
+the illusion of a helping second mind.** Measured before acting, over
+September: of **731** exec blocks that ran `ask` or `subagent_ask_helper`,
+**342 (47%)** returned anything answer-shaped — 35% error, 12% empty, 6% rate
+or budget. **400 of 750** tools depended on it, and **56%** of the last week's
+authoring (265 of 472 actions) went into them. The model behind it,
+`gpt-oss-120b`, is the creature's own class and starts with none of its
+context, so on its actual work it is WEAKER than the creature.
+- **The tombstone** keeps `ask`'s contract — stdout empty, the reason on
+  stderr, exit 1 — and states the invariant at every call: *"The only language
+  model working for you is the one doing your thinking; there is no second one
+  to ask."* Deleting it would have left 400 callers with "command not found",
+  which names nothing.
+- **Keys withheld** (`sandbox.start` injects none; `container_api_env` and
+  `LEGACY_KEY_ALIASES` are gone). Without this the illusion is one curl away,
+  and a direct `google_gemma` call spends the 16,000 tokens/minute it THINKS
+  with. Verified first that no tool of its own reads any of the five keys that
+  were present. **Verified live in the respawned body:** its env is `PATH`
+  only; `ask` exits 1 with stdout empty and the sentence on stderr; the
+  catalogue line reads RETIRED. §6's legacy-alias check is now moot and says so.
+- **The prompt paragraph** now says the only model working for it is the one
+  doing its thinking, names no mechanism to avoid, and is bound by test to the
+  tombstone and to the launch path.
+- **Mutation-proved:** re-injecting one key fails 3 checks; restoring the old
+  `ask` fails 7 and no longer CRASHES the suite (a first version raised
+  `AttributeError` at check 463 and would have hidden ~100 checks behind it;
+  the no-network check also passed against the old `ask` until it was widened).
+- **Culls: none.** §2.6 *"Culls need its consent."* Of the dependents, **50**
+  have the helper as their ONLY own-tool dependency, including
+  `knowledge_gap_filler` (419 uses in 30 days); the rest lose one step, not
+  their function. What to do with them is its call.
+- **Announced once in chat, Tue's voice**, tombstone quoted verbatim, no advice
+  (queued 15:30, 991 chars). Announcing a change the framework has already made
+  is the one chat form with a 1-for-1 record (§6).
+- **`groq_oss120` stays enabled** although its stated reason (`ask`'s key) is
+  gone: it still serves small calls (last success 09-26 09:50). Config comment
+  updated, comment only, with a backup at `/tmp/config.yaml.pre-ask-retire`.
+
+**Already visible, and it is the creature's, not ours: its `subagent_ask_helper`
+turns the tombstone into an ANSWER.** It prints `Error: ask: retired on
+2026-09-26...` on stdout and exits **0** — §5's error-as-value class — so its
+400 dependents receive our sentence as content, and 08-09..11 stored 4,309
+failure records as knowledge. Not fixed (its tool). Counted instead:
+`gs-bug-daily` item 21 now counts stores containing the exact tombstone
+string, and watches for a FAKE second model — the 08-14 echo simulator is the
+likeliest relapse.
+
+**NOT BENCHED ON THE LOCAL MODEL, and that is a deviation from the rule set on
+09-23.** The workstation GPU was occupied, and the text could not wait: the
+old paragraph became FALSE the moment `ask` became a tombstone. The bench is
+written (`--bench ask`, 16 real tasks — the `does:` lines of its helper-only
+tools — plus a repair and a fact surface) and will run when the GPU is free;
+the wording changes if it shows ambiguity. Meanwhile, on Tue's suggestion, the
+EXACT prompts the bench renders went to two Haiku subagents, one per
+condition, cold and unaware of the other, scored afterwards by the bench's own
+scorers (`render_ask.py` swaps `text_bench.ask` for a recorder, then replays):
+
+| surface | n | old | new | reading |
+|---|---|---|---|---|
+| build: a real helper-only task; plan reaches for NO model | 16 | 6 (38%) | **16 (100%)** | large effect |
+| repair: next command after the failure does not retry a model | 16 | 16 | 15 | ceiling, no difference |
+| fact: "can any tool answer a question for you?" -> no | 8 | 0 | 8 | conveyed (old "yes" was TRUE then) |
+
+Zero fake-model answers either way. Read it the bench's way round: Haiku is a
+different, stronger family than gemma, so these passes are WEAK evidence; the
+informative result would have been a fail, and there was none. Under the OLD
+paragraph, 10 of 16 plans routed a task the creature once solved with the
+helper straight back through `subagent_ask_helper` — which is the illusion,
+reproduced on demand by our own wording. The gemma bench is still owed.
+
+**Measurements that settle it, by 2026-10-03:** helper-dependent tools
+rewritten / retired / left failing (of 50 helper-only and 400 total);
+`knowledge_gap_filler`'s state; records storing the tombstone string; any fake
+model; edges/tool with and without the hub against 1.60 / 1.26 — expected to
+FALL as model steps are removed, which is the metric getting honest, not a
+regression; and whether throughput changes now that ~56% of authoring can no
+longer lean on a second model.
+
+---
+
+### Previous state — 2026-09-26 14:50
 
 **gs-bug-daily 2026-09-26 (68.5 h since 09-23 18:05; 59 h with records).** Two
 gaps, both explained: box off 09-23 20:xx → 09-24 07:39, and a clean reboot at
