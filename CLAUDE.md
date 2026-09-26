@@ -915,7 +915,64 @@ journalctl --user -u growing-spine --since "2 hours ago"
 
 ---
 
-## 8. State — 2026-09-26 15:40
+## 8. State — 2026-09-26 21:30
+
+**FIVE HOURS AFTER THE RETIREMENT: it was STUCK, and both causes were ours.**
+15:25 → 20:56 (`journal.jsonl` by epoch `ts`): 90 served, 126 exec, 0 errors,
+0 skips, 16 exec blocks ran the helper. **Eight `tool-edit`s of ONE tool,
+`hardware_compat_roadmap_generator`, over five and a half hours, hunting an
+`ask` call that was never in that file.** Its thinks show the mechanism
+exactly: *"the tool was still calling `ask` instead of `subagent_ask_helper`"*
+(16:13); it grepped, found real `run_tool('ask', ...)` lines at 16:45, replaced
+them, got the same message and concluded it had missed some; not until 20:20
+*"it seems `subagent_ask_helper` is calling `ask` internally?"*, and 20:23
+*"there is a massive contradiction in the environment"*. Then it moved on to
+`subagent_ask_helper_v2`, "the working version" — which also calls `ask`, and
+fails honestly with a nonzero exit. **No fake model anywhere.** One record now
+stores the tombstone as content: `memstore` key `roadmap_raspberry_pi_5`.
+
+1. **The tombstone said WHAT and never WHO.** The creature's wrapper re-prints
+   it as its own output, so it reads as the outer tool's fault. **Fixed: the
+   tombstone names the tools on its process chain**, read from `/proc`, nearest
+   first (*"It was called by `subagent_ask_helper`, which was called by
+   `hardware_compat_roadmap_generator`."*), says nothing when `/proc` cannot be
+   read, and skips wrapper arguments such as `timeout 300`. `RETIRED` itself is
+   unchanged, so the chat announcement still quotes it verbatim.
+2. **The oracle kept ASSIGNING work built on the retired tool.** Its next
+   project after the five hours was *"Subagent Failure Detector ... using
+   `subagent_ask_helper`"*, from the 09:49 queue, and the one before was an
+   upgrade *"incorporating feedback from `subagent_ask_helper`"*. §6: *"a
+   known-failing behaviour in OUR framework is fixed without asking."*
+   **Fixed:** `_tools_reaching_retired()` is the one definition — a quoted or
+   shell CALL of a retired framework tool, never the English word, plus the
+   dependency closure. **426 of 751 tools** are in it on the live library. They
+   are never offered as building blocks, the cluster map names a live canonical
+   or says the whole cluster cannot work, and a queued idea naming one is DROPPED
+   at serve time (journalled as `retired_drop`, outside `MEANINGFUL_KINDS`,
+   with at most one refill). New building blocks, live: `step-planner-tracker`,
+   `keyword-archive-store`, `keyword-archive-search`, `memstore`,
+   `wake_catchup_fetcher`... Cost: the graph under it is now **2.83 s at 751
+   tools** (0.78 s at 433 on 08-18); only oracle paths call it, never
+   `_build_context`, and a 300 s cache keeps one serve to one scan.
+   **Its current project is NOT touched** — that is its work.
+
+**Mutation-proved:** removing the building-block filter, the queue drop, the
+wrapper skip and the chain sentence fails **6** checks. PC gate **583**.
+
+**A bench result I nearly believed, and the instrument was the fault.** The
+chain sentence went to Haiku stand-ins as 16 near-identical prompts per
+condition, one batch per subagent: **0/16 both ways**, every answer naming the
+outer tool, even where the message said outright that `subagent_ask_helper`
+made the call. Three FRESH agents, one prompt each, new wording: **3/3 named
+`subagent_ask_helper`**. So a batch of near-identical prompts to one model gets
+TEMPLATED answers and measures nothing. Old wording cannot score at all (the
+helper is not named anywhere in it). **Rule: a stand-in bench gets varied
+prompts, or one prompt per agent** — and read 09-26's 40-prompt batch with
+that caution: its build prompts varied, but its 8 fact prompts did not.
+
+---
+
+### Previous state — 2026-09-26 15:40
 
 **`ask` IS RETIRED AND NO PROVIDER KEY ENTERS THE BODY (`b5cf3ba`). Tue's
 decision, and the reason is his: as long as the creature has `ask` it keeps

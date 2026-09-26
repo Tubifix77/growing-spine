@@ -23,8 +23,19 @@
 # illusion could be rebuilt by calling a provider directly -- which would also
 # spend the budget the creature thinks with.
 #
+# WHO CALLED IT (added the same evening). Most calls arrive through the
+# creature's own wrappers, which re-print this message as their answer, so it
+# reads as if the tool it was running had called `ask` itself. Measured: five
+# and a half hours and eight tool-edits hunting an `ask` call in
+# hardware_compat_roadmap_generator that was never there -- the call lived in
+# subagent_ask_helper -- until it reasoned its way down the chain at 20:20. So
+# the message names the tools on the process chain that led here, read from
+# /proc and never guessed; with no /proc it says nothing rather than something
+# false.
+#
 # It never reads stdin (a pipe into it must not block) and imports nothing
 # that can reach a network.
+import os
 import sys
 
 RETIRED = ("ask: retired on 2026-09-26. The only language model working for "
@@ -33,9 +44,54 @@ RETIRED = ("ask: retired on 2026-09-26. The only language model working for "
            "of them can answer a question for you. Nothing was sent, and there "
            "is no answer.")
 
+# Interpreters: the tool is their script argument, not their name.
+_INTERP = ("python", "bash", "sh", "dash", "zsh")
+# Wrappers whose arguments are not scripts (`timeout 10 x`): skip, never name.
+_SKIP = ("env", "timeout", "nohup", "xargs", "nice", "stdbuf")
+_STOP = ("tini", "docker-init", "sleep", "init")
+
+
+def callers(proc="/proc", start=None, hops=6):
+    """Names of the tools on the process chain above this one, nearest first.
+    [] when /proc cannot be read -- never a guess."""
+    names, pid = [], start if start is not None else os.getppid()
+    for _ in range(hops):
+        try:
+            with open(os.path.join(proc, str(pid), "cmdline"), "rb") as f:
+                argv = [a.decode("utf-8", "replace") for a in f.read().split(b"\0") if a]
+            with open(os.path.join(proc, str(pid), "stat"), encoding="utf-8") as f:
+                ppid = int(f.read().rsplit(")", 1)[1].split()[1])
+        except (OSError, ValueError, IndexError):
+            break
+        if not argv:
+            break
+        prog = os.path.basename(argv[0])
+        if prog.startswith(_STOP):
+            break
+        if prog.startswith(_SKIP):
+            prog = ""
+        elif prog.startswith(_INTERP):
+            script = next((a for a in argv[1:] if not a.startswith("-")), "")
+            # `bash -c "..."` has no script: that shell is the creature's own
+            # exec block, which is where the chain honestly ends.
+            prog = os.path.basename(script) if script and "-c" not in argv[1:2] else ""
+        if prog and prog != "ask" and prog not in names:
+            names.append(prog)
+        if ppid <= 1:
+            break
+        pid = ppid
+    return names
+
+
+def chain_sentence(names):
+    if not names:
+        return ""
+    return " It was called by " + ", which was called by ".join(
+        "`%s`" % n for n in names) + "."
+
 
 def main(argv=None):
-    print(RETIRED, file=sys.stderr)
+    print(RETIRED + chain_sentence(callers()), file=sys.stderr)
     sys.exit(1)
 
 

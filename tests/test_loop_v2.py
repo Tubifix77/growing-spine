@@ -3330,6 +3330,112 @@ async def main():
     check("ask tombstone: its catalogue line says RETIRED, so the wake listing is true",
           _re_ask.search(r"^# does: RETIRED 2026-09-26", _ask_txt, _re_ask.M) is not None)
 
+    # WHO CALLED IT. Measured the evening ask retired: 5.5 h and eight
+    # tool-edits hunting an `ask` call in hardware_compat_roadmap_generator
+    # that was never there -- the call lived in subagent_ask_helper, whose
+    # re-printed error read as the outer tool's own. The chain is read from a
+    # FAKE /proc here, so the check runs on both machines and asserts the
+    # contract (names from the process tree, nearest first), not the host.
+    _fp = os.path.join(TMP, "fakeproc")
+
+    def _mkproc(pid, argv, ppid):
+        os.makedirs(os.path.join(_fp, str(pid)), exist_ok=True)
+        with open(os.path.join(_fp, str(pid), "cmdline"), "wb") as _f:
+            _f.write(b"\0".join(a.encode() for a in argv) + b"\0")
+        with open(os.path.join(_fp, str(pid), "stat"), "w", encoding="utf-8") as _f:
+            _f.write("%d (%s) S %d 1 1 0" % (pid, os.path.basename(argv[0]), ppid))
+    _mkproc(100, ["python3", "/mind/tools/own/subagent_ask_helper", "q"], 200)
+    _mkproc(200, ["timeout", "300", "python3", "x"], 300)
+    _mkproc(300, ["python3", "-u", "/mind/tools/own/hardware_compat_roadmap_generator", "Pi 5"], 400)
+    _mkproc(400, ["bash", "-c", "hardware_compat_roadmap_generator 'Pi 5'"], 1)
+    _chain = askmod.callers(proc=_fp, start=100) if hasattr(askmod, "callers") else None
+    check("ask tombstone: names the calling tools from the process chain, nearest first",
+          _chain == ["subagent_ask_helper", "hardware_compat_roadmap_generator"])
+    check("ask tombstone: a wrapper's arguments are never taken for a tool name",
+          _chain is not None and "300" not in _chain and "timeout" not in _chain)
+    check("ask tombstone: an unreadable /proc names NOBODY rather than guessing",
+          hasattr(askmod, "callers")
+          and askmod.callers(proc=os.path.join(TMP, "no_such_proc"), start=100) == [])
+    check("ask tombstone: the chain sentence reads nearest caller first",
+          hasattr(askmod, "chain_sentence")
+          and askmod.chain_sentence(["subagent_ask_helper", "hardware_compat_roadmap_generator"])
+          == " It was called by `subagent_ask_helper`, which was called by "
+             "`hardware_compat_roadmap_generator`."
+          and askmod.chain_sentence([]) == "")
+
+    # ---- the oracle never recommends a tool that reaches a retired one (2026-09-26) ----
+    # Hours after ask became a tombstone the oracle was still assigning work
+    # built on it ("Subagent Failure Detector ... using subagent_ask_helper"),
+    # because the building-block list ranks raw usage and the helper is #2.
+    # Invariant: nothing that reaches a retired framework tool is offered as a
+    # building block, and no queued idea naming one is served.
+    _rt_dir = os.path.join(loop.VOLUME_MOUNT, "tools", "own")
+    os.makedirs(_rt_dir, exist_ok=True)
+    _rt_fx = {
+        "rtx_direct_llm": '#!/usr/bin/env python3\nimport subprocess\n'
+                          'r = subprocess.run(["ask", "q"], capture_output=True)\n',
+        "rtx_shell_llm": '#!/bin/bash\necho "$1" | ask\n',
+        "rtx_via_llm": '#!/bin/bash\nrtx_direct_llm "$@"\n',
+        "rtx_clean": '#!/bin/bash\n# ask the user nothing; we only grep\ngrep -r "$1" /mind/data\n',
+    }
+    _rt_pre = set(os.listdir(_rt_dir))
+    for _n, _src in _rt_fx.items():
+        with open(os.path.join(_rt_dir, _n), "w", encoding="utf-8", newline="\n") as _f:
+            _f.write(_src)
+    try:
+        # The scan is cached for one oracle serve; this test changed the
+        # library, so start it cold -- or it reads an earlier test's answer.
+        loop._retired_cache["at"] = 0.0
+        _dead = loop._tools_reaching_retired()
+        check("retired reach: a direct quoted call of ask is found",
+              "rtx_direct_llm" in _dead)
+        check("retired reach: a shell pipe into ask is found", "rtx_shell_llm" in _dead)
+        check("retired reach: a tool reaching it only THROUGH another tool is found",
+              "rtx_via_llm" in _dead)
+        check("retired reach: the English word 'ask' in a comment is not a call",
+              "rtx_clean" not in _dead)
+        check("retired reach: a named tool is found in idea text, as a whole word only",
+              loop._names_a_tool_in("chain rtx_via_llm into the archive", _dead) == "rtx_via_llm"
+              and loop._names_a_tool_in("rtx_via_llm_v9 is different", {"rtx_via_llm"}) == "")
+        _saved_dc = loop.toolmod.demand_counts
+        loop.toolmod.demand_counts = lambda vm: {"rtx_via_llm": 9999, "rtx_direct_llm": 9998,
+                                                 "rtx_clean": 5}
+        try:
+            _mu = [n for n, _u in loop._most_used_tools(50)]
+        finally:
+            loop.toolmod.demand_counts = _saved_dc
+        check("building blocks: tools that reach a retired tool are never offered",
+              "rtx_via_llm" not in _mu and "rtx_direct_llm" not in _mu and "rtx_clean" in _mu)
+        _cs = loop._cluster_summary()
+        check("cluster map: no retired-reaching tool is shown as a canonical link",
+              not any(("canonical=" + _d) in _cs for _d in _dead))
+        # The serving path. Queue: an idea naming a dead tool, then a clean one.
+        _saved_q = loop._load_composition_queue()
+        _saved_sat, _saved_hol = loop._seeds_saturated, loop._library_hollow_tools
+        loop._seeds_saturated = lambda: True
+        loop._library_hollow_tools = lambda: []
+        # The suite stubs journal.append globally (top of file): record instead.
+        _jr, _saved_ja = [], loop.journal.append
+        loop.journal.append = lambda vm, kind, content, meta=None: _jr.append((kind, content))
+        loop._save_composition_queue([
+            {"title": "Dead Chain", "brief": "run rtx_via_llm then archive", "category": "composition"},
+            {"title": "Clean Chain", "brief": "run rtx_clean then archive", "category": "composition"}])
+        try:
+            _spec = await loop._oracle_next_spec_raw(None)
+        finally:
+            loop._seeds_saturated, loop._library_hollow_tools = _saved_sat, _saved_hol
+            loop.journal.append = _saved_ja
+            loop._save_composition_queue(_saved_q)
+        check("queue: an idea built on a retired-reaching tool is DROPPED, the next one served",
+              isinstance(_spec, dict) and _spec.get("title") == "Clean Chain")
+        check("queue: the drop is journalled, and outside what the creature is shown",
+              any(_k == "retired_drop" and "Dead Chain" in _c for _k, _c in _jr)
+              and "retired_drop" not in loop.MEANINGFUL_KINDS)
+    finally:
+        for _n in set(os.listdir(_rt_dir)) - _rt_pre:
+            os.unlink(os.path.join(_rt_dir, _n))
+
+
     # ---- load-bearing tools: the blast radius of a name ----
     _dep = loop._dependency_summary()
     check("dependency summary: reports in-degree, not just edge totals",

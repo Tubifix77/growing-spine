@@ -906,6 +906,74 @@ def _seeds_saturated() -> bool:
     return all(built.get(c, 0) >= COMPOSITION_THRESHOLD for c in TOOL_CATEGORIES)
 
 
+# Framework tools that were RETIRED. A tool of the creature's that reaches one,
+# directly or through its other tools, cannot complete what it was built to do.
+# 2026-09-26, `ask` (Tue's decision): within hours of the tombstone the oracle
+# was still assigning work built ON it -- "Subagent Failure Detector ... using
+# subagent_ask_helper", and a five-hour upgrade "incorporating feedback from
+# subagent_ask_helper" -- because its building-block list ranks raw usage and
+# the helper is second there. The framework must not recommend a tool it knows
+# cannot work. Invariant: nothing that reaches a retired framework tool is
+# offered as a building block, and no queued idea naming one is served.
+RETIRED_FRAMEWORK_TOOLS = ("ask",)
+
+# A CALL of a retired tool, never a mention of the word: as a quoted command
+# name (subprocess ["ask", ...], run_tool('ask', ...)) or as a shell command
+# after a line start, a pipe, `;`, `&`, `$(` or a backtick.
+_RETIRED_CALL = re.compile(
+    r"""(["'])(?:%s)\1|(?:^|[|;&`]|\$\()\s*(?:%s)\s""" % (
+        "|".join(map(re.escape, RETIRED_FRAMEWORK_TOOLS)),
+        "|".join(map(re.escape, RETIRED_FRAMEWORK_TOOLS))), re.M)
+
+
+# One oracle serve asks this up to three times (building blocks, cluster map,
+# queue), and the graph under it costs 2.8 s at 751 tools (measured
+# 2026-09-26). The library does not change inside one serve.
+_RETIRED_CACHE_S = 300
+_retired_cache = {"at": 0.0, "dead": set()}
+
+
+def _tools_reaching_retired(deps: dict = None) -> set:
+    """Own tools that call a retired framework tool directly, plus every tool
+    that reaches one of those through the dependency graph. Static, like the
+    graph itself: it reads source and never runs a tool."""
+    if deps is None:
+        if time.time() - _retired_cache["at"] < _RETIRED_CACHE_S:
+            return set(_retired_cache["dead"])
+        dead = _tools_reaching_retired(_tool_dependencies())
+        _retired_cache.update(at=time.time(), dead=set(dead))
+        return dead
+    base = os.path.join(VOLUME_MOUNT, "tools", "own")
+    dead = set()
+    for tool in deps:
+        try:
+            with open(os.path.join(base, tool), encoding="utf-8",
+                      errors="replace") as f:
+                if _RETIRED_CALL.search(f.read()):
+                    dead.add(tool)
+        except Exception:
+            continue
+    rev = {}
+    for a, bs in deps.items():
+        for b in bs:
+            rev.setdefault(b, set()).add(a)
+    todo = list(dead)
+    while todo:
+        for caller in rev.get(todo.pop(), ()):
+            if caller not in dead:
+                dead.add(caller)
+                todo.append(caller)
+    return dead
+
+
+def _names_a_tool_in(text: str, tools: set) -> str:
+    """The first of `tools` that `text` names as a whole word, or ''."""
+    for t in sorted(tools, key=len, reverse=True):
+        if len(t) >= 4 and re.search(r"(?<![\w.-])" + re.escape(t) + r"(?![\w-])", text):
+            return t
+    return ""
+
+
 def _most_used_tools(n: int = 8) -> list:
     """The creature's most-adopted own tools (by run count), as (name, uses).
     These are the strong building blocks a composition tool should orchestrate."""
@@ -920,7 +988,11 @@ def _most_used_tools(n: int = 8) -> list:
         # toolmod.demand_counts merges both persisted counters by MAX: "reached
         # for at least this often".
         usage = toolmod.demand_counts(VOLUME_MOUNT)
-        ranked = sorted(((k, v) for k, v in usage.items() if k in own),
+        # Never offer a building block that cannot work (see
+        # RETIRED_FRAMEWORK_TOOLS): the helper ranked #2 here after ask retired.
+        dead = _tools_reaching_retired()
+        ranked = sorted(((k, v) for k, v in usage.items()
+                         if k in own and k not in dead),
                         key=lambda kv: kv[1], reverse=True)
         return ranked[:n]
     except Exception:
@@ -1064,11 +1136,20 @@ def _cluster_summary() -> str:
     lines = ["Existing tool clusters (these capabilities are ALREADY COVERED —",
              "do NOT propose anything that fits inside one of these clusters;",
              "propose tools that CROSS clusters or open a genuinely new cluster):"]
+    dead = _tools_reaching_retired()
     for label, members in groups.items():
-        # pick the canonical member (highest usage)
-        canon = max(members, key=lambda n: usage.get(n, 0))
+        live = [m for m in members if m not in dead]
         extra = len(members) - 1
         suffix = f" (+ {extra} variants)" if extra else ""
+        if not live:
+            # A true fact, not a ban: every tool here reaches a retired
+            # framework tool, so none of them can serve as a link in a chain.
+            lines.append(f"  • {label}: all {len(members)} tools depend on the "
+                         f"retired `" + "`, `".join(RETIRED_FRAMEWORK_TOOLS)
+                         + "` and cannot work")
+            continue
+        # pick the canonical member (highest usage) among those that can work
+        canon = max(live, key=lambda n: usage.get(n, 0))
         lines.append(f"  • {label}: canonical={canon}{suffix}")
     if ungrouped:
         lines.append(f"  • other ({len(ungrouped)} tools): "
@@ -1773,6 +1854,27 @@ async def _oracle_next_spec_raw(keychain) -> dict:
         queue = _load_composition_queue()
         if not queue:
             queue = await _refill_composition_queue(keychain)
+        dead = _tools_reaching_retired() if queue else set()
+        refilled = False   # at most ONE refill: calls are the scarce resource
+        while queue:
+            spec = queue[0]
+            hit = _names_a_tool_in(
+                str(spec.get("title", "")) + " " + str(spec.get("brief", "")), dead)
+            if not hit:
+                break
+            # Generated before the retirement, or against a stale usage list.
+            # Journalled outside MEANINGFUL_KINDS: a count for us, not a
+            # message for the creature.
+            queue.pop(0)
+            _save_composition_queue(queue)
+            msg = (f"dropped queued idea '{_project_title(str(spec.get('title','')))}':"
+                   f" it builds on {hit}, which reaches a retired framework tool")
+            print(f"[oracle] {msg}")
+            journal.append(VOLUME_MOUNT, "retired_drop", msg)
+            if not queue and not refilled:
+                refilled = True
+                queue = await _refill_composition_queue(keychain)
+                dead = _tools_reaching_retired()
         if queue:
             spec = queue.pop(0)
             _save_composition_queue(queue)
