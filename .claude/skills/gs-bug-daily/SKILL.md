@@ -169,6 +169,19 @@ PY
     reopens and zero served is a rung failing on every attempt** — the mirror of
     item 15's "answers but cannot be used", and it hides in exactly the same way.
 
+20. **When a change is meant to steer what the oracle PROPOSES, read what it
+    proposed** — `composition_queue.json` and the `ideation` assignments — not
+    only what got built and what our prose says. Added 2026-09-26 by the blank
+    pass. The subagent-seeding removal (`37d0e44`) took the pattern out of every
+    sentence we wrote, and the prose checks all read clean: 0 of 33 post-deploy
+    `ideation` records name it. The first batch the oracle wrote under the new
+    prompt (09-26 09:49) still built **2 of its 5 ideas on
+    `subagent_ask_helper`**, because the pull had moved into the prompt's DATA:
+    the "compose FROM these" list ranks the creature's real usage, and the
+    helper is #2 there with 4,126 uses. Births are a lagging reading of this;
+    the queue is the leading one. Count, per batch written in the window, how
+    many ideas route through whatever the change was about.
+
 18. **Deltas against the previous run of this skill**, from the history file.
 
 ## Tier 2 — pointed open inspection. Prose, and it cannot be skipped.

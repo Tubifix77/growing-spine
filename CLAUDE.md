@@ -915,7 +915,95 @@ journalctl --user -u growing-spine --since "2 hours ago"
 
 ---
 
-## 8. State — 2026-09-26
+## 8. State — 2026-09-26 14:50
+
+**gs-bug-daily 2026-09-26 (68.5 h since 09-23 18:05; 59 h with records).** Two
+gaps, both explained: box off 09-23 20:xx → 09-24 07:39, and a clean reboot at
+14:12 today with the brain down **14:09 → 14:34** (it starts with the user
+session, per `deploy/README.md`). **953 served at 16.2/h** (13.1 last run; the
+hourly line reads **21–24/h** today), 1,301 exec, 17 skips (16 truncation),
+**31 errors: 30 guard rails** (18 false-completion, 6 cannot-start, 6
+upgrade-no-change) **and 1 exec TimeoutExpired** — the 300 s limiter. Zero
+provider errors, zero unclassified, zero `unknown`-path, zero hard-raise, zero
+GONE. Truncation 12.3%. Skip by rung: gemma 0.6%, flash 21.8%, cloudflare 0.0%.
+Library **750**, `cannot_start` **21 → 20**, none newer than 09-19. Funnel: 42
+tools, 193 actions, 4.6 rounds; 62 done-marks, 30 refused, **32 accepted
+(52%)** — reconciles. Gates unchanged since `37d0e44` (laptop 579, PC 573).
+
+**THE SUBAGENT CHANGE, 15 h in: our prose is clean, and the pull has moved into
+the oracle's DATA.** Measured, not assumed:
+- **Prose: clean.** 0 of 33 post-deploy `ideation` records name subagents (4/68
+  before). The one composition brief served, *Cross Cluster Research
+  Navigator*, became `CrossClusterResearchNavigator.py`, which depends on
+  `step-planner-tracker` only.
+- **The oracle's output: not clean.** The first batch written under the new
+  prompt (`composition_queue.json`, 09-26 09:49) builds **2 of 5 ideas on
+  `subagent_ask_helper`** — "Subagent Failure Detector", "Subagent Enrichment
+  Research Accelerator", both upgrades of existing tools. The cause is visible
+  in the prompt's inputs, read live without side effects: the *"compose FROM
+  these"* list is `_most_used_tools(8)` and the helper is **#2 with 4,126
+  uses**, and `_cluster_summary` lists *"LLM subagent / orchestration:
+  canonical=subagent_ask_helper (+47 variants)"* as one of the eight clusters
+  every idea must chain across. The bench predicted exactly this size of effect
+  on that surface (12/40 → 9/40): **we removed the seed, and the harvest is now
+  the input.**
+- **The creature's own work: more helper, not less — and that is upgrades.**
+  `exec_start`s naming the helper went **1.89/h → 3.31/h**; it edited
+  `subagent_ask_helper` itself twice and `subagent_memory_archive` six times.
+  The idea gate assigns `gate_choice` upgrades of EXISTING tools, and those
+  tools already carry the helper, so this is its library rather than our words.
+- **The metric has not moved:** 750 tools, 1,201 edges, **1.60/tool**, 258 hub
+  edges (21%), **1.26/tool without it** — the 09-25 baseline to two decimals.
+- **The baseline the 10-02 check needs, which did not exist:** of tools BORN
+  (first `tool-new`/redirect in the journal, never mtime) in the 30 days before
+  the deploy, **90 of 250 (36%) depend directly on the helper; 14 of 28 (50%)
+  in the final week.** Since the deploy: **0 of 2.**
+
+**Deliberately NOT changed: the oracle's data inputs.** Dropping the helper from
+the building-block list, or its cluster from the map, would be us editing the
+creature's real usage out of its own mirror — and removing the cluster would
+tell the oracle that territory is uncovered, which invites MORE of it. Design,
+not repair. **Named trigger 2026-10-02 (`gs-products`): the post-deploy birth
+cohort with n ≥ 25. At or above 36% via the helper, the data channel is the
+carrier, and whether the building-block list should rank by something other
+than raw usage goes to Tue as design. Below it, the prose change did its job
+and the data is the creature's own choice.** New `gs-bug-daily` item 20 reads
+the queue on every run from now on.
+
+**Fixes from the last two sessions, on trial.** Provider-stated naps
+**648 of 649** — VERIFIED. FLATLINE per-rung: `FLATLINE:ok` on every hourly line
+— VERIFIED. mistral retired: all 10 walls fell before the 18:29 retirement —
+VERIFIED. done-gate quotes the command: 0 of 18 false-completions quote a
+comment — VERIFIED. `StartLimitIntervalSec` in `[Unit]`: the brain came back
+cleanly after today's reboot — VERIFIED. Escalation: 132, **15 ending
+`finish=stop`** — working. Subagent change — UNVERIFIED, as above. `did-i`: 2
+calls in the window, **4 in September**; the 09-25 trigger was already answered
+positively on 09-19 and is CLOSED. The cloudflare FLATLINE trigger (09-27) is
+CLOSED by the per-rung threshold.
+
+**`ask` is walled by the Groq ACCOUNT, not by its own cap.** 13:06–13:16 the
+creature spent seven exec blocks on `hardware_compat_roadmap_generator`, which
+printed *"Raw response: Error: ask: HTTP 429 ... tokens per day (TPD): Limit
+200000, Used 199682"* while `ask_quota.json` read **89 of 500**. The account is
+shared with the Cousin's judge by Tue's decision, so this is the documented
+cost of that, not a fault. The creature read it right: *"failed due to `HTTP
+429` (Rate limit) from the LLM provider"* (13:15). Tier 4: the class is *a
+dependency's failure handed on as the dependency's answer* — `ask` is honest
+(stderr, nonzero) and the creature's own `subagent_ask_helper` re-emits it as
+stdout. No detector built, because it saw the cause within four minutes.
+**Trigger: a streak of 10+ consecutive exec blocks on one tool whose results
+carry a wrapped `Error: ask:`.**
+
+**Watch: the redirect door is 25% of authoring** (49 of 193; 13% last run,
+10% the run before). `subagent_enrich_query` was rewritten one `echo … >>` line
+at a time, 22 actions — the door with no `.bak` and no execute bit.
+
+**Blank pass:** the oracle's own output was read by nothing on the list, and it
+is the only place the subagent pull showed. Now item 20, dated.
+
+---
+
+### Previous state — 2026-09-26
 
 **v0.17 CLOSED: the docs are synced to the code.** `README.md` (status line,
 purpose paragraph, a v0.17 status section) and `growing-spine-architecture.md`
