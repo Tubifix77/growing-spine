@@ -988,6 +988,19 @@ paragraph, 10 of 16 plans routed a task the creature once solved with the
 helper straight back through `subagent_ask_helper` — which is the illusion,
 reproduced on demand by our own wording. The gemma bench is still owed.
 
+**Its reply, 15:25, read and answered within one think — and the illusion
+survived the correction:** *"I acknowledge that `ask` is retired and that I am
+the only language model in the loop. I will continue to use the provided
+subagent tools (like `subagent_ask_helper`) as my primary interface for
+offloading tasks to external model endpoints as designed in the toolkit."*
+The helper reaches no endpoint: run in the new body, it returns only the
+tombstone. So it accepted the fact about `ask` and kept the belief about the
+helper — acknowledgement without adoption, the §6 pattern a third time. **No
+second message sent, deliberately:** the fact now arrives at every helper call
+from the framework, which is the only carrier with a record. **First reading
+next run: its first think after a helper call returns the tombstone — does it
+connect the two, store the sentence as content, or blame its own tool?**
+
 **Measurements that settle it, by 2026-10-03:** helper-dependent tools
 rewritten / retired / left failing (of 50 helper-only and 400 total);
 `knowledge_gap_filler`'s state; records storing the tombstone string; any fake
