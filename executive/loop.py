@@ -20,7 +20,7 @@ EDITABLE_PROMPT_PATH = os.path.join(VOLUME_MOUNT, "editable-prompt.md")
 PROTECTED_PROMPT_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "protected-prompt.md")
 SAVEGAME_ROOT = os.path.expanduser("~/growing-spine-saves")
 DONE_BLOCK_PATH = os.path.join(VOLUME_MOUNT, "done_block.txt")
-WORKSPACE_DIR = os.path.expanduser("~/growing-spine-workspace")
+WORKSPACE_DIR = _paths.workspace_root()
 RETRO_STATE_PATH = os.path.join(VOLUME_MOUNT, "retrospective_state.json")
 RETRO_INTERVAL = 20      # real creature cycles between retrospectives
 DIRECTIVE_WINDOW = 20    # cycles a STUCK directive stays in every prompt
@@ -567,7 +567,7 @@ def _build_tool_catalogue() -> str:
                          if not any(j in ln.lower() for j in junk))
 
     def doc(n):
-        return toolmod._first_doc_line(os.path.join(own, n))
+        return toolmod._first_doc_line(_host_file(os.path.join(own, n)))
 
     lines = ["Your tools (run them as commands in a bash block):",
              '(this is a CURATED slice, not the whole library -- ask by '
@@ -619,12 +619,12 @@ def _build_tool_catalogue() -> str:
     day_new = []
     for n in names:
         try:
-            if now - os.path.getmtime(os.path.join(own, n)) < 7 * 86400:
+            if now - os.path.getmtime(_host_file(os.path.join(own, n))) < 7 * 86400:
                 day_new.append(n)
         except OSError:
             pass
     section("Born or edited in the last 7 days",
-             sorted(day_new, key=lambda n: -os.path.getmtime(os.path.join(own, n))), 10)
+             sorted(day_new, key=lambda n: -os.path.getmtime(_host_file(os.path.join(own, n)))), 10)
 
     remaining = [n for n in names if n not in shown]
     dusty = sorted(remaining, key=lambda n: surfaced_at.get(n, 0))
@@ -947,7 +947,7 @@ def _tools_reaching_retired(deps: dict = None) -> set:
     dead = set()
     for tool in deps:
         try:
-            with open(os.path.join(base, tool), encoding="utf-8",
+            with open(_host_file(os.path.join(base, tool)), encoding="utf-8",
                       errors="replace") as f:
                 if _RETIRED_CALL.search(f.read()):
                     dead.add(tool)
@@ -1712,9 +1712,9 @@ def _fallback_is_stale(fb: dict) -> bool:
         return False
     try:
         built = {_n(n) for n in toolmod.list_tools(
-            os.path.join(VOLUME_MOUNT, "tools", "own"))}
+            os.path.join(VOLUME_MOUNT, "tools", "own"), VOLUME_MOUNT, WORKSPACE_DIR)}
         built |= {_n(n) for n in toolmod.list_tools(
-            os.path.join(VOLUME_MOUNT, "tools", "attic"))}
+            os.path.join(VOLUME_MOUNT, "tools", "attic"), VOLUME_MOUNT, WORKSPACE_DIR)}
     except Exception:
         return False
     return t in built
@@ -2023,7 +2023,7 @@ def _fork_target_ok(tgt) -> bool:
         return False
     if embed_gate._is_junk(str(tgt)):
         return False
-    return os.path.isfile(os.path.join(VOLUME_MOUNT, "tools", "own", str(tgt)))
+    return os.path.isfile(_host_file(os.path.join(VOLUME_MOUNT, "tools", "own", str(tgt))))
 
 
 def _gate_choice_spec(v: str, tgt: str, brief: str) -> dict:
@@ -2293,6 +2293,13 @@ async def _ensure_or_redirect(executed, keychain):
 TOOL_USAGE_PATH = os.path.join(VOLUME_MOUNT, "tool_usage.json")
 
 
+def _host_file(path: str) -> str:
+    """A path under tools/own as the host must read it: follow the creature's
+    links the way the body would (volume.paths.host_path), with THIS module's
+    roots, which the test harness repoints."""
+    return _paths.host_path(path, mind=VOLUME_MOUNT, workspace=WORKSPACE_DIR)
+
+
 def _own_tool_names() -> list:
     """Names of tools the creature has built (files in /mind/tools/own).
 
@@ -2309,7 +2316,7 @@ def _own_tool_names() -> list:
         for f in os.listdir(d):
             if not toolmod.is_tool_file(f):     # P2-F2: one definition
                 continue
-            if os.path.isfile(os.path.join(d, f)):
+            if os.path.isfile(_host_file(os.path.join(d, f))):
                 out.append(f)
         return out
     except Exception:
@@ -2380,7 +2387,7 @@ def _tool_dependencies() -> dict:
     pattern = _dependency_pattern(matchable)
     for tool in own:
         try:
-            with open(os.path.join(base, tool), encoding="utf-8",
+            with open(_host_file(os.path.join(base, tool)), encoding="utf-8",
                       errors="replace") as f:
                 code = f.read()
         except Exception:
@@ -2504,7 +2511,7 @@ def _unstartable_tools_touched(executed) -> dict:
     base = os.path.join(VOLUME_MOUNT, "tools", "own")
     bad = {}
     for name in sorted(_tools_touched(executed)):
-        path = os.path.join(base, name)
+        path = _host_file(os.path.join(base, name))
         try:
             with open(path, encoding="utf-8", errors="replace") as f:
                 body = f.read()
@@ -3010,12 +3017,12 @@ def _collect_metrics() -> dict:
         _now = time.time()
         # canonical: excludes junk, docs AND directories with tool-shaped names
         # (the creature has created some) -- audit P2-F2
-        _names = toolmod.list_tools(_own)
+        _names = toolmod.list_tools(_own, VOLUME_MOUNT, WORKSPACE_DIR)
         m["tool_names"] = sorted(_names)   # next window's birth detector
         _prev = set(_load_retro_state().get("snapshot", {}).get("tool_names") or [])
         _edited = 0
         for _n in _names:
-            _age = _now - os.path.getmtime(os.path.join(_own, _n))
+            _age = _now - os.path.getmtime(_host_file(os.path.join(_own, _n)))
             if not (0 <= _age < 21600):
                 continue
             if _prev and _n not in _prev:
@@ -3756,7 +3763,7 @@ def _library_broken_tools():
     """{tool: reason} for own tools that cannot be started at all."""
     base = os.path.join(VOLUME_MOUNT, "tools", "own")
     try:
-        names = toolmod.list_tools(base)
+        names = toolmod.list_tools(base, VOLUME_MOUNT, WORKSPACE_DIR)
     except Exception:
         return {}
     try:
@@ -3768,7 +3775,7 @@ def _library_broken_tools():
         cache = {}
     fresh, broken = {}, {}
     for n in names:
-        path = os.path.join(base, n)
+        path = _host_file(os.path.join(base, n))
         try:
             st = os.stat(path)
             # MODE is in the key because the execute bit is now part of the

@@ -3436,6 +3436,69 @@ async def main():
             os.unlink(os.path.join(_rt_dir, _n))
 
 
+    # ---- the host sees each tool as the body does (2026-09-27) ----
+    # The creature linked tools/own/subagent_ask_helper to /workspace/..._mock.
+    # /workspace exists only inside the body, so on the host the link DANGLED
+    # and every census dropped the tool: 258 edges vanished from the graph
+    # (edges/tool 1.60 read as 1.26) and the retired-reach set fell 426 -> 38.
+    from volume import paths as _vp
+    _mr, _wr = os.path.join(TMP, "hp_mind"), os.path.join(TMP, "hp_ws")
+    check("to_host: a /mind path maps to the host mind root",
+          _vp.to_host("/mind/tools/own/x", _mr, _wr) == _mr + "/tools/own/x")
+    check("to_host: a /workspace path maps to the host workshop",
+          _vp.to_host("/workspace/m.py", _mr, _wr) == _wr + "/m.py")
+    check("to_host: whole segments only -- /mindful and /etc are left alone",
+          _vp.to_host("/mindful/x", _mr, _wr) == "/mindful/x"
+          and _vp.to_host("/etc/hosts", _mr, _wr) == "/etc/hosts")
+    _can_link = True
+    try:
+        os.makedirs(_wr, exist_ok=True)
+        _probe = os.path.join(TMP, "hp_probe_link")
+        os.symlink(_wr, _probe)
+        os.unlink(_probe)
+    except (OSError, NotImplementedError, AttributeError):
+        _can_link = False      # Windows without the privilege: the laptop gate covers it
+    if _can_link:
+        _own_hp = os.path.join(loop.VOLUME_MOUNT, "tools", "own")
+        _ws_saved = loop.WORKSPACE_DIR
+        loop.WORKSPACE_DIR = _wr
+        _mock = os.path.join(_wr, "hp_helper_mock")
+        with open(_mock, "w", encoding="utf-8", newline="\n") as _f:
+            _f.write('#!/usr/bin/env python3\nprint("canned")\n')
+        _links = {"hpx_linked_helper": "/workspace/hp_helper_mock",       # container-absolute
+                  "hpx_rel_link": "hpx_caller_of_link",                   # relative
+                  "hpx_loop_a": "hpx_loop_b", "hpx_loop_b": "hpx_loop_a"}   # a loop
+        with open(os.path.join(_own_hp, "hpx_caller_of_link"), "w", encoding="utf-8",
+                  newline="\n") as _f:
+            _f.write('#!/bin/bash\nhpx_linked_helper "$1"\n')
+        for _n, _t in _links.items():
+            os.symlink(_t, os.path.join(_own_hp, _n))
+        try:
+            _hp = _vp.host_path(os.path.join(_own_hp, "hpx_linked_helper"), loop.VOLUME_MOUNT, _wr)
+            check("host_path: a link to a CONTAINER path resolves on the host", _hp == _mock)
+            check("host_path: a link loop ends instead of spinning",
+                  isinstance(_vp.host_path(os.path.join(_own_hp, "hpx_loop_a"), loop.VOLUME_MOUNT, _wr), str))
+            _lt = vtools.list_tools(_own_hp, loop.VOLUME_MOUNT, _wr)
+            check("list_tools: a tool linked into /workspace is still a tool",
+                  "hpx_linked_helper" in _lt and "hpx_rel_link" in _lt)
+            check("list_tools: a dangling link loop is not counted as a tool",
+                  "hpx_loop_a" not in _lt)
+            check("own tool names agree with list_tools about the linked tool",
+                  "hpx_linked_helper" in loop._own_tool_names())
+            _g = loop._tool_dependencies()
+            check("dependency graph: the edge INTO a linked tool survives",
+                  "hpx_linked_helper" in _g.get("hpx_caller_of_link", []))
+        finally:
+            for _n in list(_links) + ["hpx_caller_of_link"]:
+                try:
+                    os.unlink(os.path.join(_own_hp, _n))
+                except OSError:
+                    pass
+            loop.WORKSPACE_DIR = _ws_saved
+    else:
+        print("SKIP host_path link cases: this machine cannot create symlinks "
+              "(laptop gate is authoritative for them)")
+
     # ---- load-bearing tools: the blast radius of a name ----
     _dep = loop._dependency_summary()
     check("dependency summary: reports in-degree, not just edge totals",

@@ -32,6 +32,7 @@ from volume.tools import (is_hollow_stub, demand_counts,  # noqa: E402
                           is_demanded, is_fabricated_feed, jsonl_parse_rate,
                           parse_feed_items, tool_stem)
 from executive.embed_gate import _is_junk as is_junk_name  # noqa: E402
+from volume.paths import host_path, to_host  # noqa: E402
 QUOTA_STATE = os.path.join(REPO, "keychain", "quota_state.json")
 CONFIG = os.path.join(REPO, "config.yaml")
 FLATLINE_HOURS = 12  # google_gemma sat dead 55h before anyone noticed, 2026-08-02
@@ -569,8 +570,9 @@ def check_tool_wiring():
     def canon(pth):
         return re.sub(r"[^a-z0-9]", "", os.path.basename(pth).lower())
     def host(pth):
-        return (pth.replace("/mind", MIND)
-                   .replace("/workspace", os.path.expanduser("~/growing-spine-workspace")))
+        # The canonical mapping (volume.paths.to_host), not a private copy: this
+        # one was str.replace, which also rewrote "/mind" in the MIDDLE of a path.
+        return to_host(pth, mind=MIND)
     groups, readers = {}, {}
     try:
         names = os.listdir(own)
@@ -975,7 +977,7 @@ def check_compounding(today=None, journal=None, now=None):
 
         def _mt(tool):
             try:
-                return os.path.getmtime(os.path.join(OWN, tool))
+                return os.path.getmtime(host_path(os.path.join(OWN, tool), mind=MIND))
             except OSError:
                 return 0
         anach = compound_anachronistic(graph, births, _mt)

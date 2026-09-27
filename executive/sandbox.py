@@ -29,7 +29,8 @@ def start(dockerfile_dir: str = "."):
 
     import os
     host_mind = os.path.expanduser("~/growing-spine-mind")
-    host_ws = os.path.expanduser("~/growing-spine-workspace")
+    from volume.paths import workspace_root
+    host_ws = workspace_root()
     os.makedirs(host_mind, exist_ok=True)
     os.makedirs(host_ws, exist_ok=True)
     # NO PROVIDER KEY ENTERS THE BODY (2026-09-26, Tue's decision). Until then

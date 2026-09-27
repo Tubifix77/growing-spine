@@ -21,6 +21,7 @@ def gather_evidence(own_dir, journal_path, now=None, days=14):
     now = now or time.time()
     try:
         from volume.tools import list_tools as _list_tools   # P2-F2
+        from volume.paths import host_path as _host_path
         names = _list_tools(own_dir)
     except OSError:
         names = []
@@ -28,7 +29,7 @@ def gather_evidence(own_dir, journal_path, now=None, days=14):
     stems = {}
     for n in names:
         try:
-            if now - os.path.getmtime(os.path.join(own_dir, n)) < 86400:
+            if now - os.path.getmtime(_host_path(os.path.join(own_dir, n))) < 86400:
                 day_new.append(n)
         except OSError:
             pass

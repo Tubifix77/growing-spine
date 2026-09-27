@@ -427,7 +427,7 @@ def is_tool_file(name: str) -> bool:
                 or _is_junk(name))
 
 
-def list_tools(dirpath: str) -> list:
+def list_tools(dirpath: str, mind: str = None, workspace: str = None) -> list:
     """Sorted names of the actual tool FILES in a tools dir (audit P2-F2).
 
     The isfile check belongs here, not in every caller: on 2026-08-06 the
@@ -437,10 +437,14 @@ def list_tools(dirpath: str) -> list:
     A predicate that takes only a name cannot know that, so callers kept
     forgetting it -- which is what made three answers possible in the first place.
     """
+    # host_path: a tool the creature LINKED to a container path (/workspace/x)
+    # dangles on the host and would vanish from every census (2026-09-27).
+    from volume.paths import host_path
     try:
         return sorted(n for n in os.listdir(dirpath)
                       if is_tool_file(n)
-                      and os.path.isfile(os.path.join(dirpath, n)))
+                      and os.path.isfile(host_path(os.path.join(dirpath, n),
+                                                   mind, workspace)))
     except OSError:
         return []
 
