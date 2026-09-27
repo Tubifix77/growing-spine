@@ -209,6 +209,21 @@ PY
     exact: records in `/mind/data/**` and the creature's stores containing
     `ask: retired on 2026-09-26`, per run. Its tool, never ours to fix.
 
+22. **Links in `tools/own`: count them, name their targets, and read every
+    census THROUGH them.** Added 2026-09-27 by the blank pass. At 04:31 the
+    creature replaced `subagent_ask_helper` with a link to
+    `/workspace/subagent_ask_helper_mock`. A link is the door that bypasses
+    `tool-edit` (no `.bak` of the new body, no write-time check), and a target
+    under `/mind` or `/workspace` DANGLES on the host, so every host census
+    silently skipped the tool: this very run first read edges/tool 1.26 and a
+    retired-reach set of 38 off the blind instrument, and nothing on the list
+    would have said why. Fixed at the instrument (`volume.paths.host_path`,
+    `b94fbf9`), and the item stays: report each link, its target, and whether
+    the target lives outside `tools/own` — a tool that points into the
+    workshop is scaffolding standing in for a tool. First reading: 2 links
+    (`subagent_ask_helper` → `/workspace/subagent_ask_helper_mock`,
+    `archive_enriched_query` → `/mind/tools/own/archive_enriched_query.py`).
+
 18. **Deltas against the previous run of this skill**, from the history file.
 
 ## Tier 2 — pointed open inspection. Prose, and it cannot be skipped.

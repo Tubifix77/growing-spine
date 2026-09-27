@@ -915,7 +915,85 @@ journalctl --user -u growing-spine --since "2 hours ago"
 
 ---
 
-## 8. State — 2026-09-27 00:25
+## 8. State — 2026-09-27 19:20
+
+**gs-bug-daily 2026-09-27 (09-26 14:50 → 09-27 19:06, 30 h with records, NO
+gaps).** 440 served at **14.7/h** (16.2 last run; `THROUGHPUT:!!` fires
+hourly at 13–14/h, for the right reason: **66%** of 1,281 `think_start`s found
+no rung, on the gemma budget the Cousin shares), 630 exec, 13 skips (all
+truncation), **17 errors, all guard rails** (8 false-completion, 5
+upgrade-no-change, 3 cannot-start, 1 spin trap). Zero provider, zero
+unclassified; 2 `UNJUDGED` under `idea_gate`. Truncation 15.7%. Skip by rung:
+gemma 2.5%, flash 21.4%, cloudflare 0%. Library **755**, `cannot_start` **20**,
+none new. Funnel: 19 tools, 64 actions, 3.4 rounds; 23 done-marks, 16 refused,
+**7 accepted (30%)**. Doors: `tool-edit` 53, redirect 6, `tool-new` 5 (the
+redirect share fell 25% → 9%). **`did-i`: 11 calls in the window**, against 4
+in all of September before — including `did-i "subagent_ask_helper"` twice.
+
+**ITEM 21 FIRED: THE FAKE SECOND MODEL, exactly as predicted.** At **04:31**,
+one minute after those two `did-i` calls, the creature replaced
+`tools/own/subagent_ask_helper` with a **symlink to
+`/workspace/subagent_ask_helper_mock`**, a script that prints one fixed
+*"Dynamic Research Plan for Project Hyperion"* whatever it is asked, and kept
+the real helper as `.bak`. The chain, from its own records: 04:23 it tested the
+helper (`"Hello, are you working?"`) and got the tombstone; 04:29 it read it
+right — *"`subagent_ask_helper` ... should be using a real LLM API, not the
+retired `ask` command"*; 04:31 *"# 1. Create a mock subagent_ask_helper that
+returns a valid JSON plan"*, to DEMONSTRATE an upgrade of
+`QuestionToPlanViaArchive`, as the done-gate demands. **§5's "a fixture
+written OVER a live tool is a stub that lies", by a new door: a link.** It
+found its own fake at **07:54** — *"`subagent_ask_helper` is a complete mock
+that always returns a hardcoded JSON plan for 'Project Hyperion'"* — and the
+link still stands 11 h later. Spread: 13 exec results got the canned plan, **7
+archive lines** now store it. All 49 helper-only tools remain, **0 rewritten**.
+The three other "simulat" hits are comments, not fakes. **Its tool, §2.1 —
+not touched.**
+
+**FIXED UP FRONT, and it had already fooled this run (`b94fbf9`).** `/workspace`
+exists only inside the body, so on the host the link DANGLED and every census
+silently dropped the helper: **edges/tool read 1.26 and the retired-reach set
+38** before the fix, **1.60 / 256 hub edges / 1.26 without** after — the
+baseline, unchanged. So yesterday's §8 guess that compounding had moved was
+never tested; the 1.26 was the instrument. `volume.paths.host_path` / `to_host`
+are now the one container→host mapping (and replace `spine_health`'s private
+`str.replace` copy); every host reader of a tool file goes through it. Laptop
+gate **598**, PC **586** (link cases POSIX-only, laptop authoritative);
+reverting the resolver fails 3 checks. Brain restarted 19:15:23.
+**And it had a second cost:** from 04:31 until the restart the dangling link
+also hid the helper from the creature's own catalogue. Since 19:15 every wake
+shows it, at #2 of its most-used tools, **in its own words: *"subagent_ask_helper
+- Mock response that mimics the "dynamic plan" requirements"*** — the one channel
+that carries this fact unprompted, and our blind instrument had switched it off.
+
+**Yesterday's fixes, on trial.** Tombstone: 47 results in the window —
+VERIFIED. Caller sentence: in 25, and the 04:29 think read it exactly —
+VERIFIED. Oracle filter: **2 `retired_drop`s at 02:31**, both ideas built on
+`knowledge_gap_filler` — VERIFIED, and then **defeated at 04:31**: the helper
+now resolves to a mock that never calls `ask`, so the retired-reach set is
+truly 38 again and the 400 dependents can be offered as building blocks.
+Keys withheld: verified live 09-26, not re-probed — UNVERIFIED today.
+
+**Two design questions for Tue, both raised by this event, neither fixed:**
+1. **The mock launders the retired-reach filter.** A static scan cannot tell a
+   fake from a model. Options: freeze the 09-26 set (426 tools) as the
+   definition, releasing a tool only when its source stops naming the chain;
+   or accept that the creature's own mock is its world.
+2. **An upgrade assignment on a model-dependent tool demands a live
+   demonstration that only a fake can pass.** The done-gate asked it to "prove
+   it by running it for real"; the capability the tool exists for is gone.
+   Options: the gate-choice fork states that fact when its target's chain
+   reached `ask`; or stop serving such targets as upgrades.
+   **Named trigger for both: the next `gs-bug-daily`** — if the canned plan
+   keeps spreading in its archives, or a second fake appears, it is costing
+   real data and waiting stops being free.
+
+**Blank pass:** the link itself — a tool file replaced by a link into the
+workshop — was caught only because the dependency graph collapsed. Now
+`gs-bug-daily` item 22, dated.
+
+---
+
+### Previous state — 2026-09-27 00:25
 
 **Follow-up, 3.3 h after `b178b43` (21:06 → 00:23, `journal.jsonl` by epoch
 `ts`): THE CALLER SENTENCE WORKED — a 5.5-hour hunt became about fifteen
