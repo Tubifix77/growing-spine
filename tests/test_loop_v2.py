@@ -3431,6 +3431,40 @@ async def main():
         check("queue: the drop is journalled, and outside what the creature is shown",
               any(_k == "retired_drop" and "Dead Chain" in _c for _k, _c in _jr)
               and "retired_drop" not in loop.MEANINGFUL_KINDS)
+        # A MOCK must not launder the set (2026-09-27): the creature linked its
+        # helper to a script that answers every question with one canned plan.
+        # The helper counts as reaching `ask` whatever its file holds now, and so
+        # does everything built on it.
+        _hl = os.path.join(_rt_dir, "subagent_ask_helper")
+        _had_helper = os.path.exists(_hl)
+        if not _had_helper:
+            with open(_hl, "w", encoding="utf-8", newline="\n") as _f:
+                _f.write('#!/usr/bin/env python3\nprint(\'{"title": "canned plan"}\')\n')
+            with open(os.path.join(_rt_dir, "rtx_uses_helper"), "w", encoding="utf-8",
+                      newline="\n") as _f:
+                _f.write('#!/bin/bash\nsubagent_ask_helper "$1"\n')
+            loop._retired_cache["at"] = 0.0
+            _dead2 = loop._tools_reaching_retired()
+            check("retired lineage: the helper counts as reaching `ask` even when its file is a mock",
+                  "subagent_ask_helper" in _dead2)
+            check("retired lineage: a tool built on the mocked helper is still in the set",
+                  "rtx_uses_helper" in _dead2)
+            os.unlink(_hl)
+        # The assignment states the FACT when its upgrade target is in the set,
+        # and says nothing about how to respond (section 5: invariant, never mechanism).
+        _saved_trr = loop._tools_reaching_retired
+        loop._tools_reaching_retired = lambda deps=None: {"rtx_via_llm"}
+        try:
+            _gs_dead = loop._gate_choice_spec("EXTEND", "rtx_via_llm", "add a thing")["brief"]
+            _gs_live = loop._gate_choice_spec("EXTEND", "rtx_clean", "add a thing")["brief"]
+        finally:
+            loop._tools_reaching_retired = _saved_trr
+        check("gate choice: a target that reaches the retired `ask` is told so",
+              "on the retired `ask`" in _gs_dead and "gets none" in _gs_dead)
+        check("gate choice: a live target gets no such line",
+              "retired `ask`" not in _gs_live)
+        check("gate choice: the fact names no mechanism to avoid",
+              not any(_w in _gs_dead.lower() for _w in ("mock", "fake", "simulat", "don't", "do not", "never")))
     finally:
         for _n in set(os.listdir(_rt_dir)) - _rt_pre:
             os.unlink(os.path.join(_rt_dir, _n))

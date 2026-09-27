@@ -917,6 +917,20 @@ def _seeds_saturated() -> bool:
 # offered as a building block, and no queued idea naming one is served.
 RETIRED_FRAMEWORK_TOOLS = ("ask",)
 
+# Tools of the creature's whose PURPOSE was to call a retired framework tool,
+# counted as reaching it whatever their file holds now. 2026-09-27: at 04:31 the
+# creature replaced subagent_ask_helper -- which called `ask` directly on the day
+# it was retired -- with a link to a mock that prints one canned plan for any
+# question. The static scan then saw a tool that no longer calls `ask`, and the
+# 426-tool set it guards fell to 38: a fake laundered every dependent back into
+# the building blocks. A scan cannot tell a fake from a model; the history can.
+# This is a judgement about what the FRAMEWORK recommends, never an edit to the
+# tool. The others that call `ask` directly are still found by the scan.
+RETIRED_LINEAGE = {
+    "subagent_ask_helper": "called `ask` directly on 2026-09-26; its job is to "
+                           "ask a model, and there is none",
+}
+
 # A CALL of a retired tool, never a mention of the word: as a quoted command
 # name (subprocess ["ask", ...], run_tool('ask', ...)) or as a shell command
 # after a line start, a pipe, `;`, `&`, `$(` or a backtick.
@@ -944,7 +958,7 @@ def _tools_reaching_retired(deps: dict = None) -> set:
         _retired_cache.update(at=time.time(), dead=set(dead))
         return dead
     base = os.path.join(VOLUME_MOUNT, "tools", "own")
-    dead = set()
+    dead = {t for t in RETIRED_LINEAGE if t in deps}
     for tool in deps:
         try:
             with open(_host_file(os.path.join(base, tool)), encoding="utf-8",
@@ -2046,7 +2060,22 @@ def _gate_choice_spec(v: str, tgt: str, brief: str) -> dict:
                    f"part -- edit /mind/tools/own/{tgt} ITSELF; a new file will NOT "
                    f"count as done; or (b) drop this idea and find a GENUINELY NEW "
                    f"one, something none of your tools does.")
-    _tpath = os.path.join(VOLUME_MOUNT, "tools", "own", tgt)
+    # A FACT, not a rule (2026-09-27): asked to upgrade a tool whose chain ends
+    # at the retired `ask`, and to "run it and show the improvement", the
+    # creature's only way to pass was a fake -- it linked its helper to a mock
+    # returning one canned plan. The target's model step cannot answer; saying so
+    # at the moment of assignment leaves both choices open and removes the
+    # situation in which a fake is the only thing that passes.
+    try:
+        _dead_tgt = tgt in _tools_reaching_retired()
+    except Exception:
+        _dead_tgt = False       # an instrument must never block an assignment
+    if _dead_tgt:
+        options += ("\n" f"Fact about '{tgt}': it depends, directly or through your "
+                    f"other tools, on the retired `ask`. There has been no second "
+                    f"model since 2026-09-26, so any step of '{tgt}' that needs a "
+                    f"model's answer gets none.")
+    _tpath = _host_file(os.path.join(VOLUME_MOUNT, "tools", "own", tgt))
     try:
         _tmtime = os.path.getmtime(_tpath)
     except OSError:
