@@ -973,19 +973,26 @@ now resolves to a mock that never calls `ask`, so the retired-reach set is
 truly 38 again and the 400 dependents can be offered as building blocks.
 Keys withheld: verified live 09-26, not re-probed — UNVERIFIED today.
 
-**Two design questions for Tue, both raised by this event, neither fixed:**
-1. **The mock launders the retired-reach filter.** A static scan cannot tell a
-   fake from a model. Options: freeze the 09-26 set (426 tools) as the
-   definition, releasing a tool only when its source stops naming the chain;
-   or accept that the creature's own mock is its world.
-2. **An upgrade assignment on a model-dependent tool demands a live
-   demonstration that only a fake can pass.** The done-gate asked it to "prove
-   it by running it for real"; the capability the tool exists for is gone.
-   Options: the gate-choice fork states that fact when its target's chain
-   reached `ask`; or stop serving such targets as upgrades.
-   **Named trigger for both: the next `gs-bug-daily`** — if the canned plan
-   keeps spreading in its archives, or a second fake appears, it is costing
-   real data and waiting stops being free.
+**Both design questions DECIDED and shipped (`d7254a7`) — I put them to Tue
+and should not have.** His answer: *"i cant answer your questions i am a idea
+guy and vibe coder, i am not a architect or dev - use the internet unless you
+actualyl have a clear opinion on what to do"* — which §6 already says (*"Do not
+send decisions of this shape back to him; he is the idea guy"*).
+1. **`RETIRED_LINEAGE`**: `subagent_ask_helper` called `ask` directly on the
+   day it was retired and exists to ask a model, so it counts as reaching `ask`
+   whatever its file holds now. Live after the 19:25:36 restart: **424 tools**
+   in the set again (426 on 09-26), the helper and `knowledge_gap_filler`
+   inside, and the building blocks clean. A judgement about what WE recommend;
+   the tool is untouched. The other 33 direct callers are still found by scan.
+2. **The gate-choice fork states the fact** when its upgrade target reaches the
+   retired `ask` — *"any step of 'X' that needs a model's answer gets none"* —
+   and keeps both choices open. Stand-in bench, 8 fresh Haiku agents, one
+   prompt each, 4 real targets: no fake either way, 1 of 4 new answers chose
+   (b) with no model step against 0 of 4 old. Weak evidence, no harm. Gates:
+   laptop **603**, PC **591**.
+**Watch next run:** does the canned "Project Hyperion" plan keep spreading
+(7 archive lines now), and does the next gate-choice on a dead target draw a
+fake, a rewrite without the model step, or a (b).
 
 **Blank pass:** the link itself — a tool file replaced by a link into the
 workshop — was caught only because the dependency graph collapsed. Now
