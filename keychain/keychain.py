@@ -71,6 +71,34 @@ def _diag(err, width=160):
     return "%s...[+%d chars]" % (flat[:width], len(flat) - width)
 
 
+_QUOTA_ID_RE = re.compile(r'"quotaId"\s*:\s*"([^"]{1,120})"')
+_QUOTA_VALUE_RE = re.compile(r'"quotaValue"\s*:\s*"?(\d{1,15})"?')
+
+
+def quota_named(err):
+    """WHICH limit the provider says was hit, e.g.
+    "GenerateContentInputTokensPerModelPerMinute-FreeTier=16000", or None.
+
+    Google names the exhausted quota in a QuotaFailure detail near the END of
+    its 429 body, so `_diag`'s 160-char cut always removed it. On 2026-09-28
+    gemma refused both creatures for 3 h 11 min -- 355 calls, 86 of them after a
+    full quiet minute -- while every reply carried a per-minute-looking retry
+    hint, and the log could not say which limit it was. A wall must name its
+    cause (below); for this provider the quotaId IS the cause.
+    Pairs ids with values in order; several violations are all reported.
+    """
+    ids = _QUOTA_ID_RE.findall(err or "")
+    if not ids:
+        return None
+    vals = _QUOTA_VALUE_RE.findall(err or "")
+    out = []
+    for i, q in enumerate(ids):
+        item = q + ("=" + vals[i] if i < len(vals) else "")
+        if item not in out:
+            out.append(item)
+    return ", ".join(out)
+
+
 _HTTP_STATUS_RE = re.compile(r"^\s*HTTP\s+(\d{3})\b")
 
 
@@ -375,10 +403,12 @@ class Keychain:
                             retry_after_s=result.get("retry_after_s"))
                         stop_rung = True
                         _ra = result.get("retry_after_s")
+                        _qn = quota_named(err)
                         print(f"[keychain] {cfg['key']} WALLED as {kind} "
                               f"-- {_diag(err)}"
                               + (f" [provider says retry in {_ra:.0f}s]"
-                                 if _ra else " [provider named no retry delay]"))
+                                 if _ra else " [provider named no retry delay]")
+                              + (f" [quota: {_qn}]" if _qn else ""))
                         break  # the ACCOUNT is spent -- next provider
 
                     if kind == "flaky":

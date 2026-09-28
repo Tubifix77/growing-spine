@@ -1678,6 +1678,36 @@ async def main():
     check("wall line: carries the provider's own text",
           "16000" in _out_wall, _out_wall[:140])
 
+    # The wall line must NAME THE LIMIT (2026-09-28). Google puts the quotaId in
+    # a QuotaFailure detail near the end of a ~1,400-char body, so the 160-char
+    # log cut always removed it: gemma refused both creatures for 3 h 11 min
+    # and no log could say which limit. Shape of Google's documented 429 body,
+    # padded so the detail sits past the cut exactly as it does live.
+    _gq = ('HTTP 429: [{ "error": { "code": 429, "message": "You exceeded your '
+           'current quota, please check your plan and billing details. '
+           + 'For more information on this error, head to docs. ' * 12 +
+           '", "status": "RESOURCE_EXHAUSTED", "details": [ { "@type": '
+           '"type.googleapis.com/google.rpc.QuotaFailure", "violations": [ { '
+           '"quotaMetric": "generativelanguage.googleapis.com/'
+           'generate_content_free_tier_input_token_count", "quotaId": '
+           '"GenerateContentInputTokensPerModelPerMinute-FreeTier", '
+           '"quotaDimensions": { "location": "global", "model": "gemma-4-31b" }, '
+           '"quotaValue": "16000" } ] }, { "@type": '
+           '"type.googleapis.com/google.rpc.RetryInfo", "retryDelay": "41s" } ] } } ]')
+    check("quota name: the fixture puts the quotaId past the log cut",
+          "quotaId" not in _kmod._diag(_gq) and len(_gq) > 700, str(len(_gq)))
+    _out_q = await _run_branch(_gq)
+    check("wall line: names the exhausted quota and its value",
+          "[quota: GenerateContentInputTokensPerModelPerMinute-FreeTier=16000]"
+          in _out_q, _out_q[-220:])
+    _two = ('"quotaId": "PerDay-FreeTier", "quotaValue": "1500" '
+            '"quotaId": "PerMinute-FreeTier", "quotaValue": "16000"')
+    check("quota name: every violation is reported, in order",
+          _kmod.quota_named(_two) == "PerDay-FreeTier=1500, PerMinute-FreeTier=16000",
+          str(_kmod.quota_named(_two)))
+    check("quota name: a body naming no quota adds nothing to the line",
+          _kmod.quota_named(_quota429) is None and "[quota:" not in _out_wall)
+
     # ---- prov.call NEVER RAISES (2026-09-15) --------------------------------
     # `body = e.read()` sat bare inside `except urllib.error.HTTPError`. An
     # exception raised INSIDE an except clause is never offered to the sibling
