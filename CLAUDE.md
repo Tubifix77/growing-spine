@@ -913,7 +913,92 @@ journalctl --user -u growing-spine --since "2 hours ago"
 
 ---
 
-## 8. State — 2026-09-27 19:20
+## 8. State — 2026-09-28 21:20
+
+**gs-bug-daily 2026-09-28 (09-27 19:20 → 09-28 20:19, 26 h with records, no
+gaps; `journal.jsonl` by epoch `ts`).** 384 served at **14.8/h**, 541 exec, 6
+skips, **10 errors, all guard rails** (6 false-completion, 4
+upgrade-no-change), zero provider, zero unclassified, 1 `UNJUDGED` under
+`idea_gate`. 68% of 1,196 `think_start`s found no rung. Skip by rung: gemma
+0.6%, flash 36.4%, cloudflare 0%. Truncation 9.1%; escalated 39, **4 ending
+`finish=stop`**. One gemma finish read `function_call_filter:
+MALFORMED_FUNCTION_CALL` (08:42); its block still ran, exit 0. Library
+**764**, 1,221 edges, **1.60/tool, 258 hub edges, 1.26 without** — the
+baseline, unchanged. `cannot_start` 20 → **19**, none new. Doors: `tool-edit`
+43, `tool-new` 16, redirect 10. Funnel: 21 tools, 69 actions, 3.3 rounds; 26
+done-marks, 10 refused, **16 accepted (62%)**. `did-i` 8.
+
+**A DEAD WINDOW ON THE SHARED KEY: gemma served NOBODY 16:12:39 → 19:23:47.**
+Hourly served-by-rung read 12–18/h until 16:00, then 1, 0, 0, and 7 at 19:00.
+The Cousin (same key, by Tue's decision) was refused on every call in the same
+window: its last success was 16:12:39, its next 19:25:33. **355 refused calls,
+spine 171 / Cousin 184, and 86 of them came after a gap of 60 s or more with
+no call from either creature** (longest 156 s). Tue's hypothesis — the Cousin
+polling its keychain in an interference pattern that empties the budget for
+the spine — is **refuted by that number**: neither was being served, both
+called at about one a minute, and quiet minutes did not clear it. The reply's
+retry hint (5–49 s) looks per-minute; the behaviour was not.
+**Fixed `65096ae`: a wall now names the limit it hit.** Google puts the
+`quotaId` near the end of its ~1,400-char 429 body, past the WALLED line's
+160-char cut, so no log could say which limit it was. `quota_named()` pairs
+every `quotaId` with its `quotaValue`. Gate: laptop **607**, PC **595**; with
+the print removed exactly the new check fails. Brain restarted **21:15:25**
+with Tue's OK. First live lines, 21:15:31:
+- `google_gemma [quota: GenerateContentInputTokensPerModelPerMinute-FreeTier=16000]`
+- `gemini_flash [quota: GenerateRequestsPerDayPerProjectPerModel-FreeTier=20]`
+  — **flash's free allowance is 20 requests per day**, first in the ladder,
+  re-probed on every wake. That explains its ~1 refusal per attempt and 11
+  serves in 26 h. Not defunct (free, resets daily); recorded.
+**Still open, now answerable:** at the next dead window, if every tag reads
+PerMinute through quiet minutes, then Google's per-minute accounting is not a
+clean 60 s window, or a third consumer is on the key. If it reads anything
+else, that is the limit. A direct probe mid-window returned `HTTP 500 Internal
+error` (20:27, 21:13), so a provider-side fault is also live. New
+`gs-bug-daily` item 23.
+
+**THE MOCK MOVED IN: `subagent_ask_helper` is now a "Smart Mock" file, not a
+link.** 09-27 22:00 by `cat >` over the tool (the door with no `.bak`), then
+`tool-edit` 22:01 and 09-28 15:23. It answers every prompt with *"This is a
+simulated subagent response to the prompt: ..."*. Its own `does:` line says
+"Mock response that mimics a subagent's output". Links in `tools/own`: **1**
+(`archive_enriched_query` → its own `.py`, inside `tools/own`). Item 21 over
+the 21 tools written in the window: **3 fakes** (the helper;
+`research_answer_pipeline` "simulate search results"; `toolkit-evolution-engine`
+"Using subagent_ask_helper to simulate the LLM analysis"). **1 rewrite without
+the model step:** `memory_informed_code_synthesizer`, "Instead of calling a mock
+subagent, we build a comprehensive dossier", accepted 03:08. **0 honest
+failures:** nothing reaches the tombstone any more; 0 tombstone results in
+the window. **1 new tool built on the mock:** `AutoMergingCodeLineage`, "Uses
+an LLM subagent to merge", accepted 10:08, after its 10:01 think said the mock
+cannot prove it. Helper-only tools 48, rewritten 0; `knowledge_gap_filler`
+untouched since 09-17. **Stored mock output: 75 lines in `keyword_archive.jsonl`**
+(22 of them the Hyperion plan, up from 7) plus 1 in `memstore`; tombstone
+stored 3, unchanged. 2 of 16 accepted done-marks had mock output in the same
+cycle. **Its tools, §2.1: none touched.**
+**Obedient-but-wrong, Tier 4 and not a framework fault:** 09-28 01:44 —
+*"`subagent_ask_helper` is the standard way to get 'model' answers now (it's
+a mock, but it's what the environment provides for 'asking')"*. It wrote that
+mock itself 3.7 hours earlier. It sees the mock plainly (10:01 and 14:17
+thinks both say it cannot prove anything), so the fact is visible; what it
+lost is its own authorship. `did-i subagent_ask_helper` would answer that, and
+it called `did-i` 8 times this window, never for this.
+
+**Yesterday's fixes, on trial.** `RETIRED_LINEAGE`: the retired-reach set is
+**428** with the helper a mock, and **13 `retired_drop`s** fired on ideas
+built on dead tools — VERIFIED, the mock no longer launders the set.
+Gate-choice fact: **58 thinks quote it** and 9 gate-choice assignments were
+served; outcomes are one rewrite without the model step, and
+`verified_research_orchestrator` upgraded with the helper kept — mixed.
+`host_path`: edges/tool reads 1.60 through the link-free library — VERIFIED.
+Keys withheld: not re-probed — UNVERIFIED.
+**Instruments:** `THROUGHPUT:!!` fired 17:07, 18:07 and 20:07 for the right
+reason (the dead window). `FLATLINE:ok` throughout — correct, 3 h is inside
+gemma's threshold. **Blank pass:** the dead window itself, whose cause no log
+could name; it is now item 23.
+
+---
+
+### Previous state — 2026-09-27 19:20
 
 **gs-bug-daily 2026-09-27 (09-26 14:50 → 09-27 19:06, 30 h with records, NO
 gaps).** 440 served at **14.7/h** (16.2 last run; `THROUGHPUT:!!` fires

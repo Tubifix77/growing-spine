@@ -224,6 +224,19 @@ PY
     (`subagent_ask_helper` → `/workspace/subagent_ask_helper_mock`,
     `archive_enriched_query` → `/mind/tools/own/archive_enriched_query.py`).
 
+23. **Dead windows on a rung: find them, name the limit, and read the Cousin's
+    side of the same minutes.** Added 2026-09-28 by the blank pass. Hourly
+    served-by-rung showed `google_gemma` serving **0 from 16:12 to 19:23**
+    while the day's totals looked ordinary, and the Cousin — same key, by
+    Tue's decision — was refused on every call in the same window. Per rung:
+    the longest stretch with walls and no serve, and the `[quota: ...]` tags
+    on its WALLED lines in journald (since `65096ae`), counted by quotaId. For
+    any stretch over an hour, count the Cousin's gemma records in
+    `~/growing-cousin/live/journal.jsonl` over the same minutes (read-only).
+    If both starve together, the cause is the shared key or the provider, not
+    either creature. Quiet gaps of 60 s or more that still end in a
+    per-minute refusal mean the limit is not behaving as its name says.
+
 18. **Deltas against the previous run of this skill**, from the history file.
 
 ## Tier 2 — pointed open inspection. Prose, and it cannot be skipped.
