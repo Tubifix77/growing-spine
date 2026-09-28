@@ -28,26 +28,29 @@ deliberately detached from it. So:
   machine the session runs on — following the precedent `audit/` and
   `DEV-LEDGER.md` already set: a record of a live system's failure modes, in a
   public repo, stays untracked.
-- Almost every measurement is taken **over the SSH bridge**, so the laptop is
-  the subject, never the host.
+- Almost every measurement is taken **over `ssh homelab`** (plain `ssh`/`scp`
+  from the Bash tool since 2026-09-28; `CLAUDE.md` §7 has the setup), so the
+  laptop is the subject, never the host.
 
-### Bridge discipline — this is where the runs actually break
+### Remote discipline — this is where the runs actually break
 
-The bridge is not a terminal. It wedges, and then the whole check is lost
-mid-flight. Two of them wedged in one week, both my fault:
+Every check runs as remote commands, and a remote command that hangs loses the
+whole check mid-flight. Two of them wedged in one week under the old MCP bridge,
+both my fault, and the causes carry over to plain `ssh`:
 
-- **Never sleep or wait-loop in a bridge command.** A 90-second polling loop
-  wedged it. If you need to wait for something, end the call and make a second,
-  short one.
+- **Never sleep or wait-loop in a remote command.** A 90-second polling loop
+  wedged the bridge; under `ssh` it runs into the Bash tool's own timeout. If you
+  need to wait for something, end the call and make a second, short one.
 - **Never run a blocking systemd action.** `systemctl --user start` on a oneshot
-  unit blocks until the unit finishes and wedged the bridge; use `--no-block`, or
-  invoke the script directly.
-- **Keep payloads small.** Large heredocs travel badly. Upload a script with
-  `ssh_upload` and run it, rather than pasting it into a command.
-- **Base64 through the session is not byte-safe.** A 6,576-char blob returned
-  with the right length, the right PNG header and a different md5 — characters
-  substituted in the middle. If you must move binary, keep it small and
-  `md5sum` both ends.
+  unit blocks until the unit finishes; use `--no-block`, or invoke the script
+  directly. (And any restart at all is asked for first — `CLAUDE.md` §7.)
+- **Anything longer than a line goes in a file.** Write the script locally,
+  `scp` it to `/tmp` on the laptop, run it with `ssh homelab`, delete it after.
+  Heredocs through two shells mangle escapes.
+- **Move files with `scp`, never through the session.** Base64 copied out of a
+  tool result is not byte-safe — a 6,576-char blob came back with the right
+  length, the right PNG header and a different md5. `scp` is byte-safe; still
+  `md5sum` both ends of anything binary.
 
 Anything long-running should be launched detached and read back in a separate
 short call.

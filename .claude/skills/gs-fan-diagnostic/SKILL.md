@@ -64,7 +64,7 @@ invent local ones.
    64 MB journal tail. Tue has reported the diagnostics themselves causing fan
    events, and the discarded baseline is proof that an inspection is loud enough
    to appear in its own measurements. Check `ps` for `python3` under
-   `/home/boas/gs_*`, a bridge `sshd` doing real work, and what this session has
+   `/home/boas/gs_*`, an `sshd` serving this session's `ssh homelab` calls doing real work, and what this session has
    executed on that box in the last hour.
 2. **Diff against the tenant list.** Which baseline tenants are present, which are
    absent, and **what is running that is not on the list at all** — the last group

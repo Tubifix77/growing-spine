@@ -103,7 +103,7 @@ gap was found by an open-ended look. **Anything a blank pass finds that mattered
 becomes a mandated item there, dated.** When you correct a scar, correct it HERE —
 the skills point at §5 rather than quoting it, so one edit is enough. **They run in
 the inspection session, never on the laptop** — the laptop runs the creature, this
-session watches it from outside over the bridge, and the creature never sees them.
+session watches it from outside over `ssh homelab`, and the creature never sees them.
 Each appends one record per run to `gs-history/<name>.jsonl` in the checkout,
 gitignored for the same reason `audit/` is, which is what turns snapshots into
 trends.
@@ -870,48 +870,46 @@ journalctl --user -u growing-spine --since "2 hours ago"
 - Creature's volume: `~/growing-spine-mind` (`/mind` in the container). Its
   workshop: `~/growing-spine-workspace` (`/workspace`).
 - Both machines push AND pull; GitHub is the hub. No file shuttling.
-- Driving the laptop over an MCP bridge: **keep payloads small.** Large heredocs
-  and long-running commands wedge it. Native bash on the laptop has no such issue.
-- **Never change the dashboard without looking at it afterwards.** `observer.py`
-  is PyQt6 on X11, `DISPLAY=:0`. The bridge cannot move binaries, so:
+- **Reaching the laptop (since 2026-09-28): plain `ssh` and `scp` from the Bash
+  tool.** The `ssh-remote` MCP server is gone for good (company policy allows
+  official MCP servers only). `homelab` is an alias in `~/.ssh/config` for
+  `boas@192.168.0.77`, key-based with `BatchMode` on, so there is never a password
+  prompt and a failed connection errors out at once instead of hanging:
 
   ```bash
-  export DISPLAY=:0
-  xwininfo -root -tree | grep Dashboard          # window id, e.g. 0x7800007
-  import -window <id> /tmp/dash.png              # scrot/import/convert are installed
-  convert /tmp/dash.png -crop 330x22+1340+12 +repage -strip -colors 8 PNG8:/tmp/t.png
-  base64 -w0 /tmp/t.png                          # then certutil -decode on the PC
+  ssh homelab 'cd ~/growing-spine && git log --oneline -1'   # run a command
+  scp script.py homelab:/tmp/script.py                        # copy to the laptop
+  scp homelab:/tmp/out.txt ./out.txt                          # copy back
   ```
 
-  Crop TIGHT: base64 travels through the session, and a full 1920x1015 grab is
-  ~500 KB. A 330x22 label crop is ~750 chars; a full-width 1920x50 strip is ~6 K
-  and already too costly. Note the window is maximised to 1920 even though the
-  code says `resize(1180, 720)` — crop to 1180 and you miss the right-hand chips.
+  Quote the remote command in single quotes, so `~`, `$VAR` and globs expand on
+  the LAPTOP rather than in the PC's Git Bash. Anything longer than a line goes in a
+  script file: write it locally, `scp` it over, run it, delete it — heredocs through
+  two shells mangle escapes, which cost several patch scripts on 2026-09-26/27.
+  Still keep each call short: the Bash tool has its own timeout, so never sleep or
+  wait-loop inside a remote command.
+- **Ask Tue before anything destructive on the laptop** (his rule, 2026-09-28):
+  deleting files, restarting services — the brain included — and installing
+  packages. This overrides §6's *"Reversible actions are just done"* for the
+  laptop. Reading, running the gate, `git pull` and copying files INTO `/tmp`
+  are not destructive; a `systemctl --user restart growing-spine` is, so it is
+  proposed and waited for, not just done.
+- **Never change the dashboard without looking at it afterwards.** `observer.py`
+  is PyQt6 on X11, `DISPLAY=:0`. Capture on the laptop, then `scp` the file back —
+  it is byte-safe, unlike the base64-through-the-session method this replaced:
 
-  **ALWAYS `md5sum` on the laptop and verify after decoding.** Base64 carried
-  through the session is NOT byte-safe: a 6,576-char blob came back with the right
-  LENGTH, the right PNG header and the right `IEND` footer, and a different md5 —
-  characters had been substituted in the middle (2026-08-11). Every cheap check
-  passed; only the hash caught it. **the corrupting step is TRANSCRIPTION, not the wire.**
-  Diagnosed 2026-08-26: a whole-blob transfer failed, then a 4-chunk transfer of
-  the same bytes came through with all four hashes clean and rendered correctly,
-  then a 10-chunk transfer failed on exactly ONE chunk. The channel is fine; what
-  breaks is the session copying base64 out of a tool result into a decoder, at
-  roughly one chunk in ten. That is why size looked like the variable — a bigger
-  blob is simply more characters to mis-copy, with no way to localise the damage.
-  **Method that works:** `split -b 470`, print `md5sum` per chunk plus the
-  whole-file hash, verify EVERY chunk on arrival, assemble, and check the
-  whole-file hash again. A bad chunk is then named and re-requested on its own
-  instead of poisoning the image. Keep the chunk count low — each one is a
-  transcription risk — and never trust a length, a PNG header or an `IEND`
-  footer; two corrupt files have now passed all three.
-  For a GUI change specifically, the cheapest verification is still to ask Tue to
-  glance at the screen in front of him: it costs him two seconds and it is the one
-  reading with no transcription step in it. Symptom of the corrupt file: PIL reads the header
-  then dies with `unrecognized data stream contents`, and the image API rejects it.
-  `-colors 8` PNG8 was also rejected outright; **grayscale plain PNG** worked
-  (`-colorspace Gray -strip`, 660x46 → 1,910 b). `certutil -decode` is not the
-  culprit — it and `base64.b64decode` agreed byte for byte on the corrupt copy.
+  ```bash
+  ssh homelab 'export DISPLAY=:0; xwininfo -root -tree | grep Dashboard'   # window id
+  ssh homelab 'export DISPLAY=:0; import -window <id> /tmp/dash.png; md5sum /tmp/dash.png'
+  scp homelab:/tmp/dash.png ./dash.png && md5sum dash.png                  # hashes must match
+  ```
+
+  Then read the PNG. The window is maximised to 1920 even though the code says
+  `resize(1180, 720)` — a crop to 1180 misses the right-hand chips. **Still
+  compare the hashes**: the old method taught that length, PNG header and `IEND`
+  footer can all be right on a corrupt file (2026-08-11, 2026-08-26, both caused
+  by transcribing base64 out of a tool result, never by the wire). For a GUI change
+  the cheapest check remains asking Tue to glance at the screen in front of him.
 
 ---
 
