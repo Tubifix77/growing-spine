@@ -919,6 +919,18 @@ journalctl --user -u growing-spine --since "2 hours ago"
 
 ## 8. State — 2026-09-29 20:50
 
+**Addendum 2026-09-30 00:12 — both fixes are LIVE.** Brain restarted
+00:09:49 under Tue's new standing rule (§7). First served cycle 00:11:28:
+`google_gemma model=gemma-4-31b-it finish=stop in=12204`, and its block ran
+normally (`step-planner-tracker list`, exit 0), so the file-and-`</dev/null`
+exec path works in production. **First measured page size: 12,204 input
+tokens, 76% of gemma's 16,000-per-minute budget in ONE call.** So only one
+spine call fits in any minute, and a Cousin call in the same minute
+(its page was ~14,000 on 09-25) takes the rest. That explains the
+after-a-call refusals, but not yet the 64% refused after a quiet minute. Read
+the `in=` distribution across a day at the next run before concluding
+anything.
+
 **gs-bug-daily 2026-09-29 (09-28 20:19 → 09-29 20:19, 25 h with records, no
 gaps; `journal.jsonl` by epoch `ts`).** 275 served at **11.0/h** (14.8 last
 run), 367 exec, 4 skips (all truncation), **17 errors, all guard rails** (7
