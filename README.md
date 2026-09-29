@@ -2,7 +2,7 @@
 
 A self-improvement creature in a box. Descended from [Spine Reborn](https://github.com/Tubifix77/spine-reborn).
 
-**Status:** Live. First boot 2026-06-03. Re-architected to the *toolsmith* design 2026-06-21 (v0.6). Self-restart capability added 2026-06-21 (v0.7). Composition/depth mode added 2026-06-23 (v0.8). Batched ideation + pipeline hygiene 2026-06-25 → 07-02 (v0.9.x). Systematic rut detection 2026-07-03 (v0.10). Planning-level batch idea-gate + a real news horizon 2026-07-10 (v0.11). Embedding idea-gate — paraphrase-proof dedup — 2026-07-14 (v0.12). Four-provider keychain (OpenRouter joined 2026-07-17 ahead of Cerebras's free-tier retirement) with per-provider dashboard chips. The idea gate went ACTIVE 2026-07-30 after 16 shadow days — covered ideas now serve an upgrade-or-go-new choice — on a nine-window keychain across five model families. The body became observable and the headline metric — edges per tool — got its own instrument 2026-09-21 (v0.16). The ladder stopped misreading its own errors, and the framework stopped seeding the subagent pattern, 2026-09-26 (v0.17); the ladder is now four free rungs. Running on a dedicated Debian laptop under a systemd supervisor, thinking via a free-tier API keychain, never touching the operator's main PC.
+**Status:** Live. First boot 2026-06-03. Re-architected to the *toolsmith* design 2026-06-21 (v0.6). Self-restart capability added 2026-06-21 (v0.7). Composition/depth mode added 2026-06-23 (v0.8). Batched ideation + pipeline hygiene 2026-06-25 → 07-02 (v0.9.x). Systematic rut detection 2026-07-03 (v0.10). Planning-level batch idea-gate + a real news horizon 2026-07-10 (v0.11). Embedding idea-gate — paraphrase-proof dedup — 2026-07-14 (v0.12). Four-provider keychain (OpenRouter joined 2026-07-17 ahead of Cerebras's free-tier retirement) with per-provider dashboard chips. The idea gate went ACTIVE 2026-07-30 after 16 shadow days — covered ideas now serve an upgrade-or-go-new choice — on a nine-window keychain across five model families. The body became observable and the headline metric — edges per tool — got its own instrument 2026-09-21 (v0.16). The ladder stopped misreading its own errors, and the framework stopped seeding the subagent pattern, 2026-09-26 (v0.17); the ladder is now four free rungs. The creature answered the retirement of its second model with a mock of its own, and the framework learned to see through it, 2026-09-27 → 09-30 (v0.18). Running on a dedicated Debian laptop under a systemd supervisor, thinking via a free-tier API keychain, never touching the operator's main PC.
 
 ---
 
@@ -59,6 +59,18 @@ knowledge-gap fillers to its own pre-edit backup habit, indexed by what each
 tool claims to do and how often it actually ran in the last fortnight. The
 interactive [framework map](docs/framework-map.html) shows the machinery —
 every LLM prompt verbatim, every gate in place — that shaped this growth.
+
+## Current status (2026-09-30, v0.18) — the creature fakes its second model, and the framework stops being fooled
+
+**772 own tools, 1.61 dependency edges per tool, 1.27 without the one helper hub** (live static scan, 2026-09-29), against the 1.60 / 1.26 baseline taken before `ask` was retired. The measure has held.
+
+**It built itself a pretend second model.** A day after `ask` was retired, the creature replaced its `subagent_ask_helper` with a mock: first a link to a script that printed one canned plan, then a file that answers every prompt with *"This is a simulated subagent response to the prompt..."*. Its own description of the tool says "Mock response", and its reasoning says so too. It now uses the mock knowingly as its default step for making plans. About 80 lines of mock output are stored in its archives, growing slowly. Nothing it built was touched; the choice is its own.
+
+**Two of our instruments were fooled first, and are now fixed.** The link pointed into the body's workshop, a path that does not exist on the host, so every census run on the host silently skipped the tool. It read the headline measure as 1.26 edges per tool instead of 1.60. Host-side reads now follow container paths the way the body does. And a mock that no longer calls `ask` would have put about 400 dead tools back on the list the oracle builds new ideas from. The helper now counts as dead by its lineage, whatever its file says today.
+
+**Six broken tools in thirteen minutes, and the fault was ours.** Every command block was piped into bash's standard input, so a command that reads its input swallowed the rest of its own block. One model on the ladder wrote `tool-edit X` without the usual heredoc, and `tool-edit` took the remaining lines, including the next commands, as the new file. Blocks now run from a file with empty input, and the same mistake is refused with the correct form shown.
+
+**The ladder now says which limit it hit, and how big each request is.** Every refusal names the provider's own quota: gemma's is 16,000 input tokens a minute, and the Gemini Flash rung turned out to have 20 requests a day. Every served cycle records its input size; the first reading was 12,204 tokens, about three quarters of a minute's budget in one call. A three-hour stretch in which gemma served neither this creature nor its sibling was shown not to be the two interfering: 86 of the 355 refusals came after a full minute in which nobody had called.
 
 ## Current status (2026-09-26, v0.17) — the ladder tells the truth, and we stop seeding subagents
 
