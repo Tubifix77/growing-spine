@@ -88,16 +88,34 @@ def stop():
                    capture_output=True)
 
 
+def exec_wrapper(cmd: str) -> str:
+    """The `bash -c` string that runs one exec block inside the body.
+
+    The block is decoded into a FILE and run from there with stdin EMPTY.
+    It used to be `echo ENC | base64 -d | bash`, which hands bash the script
+    ON STDIN -- so any command in the block that reads stdin swallowed the
+    rest of the block. On 2026-09-29 09:55-10:06 the cloudflare rung wrote
+    `tool-edit X` with no heredoc six times; each time tool-edit read the
+    remaining lines of the block as the new file, comment first and shebang
+    on line 3, `remember current-phase "done"` included -- six tools that
+    cannot start, in thirteen minutes. Invariant: a command's stdin is never
+    the script it is part of. With stdin empty, tool-edit's own guard
+    ("Refusing to write empty content") answers the same mistake honestly.
+    """
+    enc = base64.b64encode(cmd.encode()).decode()
+    return ('export PATH="/mind/tools/framework:/mind/tools/own:$PATH"; '
+            'f=$(mktemp /tmp/.exec-block.XXXXXX) || exit 125; '
+            f'echo {enc} | base64 -d > "$f"; '
+            'bash "$f" </dev/null; rc=$?; rm -f "$f"; exit $rc')
+
+
 def run_command(cmd: str) -> tuple:
     """
     Execute cmd inside the container via base64 (VibeOS pattern).
     Returns (stdout, stderr, exit_code).
     """
-    enc = base64.b64encode(cmd.encode()).decode()
-    pathline = 'export PATH="/mind/tools/framework:/mind/tools/own:$PATH"; '
     r = subprocess.run(
-        ["docker", "exec", CONTAINER_NAME,
-         "bash", "-c", pathline + f"echo {enc} | base64 -d | bash"],
+        ["docker", "exec", CONTAINER_NAME, "bash", "-c", exec_wrapper(cmd)],
         capture_output=True, text=True, errors="replace", timeout=300
     )
     out, err, code = r.stdout, r.stderr, r.returncode

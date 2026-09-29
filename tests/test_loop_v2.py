@@ -4403,6 +4403,29 @@ async def main():
     finally:
         _sb.subprocess.run = _real_run
 
+    # A command's stdin is never the script it is part of (2026-09-29). The
+    # block used to reach bash ON STDIN, so `tool-edit X` without a heredoc
+    # read the rest of the block as the new file: six unstartable tools in
+    # thirteen minutes. Contract, reached through a real bash running the real
+    # wrapper: a stdin-reader gets nothing and every later line still runs as
+    # a command; heredocs and exit codes behave as they always did. POSIX only:
+    # the laptop is the production machine and authoritative here.
+    if os.name == "posix" and shutil.which("bash"):
+        def _wrap_run(block):
+            _p = __import__("subprocess").run(["bash", "-c", _sb.exec_wrapper(block)],
+                                              capture_output=True, text=True, timeout=20)
+            return _p.stdout, _p.returncode
+        _so, _sc = _wrap_run("cat" + _NL + "echo after")
+        check("exec block: a stdin-reader cannot swallow the rest of the block",
+              _so == "after" + _NL and _sc == 0, repr(_so))
+        _so, _sc = _wrap_run("cat <<'EOF'" + _NL + "hi" + _NL + "EOF" + _NL + "echo done")
+        check("exec block: a heredoc still feeds its own command",
+              _so == "hi" + _NL + "done" + _NL, repr(_so))
+        _so, _sc = _wrap_run("echo x; exit 7")
+        check("exec block: the block's exit code passes through", _sc == 7, str(_sc))
+    else:
+        print("SKIP exec-block stdin checks: not POSIX (the laptop gate covers them)")
+
     # ensure_body must not accept docker's status field as proof of life.
     from executive import runtime as _rtm
     with open(_rtm.__file__, encoding="utf-8") as _rf:
