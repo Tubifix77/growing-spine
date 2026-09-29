@@ -237,6 +237,20 @@ PY
     either creature. Quiet gaps of 60 s or more that still end in a
     per-minute refusal mean the limit is not behaving as its name says.
 
+24. **Broken-tool births split by the rung that served the authoring cycle.**
+    Added 2026-09-29 by the blank pass. `cannot_start` went 19 → 25 in one
+    window and every one of the six came from a single 13-minute burst
+    (09:50–10:06) served by `cloudflare`, while `google_gemma` served 236
+    cycles and produced none. Nothing on this list splits authoring faults by
+    author: the skip rate by rung (item 15) counts replies with no usable
+    command, and a reply whose command RUNS and writes a broken file skips
+    nothing. For each tool written in the window that cannot start, name the
+    rung in the `served_by` record of the cycle that wrote it, and report
+    broken births per rung against cycles served per rung. The same burst also
+    exposed the mechanism — `tool-edit X` with no heredoc swallowed the rest of
+    the exec block (fixed `260d4f4`) — so when one rung's births spike, read
+    its exec blocks for the shape before blaming the model.
+
 18. **Deltas against the previous run of this skill**, from the history file.
 
 ## Tier 2 — pointed open inspection. Prose, and it cannot be skipped.

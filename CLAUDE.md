@@ -913,7 +913,93 @@ journalctl --user -u growing-spine --since "2 hours ago"
 
 ---
 
-## 8. State — 2026-09-28 21:20
+## 8. State — 2026-09-29 20:50
+
+**gs-bug-daily 2026-09-29 (09-28 20:19 → 09-29 20:19, 25 h with records, no
+gaps; `journal.jsonl` by epoch `ts`).** 275 served at **11.0/h** (14.8 last
+run), 367 exec, 4 skips (all truncation), **17 errors, all guard rails** (7
+false-completion, **7 cannot-start**, 1 empty-placeholder, 1
+upgrade-no-change, 1 spin trap). Zero provider errors, zero unclassified,
+zero `unknown`-path, zero tracebacks. **76%** of 1,141 `think_start`s found no
+rung. Skip by rung: gemma 0.0%, flash 26.7%, cloudflare 0.0%. Truncation
+8.4%. Library **772**, 1,242 edges, **1.61/tool, 264 hub edges, 1.27
+without** — flat. **`cannot_start` 19 → 25**, the first inflow in weeks.
+Doors: `tool-edit` 31, `tool-new` 20, redirect 9. Funnel: 20 tools, 60
+actions, 3.0 rounds; 31 done-marks, 16 refused, **15 accepted (48%)**.
+
+**THE SIX NEW BROKEN TOOLS WERE OUR FAULT, AND THE MECHANISM IS FIXED
+(`260d4f4`).** All six came from one 13-minute burst, 09:50–10:06, **every
+cycle served by `cloudflare`** (llama-3.3-70b). Gemma served 236 cycles in the
+window and produced none. The rung writes `tool-edit X` with no heredoc and
+the new code on the following lines. `run_command` sent every block as `echo
+ENC | base64 -d | bash`, so **bash read the script from stdin, and
+`tool-edit` read the rest of the block as the new file.** That puts the
+comment first, the shebang on line 3, and the next command
+(`remember current-phase "done"`, `python3 ... < file`) inside the tool.
+`catchup_memory_archiver` went 102 → 14 lines that way at 09:55 and died on
+`line 14: remember current-phase "done"`. Its repair attempts made it worse:
+`sed -i '1s/^/#\/usr\/bin\/env python3\n/'` writes a shebang without the `!`,
+and `sed -i '/^#/d'` then deletes it. The done-gate caught every one (7
+blocks) and the write-time WARNING fired every time; the stock grew anyway.
+**Invariant: a command's stdin is never the script it is part of.** The block
+is now decoded into a temp file in the body and run with `</dev/null`, so
+`tool-edit X` without content hits its own existing guard, *"Refusing to write
+empty content"*, with the heredoc example — the mistake answered honestly at
+the moment it is made. Heredocs and exit codes unchanged. Checks are
+POSIX-only (laptop **614**, authoritative; PC **599**); **putting the old pipe
+back makes `cat` print `echo after`, the production fault exactly.**
+**Not live until the brain restarts — waiting on Tue's OK.** Its tools are
+untouched; the six `.bak` files stand.
+
+**Also fixed (`99aa95c`): `served_by` now records the input size of the call
+that answered, as `in=N`** (the provider's own `usage.prompt_tokens`; absent,
+nothing is written). gemma's binding limit is 16,000 input tokens per minute,
+and no record anywhere carried the page size; the last figure was one
+Cloudflare call on 08-27. Measuring does not change the page, so the Cousin
+hold stands. Also waiting on the restart.
+
+**Gemma is refused two calls in three even when the key has been quiet.**
+The quota tags (`65096ae`, VERIFIED: every wall carries one) read
+`PerMinute-FreeTier=16000` on all 767 gemma walls and `PerDay...=20` on all
+1,117 flash walls. Success of spine gemma attempts, joined with the Cousin's
+calls on the same key: **113 of 316 (36%) when nobody had succeeded for 2 min
+AND nobody had called for 1 min**, against 88 of 596 (15%) with a call in the
+last minute. A per-minute window that is empty for a minute should not refuse
+64% of the time. So spacing calls helps only modestly, and the rest is outside
+our loop: a smoothed or longer window than the name says, another consumer on
+the key, or Google-side capacity (two direct probes got `HTTP 500 Internal
+error` yesterday). **No gemma gap longer than 0.7 h this window**, so no
+repeat of 09-28's three-hour dead window. **Next reading, once `in=` is
+live:** the page size against 16,000. If it is near the limit, every serve
+needs a nearly empty bucket.
+**`gemini_flash`'s 20-per-day allowance is probed on every attempt** (1,162
+walls for 15 serves), and its reply says "retry in ~21 s" for a per-DAY quota.
+Cheap (its own quota, the Cousin never uses it), so recorded, not changed.
+
+**The mock is now its default design step, knowingly.** 145 thinks name the
+helper. *"I typically use `subagent_ask_helper` to create the JSON and then
+call `step-planner-tracker`"* (09-29 04:31); *"`subagent_ask_helper` is the
+standard for testing"* (12:39); a plan written at 18:25 still routes a step
+through it. Exec results carrying mock output fell from 28 to 5, and mock
+strings stored in `/mind/data` are **79** (76 yesterday) — slow. Its own
+`does:` line says "Mock response" on every wake, so the fact is visible and
+the choice is its own. The retired filter held: **5 `retired_drop`s**, 435
+tools in the retired-reach set, and 1 helper-only tool rewritten.
+
+**Instruments:** `THROUGHPUT:!!` fired hourly at 11–13/h, right reason (gemma
+refusals). `FLATLINE:ok` — correct, since no rung was dark past its threshold.
+`WAKE:p50 3880 ms` (3,630 on 09-23), still under 5,000. `COMPOUND` marginal
+**1.97** against a 1.61 corpus, streak 0/3. **Blank pass:** broken-tool
+births split by the rung that wrote them — nothing did that, and it is the
+only split that showed the burst. Now `gs-bug-daily` item 24.
+**Named trigger 2026-10-06:** broken-tool births per rung per cycle served,
+with the stdin fix live. If cloudflare still writes broken tools far above
+gemma's rate, its authoring quality is a quality-floor question (§6), to be
+decided then on those numbers.
+
+---
+
+### Previous state — 2026-09-28 21:20
 
 **gs-bug-daily 2026-09-28 (09-27 19:20 → 09-28 20:19, 26 h with records, no
 gaps; `journal.jsonl` by epoch `ts`).** 384 served at **14.8/h**, 541 exec, 6
