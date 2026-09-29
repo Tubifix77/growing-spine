@@ -1784,6 +1784,59 @@ async def main():
     finally:
         _pc.urllib.request.urlopen = _pc_real
 
+    # The PAGE SIZE must be recorded (2026-09-29). google_gemma's binding limit
+    # is 16,000 input tokens per minute and no record carried the input size of
+    # any call, so the one lever on our side could not be read. Contract: the
+    # provider's own usage.prompt_tokens reaches served_by as `in=N`; absent or
+    # non-numeric, nothing is invented and the field is left out.
+    class _OkResp:
+        def __init__(self, body): self._b = body
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self): return self._b
+    _ok_body = json.dumps({"choices": [{"message": {"content": "hello"},
+                                        "finish_reason": "stop"}],
+                           "usage": {"prompt_tokens": 13345,
+                                     "total_tokens": 13400}}).encode()
+    try:
+        _pc.urllib.request.urlopen = lambda *a, **k: _OkResp(_ok_body)
+        _r4 = await _pc_call()
+        check("prov.call returns the provider's own input-token count",
+              _r4.get("prompt_tokens") == 13345, str(_r4)[:120])
+        _pc.urllib.request.urlopen = lambda *a, **k: _OkResp(json.dumps(
+            {"choices": [{"message": {"content": "hi"}, "finish_reason": "stop"}]}).encode())
+        _r5 = await _pc_call()
+        check("prov.call invents no input count when the provider gives none",
+              _r5.get("prompt_tokens") is None and not _r5.get("error"), str(_r5)[:120])
+    finally:
+        _pc.urllib.request.urlopen = _pc_real
+    _kc_pt = _kmod.Keychain.__new__(_kmod.Keychain)
+    _kc_pt.providers = [{"key": "stubrung", "endpoint": "http://x",
+                         "api_key": "k", "model_id": ["only-model"]}]
+    _kc_pt.state = {}
+    _kc_pt.last_used = _kc_pt.last_model = _kc_pt.last_finish_reason = None
+    _kc_pt.last_truncated = False
+    _kc_pt.last_escalations = 0
+    _real_call_pt, _real_ok_pt = _kprov.call, _kqs.record_success
+
+    async def _fake_ok(cfg, messages, max_tokens=2048, model=None):
+        return {"text": "fine", "tokens_used": 1, "finish_reason": "stop",
+                "truncated": False, "error": None, "prompt_tokens": 13345}
+    _kprov.call = _fake_ok
+    _kqs.record_success = lambda *a, **k: None   # never write the live quota_state.json
+    try:
+        with _ctx.redirect_stdout(_iodiag.StringIO()):
+            await _kc_pt.complete("hi")
+    finally:
+        _kprov.call, _kqs.record_success = _real_call_pt, _real_ok_pt
+    _line_pt = loop._served_by_line(_kc_pt)
+    check("served_by carries the input size of the call that answered",
+          _line_pt.startswith("stubrung model=only-model finish=stop")
+          and _line_pt.endswith(" in=13345"), _line_pt)
+    _kc_pt.last_prompt_tokens = None
+    check("served_by leaves in= out when the size is unknown",
+          " in=" not in loop._served_by_line(_kc_pt))
+
     # Cloudflare Workers AI plan restriction. Real body, measured 2026-08-26:
     # the model-search API lists kimi-k2.6, glm-5.2, glm-5.3-flash and
     # deepseek-v4-pro, and the Workers FREE plan refuses all four. The id has

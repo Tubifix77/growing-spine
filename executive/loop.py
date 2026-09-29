@@ -4101,6 +4101,25 @@ def _wake_cost_summary(samples):
     return ordered[len(ordered) // 2], ordered[-1]
 
 
+def _served_by_line(kc) -> str:
+    """The `served_by` record for the cycle the keychain just served.
+
+    `escalated=N` and `in=N` appear only when known, so the common record's
+    first three fields never move and every reader keyed on them keeps
+    working. `in=` is the provider's own count of INPUT tokens for the call
+    that answered: google_gemma's binding limit is 16,000 input tokens per
+    minute (its 429 names it), so the page size is the one lever on our side,
+    and until 2026-09-29 no record anywhere carried it.
+    """
+    _esc = getattr(kc, "last_escalations", 0) or 0
+    _pin = getattr(kc, "last_prompt_tokens", None)
+    return (f"{getattr(kc, 'last_used', None) or 'unknown'}"
+            f" model={getattr(kc, 'last_model', '') or '?'}"
+            f" finish={getattr(kc, 'last_finish_reason', '') or '?'}"
+            + (f" escalated={_esc}" if _esc else "")
+            + (f" in={_pin}" if isinstance(_pin, int) and _pin > 0 else ""))
+
+
 def _record_wake_cost(ms: float, path: str = None, now: float = None):
     """Append one wake's context-build cost. Returns (p50, max, crossed).
 
@@ -4268,12 +4287,7 @@ async def run_cycle(keychain: Keychain, dockerfile_dir: str):
     # common record stays unchanged. N with finish=stop means a later rung
     # FINISHED what the first could not -- which is the measurement that decides
     # whether the 3072-token think ceiling should move at all.
-    _esc = getattr(keychain, "last_escalations", 0) or 0
-    journal.append(VOLUME_MOUNT, "served_by",
-                   f"{getattr(keychain, 'last_used', None) or 'unknown'}"
-                   f" model={getattr(keychain, 'last_model', '') or '?'}"
-                   f" finish={getattr(keychain, 'last_finish_reason', '') or '?'}"
-                   + (f" escalated={_esc}" if _esc else ""))
+    journal.append(VOLUME_MOUNT, "served_by", _served_by_line(keychain))
 
     bash_blocks = parser.parse_bash_blocks(response)
     if not bash_blocks:

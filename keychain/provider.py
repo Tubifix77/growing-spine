@@ -133,8 +133,10 @@ async def call(cfg: dict, messages: list, max_tokens: int = 2048,
         data = await loop.run_in_executor(None, _do)
         text, tokens, finish, reasoning_only = _extract_text_tokens(data)
         truncated = finish == "length"
+        _pt = (data.get("usage") or {}).get("prompt_tokens")
         base = {"tokens_used": tokens, "finish_reason": finish,
-                "truncated": truncated}
+                "truncated": truncated,
+                "prompt_tokens": _pt if isinstance(_pt, int) else None}
         if not text:
             return dict(base, text="",
                         error="empty completion (content and reasoning both null)")

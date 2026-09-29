@@ -271,6 +271,12 @@ class Keychain:
         # could not, and escalated=N with finish=length means
         # even escalation did not help.
         self.last_escalations = 0
+        # INPUT tokens of the last successful call, as the provider counted
+        # them (usage.prompt_tokens), or None when it did not say. The
+        # workhorse's binding limit is 16,000 input tokens per MINUTE, so the
+        # page size is the one lever on our side -- and until 2026-09-29 it was
+        # recorded nowhere; the last figure was one Cloudflare call on 08-27.
+        self.last_prompt_tokens = None
 
     async def complete(self, prompt: str, system: str = "",
                        max_tokens: int = 2048, **_kwargs) -> str:
@@ -292,6 +298,7 @@ class Keychain:
         unknown_err = ""
         truncated_tries = []  # (rung, model, text)
         self.last_escalations = 0
+        self.last_prompt_tokens = None
         for cfg in ordered:
             messages = []
             if system:
@@ -310,6 +317,7 @@ class Keychain:
                                              max_tokens=max_tokens, model=mid)
 
                     if result["error"] is None:
+                        self.last_prompt_tokens = result.get("prompt_tokens")
                         if cfg["key"] in exhausted_keys:
                             print(f"[keychain] {cfg['key']} window REOPENED "
                                   f"(probe of a believed-exhausted provider "
