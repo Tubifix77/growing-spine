@@ -893,7 +893,11 @@ journalctl --user -u growing-spine --since "2 hours ago"
   packages. This overrides §6's *"Reversible actions are just done"* for the
   laptop. Reading, running the gate, `git pull` and copying files INTO `/tmp`
   are not destructive; a `systemctl --user restart growing-spine` is, so it is
-  proposed and waited for, not just done.
+  proposed and waited for, not just done — **with one standing exception, Tue's,
+  2026-09-30: "you should always do fixes you find in daily checks and you
+  should always restart the brain when it is needed."** A fix found by a
+  daily check is shipped, and the brain restart it needs is done, without
+  asking. Everything else destructive on the laptop still waits for him.
 - **Never change the dashboard without looking at it afterwards.** `observer.py`
   is PyQt6 on X11, `DISPLAY=:0`. Capture on the laptop, then `scp` the file back —
   it is byte-safe, unlike the base64-through-the-session method this replaced:
