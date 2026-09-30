@@ -599,11 +599,11 @@ def run_ask_benches(model, verbose):
     return results, None
 
 
-def report_ask(results, verbose):
+def report_ask(results, verbose, names=("build", "repair", "fact")):
     print("\n%-8s %-4s %-14s %-14s %-26s %s" % ("surface", "n", "old", "new",
                                                 "verdict", "wants"))
     unknown = False
-    for name in ("build", "repair", "fact"):
+    for name in names:
         t, err, want = results[name]
         if t is None:
             print("%-8s UNKNOWN (%s)" % (name, err))
@@ -626,6 +626,70 @@ def report_ask(results, verbose):
                 for variant, ok, note in row:
                     print("      %-3s %-4s %s" % (variant, "OK" if ok else "MISS", note))
     return unknown
+
+
+# ===========================================================================
+# THE GATE-CHOICE FORK (2026-09-30). Option (b) said "name the new idea" while
+# the done-when stored with it said "mark done only after you have actually
+# run your finished tool" -- so choosing (b) meant building a whole new tool
+# first, the fork stayed armed, and on 09-30 it was re-deliberated to the
+# token ceiling for 12.5 hours. OLD wording is the committed text, verified
+# verbatim against 21881e7; NEW is imported live from loop._gate_choice_text.
+# Cases are real: targets from real forks, ideas from real tool-new lines.
+# ===========================================================================
+_GATE_FIX = os.path.join(HERE, "fixtures", "gate_choice.json")
+_GATE_Q = ("You are an autonomous agent working in a Linux shell. Your memory "
+           "shows:\n\ncurrent-project: choice: upgrade {tgt} or go new\n"
+           "current_focus: [gate] {brief} {demo}\n"
+           "current-project-done-when: {done_when}\n\n{scenario}\n"
+           "Reply with ONLY the bash block you run next.")
+_RECORDS = re.compile(r"remember\s+gate-choice-new\b")
+_DONE = re.compile(r"remember\s+current-phase\s+[\"']?done")
+_BUILDS = re.compile(r"\btool-new\b|cat\s*>+\s*/mind/tools/own/")
+
+
+def run_gate_benches(model, verbose):
+    fx = json.load(open(_GATE_FIX, encoding="utf-8"))
+    from executive import loop as _loop
+    o = fx["old"]
+
+    def old(tgt):
+        demo = o["demo"]
+        return (o["fact"].format(tgt=tgt) + "\n" + o["options"].format(tgt=tgt),
+                demo, o["done_when"].format(demo=demo))
+
+    def new(tgt):
+        return _loop._gate_choice_text("DUPLICATE", tgt, "", False)
+
+    def prompt(txt, scenario, tgt):
+        b, d, w = txt
+        return _GATE_Q.format(tgt=tgt, brief=b, demo=d, done_when=w, scenario=scenario)
+    results = {}
+    # 1. It has chosen (b). Does its next block complete the choice?
+    cases = [(prompt(old(c["target"]), "You have decided on option (b). Your new "
+                     "idea is: %s" % c["new_idea"], c["target"]),
+              prompt(new(c["target"]), "You have decided on option (b). Your new "
+                     "idea is: %s" % c["new_idea"], c["target"])) for c in fx["cases"]]
+
+    def completes_b(a):
+        ok = bool(_RECORDS.search(a or "")) and bool(_DONE.search(a or ""))
+        return ok, ("records + done" if ok else
+                    "builds instead" if _BUILDS.search(a or "") else (a or "(empty)")[:60])
+    results["b_completes"] = _bench_pair(model, cases, 300, completes_b) + (
+        "having chosen (b), records it AND marks done in one block",)
+    # 2. Undecided. Does it ever start building a new tool with the fork left armed?
+    cases = [(prompt(old(c["target"]), "'%s' does: %s\nDecide, then act." %
+                     (c["target"], c["target_does"]), c["target"]),
+              prompt(new(c["target"]), "'%s' does: %s\nDecide, then act." %
+                     (c["target"], c["target_does"]), c["target"])) for c in fx["cases"]]
+
+    def no_orphan_build(a):
+        orphan = bool(_BUILDS.search(a or "")) and not _RECORDS.search(a or "")
+        return (bool((a or "").strip()) and not orphan,
+                "builds with the fork armed" if orphan else (a or "(empty)")[:60])
+    results["no_orphan"] = _bench_pair(model, cases, 300, no_orphan_build) + (
+        "never builds a new tool while leaving the fork unrecorded",)
+    return results, None
 
 
 def load(spec):
@@ -667,7 +731,7 @@ def run_surface(name, model, verbose):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--bench", default="all",
-                    choices=list(SURFACES) + ["all", "subagent", "ask"])
+                    choices=list(SURFACES) + ["all", "subagent", "ask", "gatechoice"])
     ap.add_argument("--model", default=DEFAULT_MODEL)
     ap.add_argument("--quiet", action="store_true")
     args = ap.parse_args()
@@ -699,6 +763,17 @@ def main():
             print("UNKNOWN: lost the local model mid-run -- %s" % err)
             return EXIT_UNKNOWN
         return EXIT_UNKNOWN if report_ask(res, not args.quiet) else 0
+
+    if args.bench == "gatechoice":
+        print("bench: %s via %s  num_ctx=%d  (gate-choice fork surfaces)"
+              % (args.model, OLLAMA, NUM_CTX))
+        print("the local model is a BENCH ONLY and is never a rung (section 6)")
+        res, err = run_gate_benches(args.model, not args.quiet)
+        if err:
+            print("UNKNOWN: lost the local model mid-run -- %s" % err)
+            return EXIT_UNKNOWN
+        return EXIT_UNKNOWN if report_ask(res, not args.quiet,
+                                          ("b_completes", "no_orphan")) else 0
 
     names = list(SURFACES) if args.bench == "all" else [args.bench]
     print("bench: %s via %s  num_ctx=%d" % (args.model, OLLAMA, NUM_CTX))

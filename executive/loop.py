@@ -2040,7 +2040,25 @@ def _fork_target_ok(tgt) -> bool:
     return os.path.isfile(_host_file(os.path.join(VOLUME_MOUNT, "tools", "own", str(tgt))))
 
 
-def _gate_choice_spec(v: str, tgt: str, brief: str) -> dict:
+GATE_CHOICE_OPEN = ("This choice is your current project, and it is shown to you "
+                    "every cycle until you mark it done.")
+
+
+def _gate_choice_text(v: str, tgt: str, brief: str, dead: bool = False):
+    """The fork's words: (brief, demonstration, done_when). Pure, so the bench
+    renders exactly what ships.
+
+    EVERY OPTION THE FORK OFFERS MUST STATE WHAT COMPLETES IT (2026-09-30).
+    Option (b) says "name the new idea", while the done-when stored with every
+    assignment said "mark done only after you have actually run your finished
+    tool" -- and under (b) there is no finished tool. So a creature choosing
+    (b) went off to build and run a whole new tool first, the fork stayed
+    armed and was re-read from scratch every wake, and on 09-30 it held one
+    fork for 12.5 h and 91 served cycles, deliberating it to the 3,072-token
+    ceiling (reply truncation 15% -> 50-75% in those hours). The recording
+    command `gate-choice-new` existed and was named only in a refusal
+    message, after a failed done-mark: 41 uses across 971 forks.
+    """
     # The gate's only authority is the FACT: this idea is not new. What to do
     # with that fact stays the creature's choice -- upgrade the existing tool
     # (with the delta named) or drop this and hunt for a genuinely new idea.
@@ -2066,15 +2084,31 @@ def _gate_choice_spec(v: str, tgt: str, brief: str) -> dict:
     # returning one canned plan. The target's model step cannot answer; saying so
     # at the moment of assignment leaves both choices open and removes the
     # situation in which a fake is the only thing that passes.
-    try:
-        _dead_tgt = tgt in _tools_reaching_retired()
-    except Exception:
-        _dead_tgt = False       # an instrument must never block an assignment
-    if _dead_tgt:
+    if dead:
         options += ("\n" f"Fact about '{tgt}': it depends, directly or through your "
                     f"other tools, on the retired `ask`. There has been no second "
                     f"model since 2026-09-26, so any step of '{tgt}' that needs a "
                     f"model's answer gets none.")
+    options += ("\n" + GATE_CHOICE_OPEN + " (b) is completed by naming, not by "
+                "building: in one block, run `remember gate-choice-new \"<the new "
+                "idea, and why none of your tools does it>\"` and `remember "
+                "current-phase done`. Nothing has to be built or run for (b).")
+    demo = ("If you chose (a): run the upgraded tool and show the improvement "
+            "working. If (b): record the new idea with `remember gate-choice-new` "
+            "and mark done in the same block; nothing is built or run.")
+    done_when = (f"(a) is done when you have run the upgraded '{tgt}' this cycle "
+                 f"and seen the improvement work. (b) is done when you record the "
+                 f"new idea with `remember gate-choice-new` in the same block as "
+                 f"`remember current-phase done`.")
+    return f"{fact}\n{options}", demo, done_when
+
+
+def _gate_choice_spec(v: str, tgt: str, brief: str) -> dict:
+    try:
+        _dead_tgt = tgt in _tools_reaching_retired()
+    except Exception:
+        _dead_tgt = False       # an instrument must never block an assignment
+    text, demo, done_when = _gate_choice_text(v, tgt, brief, _dead_tgt)
     _tpath = _host_file(os.path.join(VOLUME_MOUNT, "tools", "own", tgt))
     try:
         _tmtime = os.path.getmtime(_tpath)
@@ -2084,10 +2118,9 @@ def _gate_choice_spec(v: str, tgt: str, brief: str) -> dict:
             "category": "gate_choice",
             "gate_target": tgt,
             "gate_target_mtime": _tmtime,
-            "brief": f"{fact}\n{options}",
-            "demonstration": ("If you chose (a): run the upgraded tool and show the "
-                              "improvement working. If (b): name the new idea and why "
-                              "it is unlike anything in your library.")}
+            "brief": text,
+            "demonstration": demo,
+            "done_when": done_when}
 
 
 def _install_gap(spec: dict, category: str):
@@ -2117,9 +2150,15 @@ def _install_gap(spec: dict, category: str):
             pass
     mem.store(VOLUME_MOUNT, "current-project",
               f"{title}: {brief} -- CATEGORY: {category}")
-    mem.store(VOLUME_MOUNT, "current-project-done-when",
-              f"Prove it by RUNNING it for real: {demo} Mark done only after you "
-              f"have actually run your finished tool this cycle and seen it work.")
+    # A fork's done condition must be satisfiable by every option it offers:
+    # the generic "run your finished tool" line made (b) unfinishable.
+    if spec.get("done_when"):
+        mem.store(VOLUME_MOUNT, "current-project-done-when",
+                  str(spec["done_when"]))
+    else:
+        mem.store(VOLUME_MOUNT, "current-project-done-when",
+                  f"Prove it by RUNNING it for real: {demo} Mark done only after you "
+                  f"have actually run your finished tool this cycle and seen it work.")
     mem.store(VOLUME_MOUNT, "current-phase", "code")
     try:
         mem.forget(VOLUME_MOUNT, "current_focus")

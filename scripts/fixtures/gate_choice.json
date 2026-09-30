@@ -1,0 +1,91 @@
+{
+ "_note": "Gate-choice fork wording BEFORE 2026-09-30, copied verbatim from _gate_choice_spec and _install_gap at commit 21881e7. Cases are real: targets named in real forks in journal.jsonl, new ideas from real `tool-new` descriptions.",
+ "old": {
+  "fact": "Gate fact: this idea already exists in your library as '{tgt}' -- a near-duplicate will not be built.",
+  "options": "Your choice: (a) UPGRADE '{tgt}' -- edit the file /mind/tools/own/{tgt} ITSELF, in place: run it, find where it falls short, improve THAT FILE. A new file next to it is a near-duplicate and will NOT count as done; or (b) drop this idea and find a GENUINELY NEW one, something none of your tools does.",
+  "demo": "If you chose (a): run the upgraded tool and show the improvement working. If (b): name the new idea and why it is unlike anything in your library.",
+  "done_when": "Prove it by RUNNING it for real: {demo} Mark done only after you have actually run your finished tool this cycle and seen it work."
+ },
+ "cases": [
+  {
+   "target": "ProactiveAlertSynthesizer",
+   "target_does": "Fetches fresh updates on a topic, checks novelty against the archive, synthesizes actionable alerts via subagent, archives insights, and schedules tasks.",
+   "new_idea": "Fetch an RSS feed, summarize each item via LLM, and store a JSON digest (also archives each entry)."
+  },
+  {
+   "target": "proactive_alert_synth.py",
+   "target_does": "Synthesizes high-impact alerts from news items with conflict detection, severity scoring, deduplication, and planner integration. Reads JSON input of news items",
+   "new_idea": "Systematically maps unknown domains by chaining plan_from_question, knowledge_gap_filler, and keyword-archive-store."
+  },
+  {
+   "target": "frontier_expander",
+   "target_does": "Analyzes knowledge gaps for a topic and registers a prioritized frontier research plan in step-planner-tracker.",
+   "new_idea": "Ingests fresh wake data and flags contradictions/gaps against existing memory for a topic."
+  },
+  {
+   "target": "research_answer_pipeline",
+   "target_does": "Orchestrates a research pipeline to answer a query by extracting keywords, performing searches, filling knowledge gaps, and synthesizing a comprehensive answer.",
+   "new_idea": "Resolve a knowledge gap: search archive, fetch Wikipedia if missing, synthesize a brief via subagent, and archive the result"
+  },
+  {
+   "target": "CrossSourceKnowledgeGraph",
+   "target_does": "Builds / updates a unified knowledge graph from a list of feed items by extracting triples.",
+   "new_idea": "Analyzes active plans against new information and pivots them in step-planner-tracker if necessary."
+  },
+  {
+   "target": "digest_archive_scheduler",
+   "target_does": "Fetch fresh items via wake_catchup_fetcher, merge with input, summarize and extract tasks via LLM with recency weighting, conflict detection, severity scoring, ",
+   "new_idea": "Fetch fresh wake\u2011up items, archive those matching a keyword, then search the archive for that keyword and print top results."
+  },
+  {
+   "target": "question_answer_with_memory",
+   "target_does": "Synthesize a high-fidelity answer by aggregating data from memstore, keyword-archive, and Wikipedia, then persisting the result.",
+   "new_idea": "Synthesizes archive knowledge, fills immediate gaps, archives a knowledge map, and schedules a research plan for remaining unknowns."
+  },
+  {
+   "target": "subagent_summarize_archive",
+   "target_does": "Synthesizes archived notes for <keyword> into a structured report (summaries, insights, gaps, conflicts). With --plan: generates a conflict-aware research plan ",
+   "new_idea": "Runs knowledge_gap_filler to detect gaps, adds them to step-planner-tracker, and archives them."
+  },
+  {
+   "target": "research_fetch_planner",
+   "target_does": "Gap-aware research planner that searches archives, identifies knowledge gaps, and generates a tracked plan of action.",
+   "new_idea": "Fetches external critiques, calculates the delta against internal beliefs, and updates the archive with a reconciled view."
+  },
+  {
+   "target": "gap_filled_search",
+   "target_does": "Search keyword-archive for a query, auto-fill missing knowledge via multi-pass knowledge_gap_filler with enhanced error handling, conflict detection, provenance",
+   "new_idea": "Identify, rank, and generate tracked research plans for knowledge gaps relative to a topic's critical path."
+  },
+  {
+   "target": "catchup_summarize_archive_new",
+   "target_does": "Orchestrates a complete catch-up pipeline: fetches fresh items, deduplicates, summarizes via LLM, detects conflicts with archived knowledge, resolves high-sever",
+   "new_idea": "Resolve a knowledge gap: search archive, fetch Wikipedia if missing, synthesize a brief"
+  },
+  {
+   "target": "cross_source_digest_scheduler.py",
+   "target_does": "Fetch a JSON feed of items, turn each headline into a question,",
+   "new_idea": "Identifies non-obvious correlations between distinct keyword-archive-search clusters and triggers research on gaps."
+  },
+  {
+   "target": "RealTimePlanAdjuster",
+   "target_does": "Replace 'step-planner-tracker goal add' with 'step-planner-tracker goal add",
+   "new_idea": "Scan /workspace for durable knowledge in files, extract facts via LLM, and store them in the keyword-archive."
+  },
+  {
+   "target": "industry_shift_pivot_engine",
+   "target_does": "Analyzes industry shifts and automatically pivots active plans in step-planner-tracker to adapt.",
+   "new_idea": "Combines news fetching, LLM task synthesis, plan tracking, and keyword archival."
+  },
+  {
+   "target": "subagent_memory",
+   "target_does": "Orchestrates a deep research cycle: searches archive, fills gaps, synthesizes a verified golden record, and archives the result.",
+   "new_idea": "Fetches latest 20 news items for a topic and archives each with keyword\u2011archive\u2011store"
+  },
+  {
+   "target": "CrossSourceTimelineSynthWithArchive",
+   "target_does": "Cost-aware, memory-backed timeline synthesis with enhanced subagent enrichment: recalls archived knowledge first, fills gaps via subagent with batch processing,",
+   "new_idea": "Consolidates existing knowledge for a topic and automatically generates a persistent plan to fill the remaining gaps."
+  }
+ ]
+}

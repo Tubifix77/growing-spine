@@ -3548,6 +3548,30 @@ async def main():
               "retired `ask`" not in _gs_live)
         check("gate choice: the fact names no mechanism to avoid",
               not any(_w in _gs_dead.lower() for _w in ("mock", "fake", "simulat", "don't", "do not", "never")))
+        # EVERY OPTION THE FORK OFFERS STATES WHAT COMPLETES IT (2026-09-30).
+        # (b) said "name the new idea" while the stored done-when demanded a
+        # finished tool run this cycle; the fork stayed armed for 12.5 h.
+        _gspec = loop._gate_choice_spec("DUPLICATE", "rtx_clean", "")
+        check("gate choice: (b) says how it is completed, in the brief itself",
+              "remember gate-choice-new" in _gspec["brief"]
+              and "remember \n" not in _gspec["brief"]
+              and "current-phase done" in _gspec["brief"], _gspec["brief"][-240:])
+        check("gate choice: the fork says it stays shown until marked done",
+              loop.GATE_CHOICE_OPEN in _gspec["brief"])
+        check("gate choice: the done condition is satisfiable by (b)",
+              "gate-choice-new" in _gspec.get("done_when", "")
+              and "run your finished tool" not in _gspec.get("done_when", ""),
+              _gspec.get("done_when", ""))
+        loop._install_gap(_gspec, "gate_choice")
+        _dw = (mem.retrieve(loop.VOLUME_MOUNT, "current-project-done-when") or {}).get("value", "")
+        check("gate choice: the assignment stores the fork's own done condition",
+              _dw == _gspec["done_when"], _dw[:160])
+        _plain = dict(_gspec, category="extend"); _plain.pop("done_when")
+        loop._install_gap(_plain, "extend")
+        _dw2 = (mem.retrieve(loop.VOLUME_MOUNT, "current-project-done-when") or {}).get("value", "")
+        check("gate choice: other assignments keep the run-it done condition",
+              "run your finished tool" in _dw2, _dw2[:160])
+        loop._clear_project_state()
     finally:
         for _n in set(os.listdir(_rt_dir)) - _rt_pre:
             os.unlink(os.path.join(_rt_dir, _n))
