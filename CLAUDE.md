@@ -917,7 +917,92 @@ journalctl --user -u growing-spine --since "2 hours ago"
 
 ---
 
-## 8. State — 2026-09-29 20:50
+## 8. State — 2026-10-01 20:30
+
+**gs-bug-daily 2026-10-01 (09-30 23:42 → 10-01 20:15, 22 h with records, no
+gaps; `journal.jsonl` by epoch `ts`).** 300 served at **13.6/h**, 386 exec, 7
+skips (all truncation), **19 errors, all guard rails** (11 false-completion,
+6 upgrade-no-change, 1 cannot-start, 1 spin trap), zero provider, zero
+unclassified, 2 `UNJUDGED` under `idea_gate`. 70% of `think_start`s found no
+rung. **Reply truncation 20.6% → 6.7%.** Skip by rung: gemma 1.1%, flash 44.4%
+(4 of 9), cloudflare 0%. **Page size, first full day of `in=`:** gemma p50
+**11,784** input tokens (p10 10,910, p90 12,437, max 13,525), none ≥16,000.
+Library **777**, 1,240 edges, **1.60/tool, 269 hub edges, 1.25 without** — flat.
+`cannot_start` 25 → 24 → **23**, none new for two windows. Doors: `tool-edit`
+43, `tool-new` 11, redirect 5. Funnel: 16 tools, 59 actions, 3.7 rounds; 46
+done-marks, 18 refused, **28 accepted (61%; 38% last run)**. Keys in the body
+re-probed: `PATH HOSTNAME HOME` only — VERIFIED.
+
+**THE GATE-CHOICE FORK COULD NOT BE FINISHED AS WRITTEN, AND IT WAS OURS
+(`e387a75`, shipped 09-30 23:55).** On 09-30 one fork stayed armed from 11:11
+for **12.5 h and 91 served cycles**. Reply truncation was ~15% all day and
+**50–75%** inside that stretch: every truncated reply was an ~11k-char
+re-deliberation of the same fork, which it re-read from scratch each wake. The
+retro judge rated the window PROGRESSING twice. Cause: option (b) said "name the
+new idea", while the done-when stored with EVERY assignment said *"mark done
+only after you have actually run your finished tool this cycle"*. Under (b)
+there is no finished tool, so choosing (b) meant going off to build one, and the
+fork stayed armed. The recording command `gate-choice-new` was named only in a
+refusal message after a failed done-mark: **41 uses across 971 forks**
+all-time. **Invariant: every option a fork offers states what completes it.**
+The fork text is now one pure function, `_gate_choice_text`, and the
+assignment stores the fork's own done condition. **Benched before shipping**
+(`--bench gatechoice`, `gemma4:12b`, 16 real cases): having chosen (b),
+**0/16 completed it with the old wording (every one started building), 16/16
+with the new**; the undecided case was 16/16 both ways. Gates: laptop 619, PC
+604; the mutation fails its check. The fork already armed at the time was
+re-issued with the corrected wording, touching only the three framework-written
+assignment keys. **VERIFIED: it closed at 00:53, 58 minutes after the restart.**
+
+**Then the fix exposed the next layer, and it is also ours (`f873999`).** With
+(b) completable, the creature closed forks in one cycle and named the SAME idea,
+`toolkit-defragmenter`, **fifteen times**. It was never built, because nothing
+read `gate-choice-new`: the framework asked for "a GENUINELY NEW one" and
+discarded the answer. In 20 h, **24 of 33 assignments were forks and 180 of 293
+served cycles went to them**, and between 09:52 and 11:00 forks churned about
+once a minute, with done-marks refused against targets that had already
+changed underneath them. **Invariant: an answer the framework asks for is
+used.** The done-gate now queues the (b) idea at the FRONT of the composition
+queue. It is not pre-cleared, so the full idea gate judges it like any other
+idea, and a name queued once is never queued again, so naming one idea
+repeatedly cannot loop. The fork says so in one sentence and asks for
+`<name>: <what it does>`. **Re-benched with that sentence:** 0/16 → 16/16, no
+regression. Tested end to end through `_enforce_done_gate`, because a test on
+the helper alone would pass with the call site deleted (that mutation now
+fails). Gates: laptop **625**, PC **610**. Brain restarted **20:27:57**.
+**First check next run:** `gate_new_queued` and `gate_new_repeat` records, how
+many (b) ideas get built, the forks' share of assignments against 24 of 33, and
+served cycles inside forks against 180 of 293.
+
+**The creature retired its own mock.** `subagent_ask_helper` is now its
+1 Sep `subagent_ask_helper_v2`, copied in with its old date, which calls `ask`
+for real. So it fails honestly again: 12 exec results carried the tombstone
+(0 the day before), and the caller chain names the helper on 9 of them. The
+replacing command is not in this window, so it happened between 09-28 and
+today. Mock strings stored in `/mind/data`: **87** (83). Its "mocks" this
+window are test-input files in `/workspace`, not a fake model. Its tools,
+§2.1: none touched.
+
+**Earlier fixes, on trial.** Exec stdin (`260d4f4`): **0 broken births in two
+windows**, cloudflare 28 authoring actions with none broken, and `tool-edit`
+refused empty input **7 times** — VERIFIED. `in=` (`99aa95c`): on every served
+cycle — VERIFIED. Quota tags: on every wall — VERIFIED. `RETIRED_LINEAGE`:
+440 in the set, **75 `retired_drop`s** (40 of them in the 10:00 churn hour).
+**Held, with a date:** `gemini_flash` gets 20 requests a day and is re-probed
+~1,100–1,400 times a day, because its reply says "retry in ~21 s" for a per-DAY
+quota and the loop believes it. Fixing that changes retry timing, which the
+Cousin measurement hold covers. **Trigger 2026-10-07, or the Cousin's report,
+whichever comes first.** The `cloudflare` authoring trigger (2026-10-06) is
+now very likely to close clean.
+
+**Instruments:** `THROUGHPUT:!!` fired at 11–14/h, right reason. `FLATLINE:ok`
+throughout. **Blank pass (09-30):** a single project held for hours, with the
+retro judge calling it progress, was caught only by truncation by hour. Now
+`gs-bug-daily` item 25.
+
+---
+
+### Previous state — 2026-09-29 20:50
 
 **Addendum 2026-09-30 00:12 — both fixes are LIVE.** Brain restarted
 00:09:49 under Tue's new standing rule (§7). First served cycle 00:11:28:
