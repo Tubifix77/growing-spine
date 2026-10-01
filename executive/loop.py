@@ -2090,9 +2090,11 @@ def _gate_choice_text(v: str, tgt: str, brief: str, dead: bool = False):
                     f"model since 2026-09-26, so any step of '{tgt}' that needs a "
                     f"model's answer gets none.")
     options += ("\n" + GATE_CHOICE_OPEN + " (b) is completed by naming, not by "
-                "building: in one block, run `remember gate-choice-new \"<the new "
-                "idea, and why none of your tools does it>\"` and `remember "
-                "current-phase done`. Nothing has to be built or run for (b).")
+                "building: in one block, run `remember gate-choice-new \"<name>: "
+                "<what it does, and why none of your tools does it>\"` and "
+                "`remember current-phase done`. Nothing has to be built or run "
+                "for (b). The idea you name becomes your next project, unless the "
+                "gate finds that it too is already in your library.")
     demo = ("If you chose (a): run the upgraded tool and show the improvement "
             "working. If (b): record the new idea with `remember gate-choice-new` "
             "and mark done in the same block; nothing is built or run.")
@@ -2901,6 +2903,8 @@ def _enforce_done_gate(executed):
                                {"guard": "done_gate",
                                 "block": "upgrade_no_change"})
                 return False
+            if chose_new:
+                _queue_gate_new_idea()
             try:
                 os.remove(GATE_CHOICE_STATE_PATH)
             except OSError:
@@ -3013,6 +3017,50 @@ def _stamp_gage(cycle_start: float):
 # ---------------------------------------------------------------------------
 
 GATE_CHOICE_STATE_PATH = os.path.join(VOLUME_MOUNT, "state", "gate_choice.json")
+GATE_NEW_SEEN_PATH = os.path.join(VOLUME_MOUNT, "state", "gate_new_seen.json")
+GATE_NEW_SEEN_CAP = 200
+
+
+def _queue_gate_new_idea():
+    """An answer the framework asks for is USED (2026-10-01). Option (b) asks
+    the creature for a GENUINELY NEW idea, and nothing read it: in the first
+    20 h after (b) became completable it named 'toolkit-defragmenter' fifteen
+    times, never built it, and 180 of 293 served cycles went to forks. The
+    named idea now goes to the FRONT of the composition queue, so it is the
+    next assignment -- and it passes the full idea gate like any other idea,
+    so a duplicate forks again honestly. A name already queued this way is not
+    queued twice: naming the same idea again cannot become a loop."""
+    try:
+        rec = mem.retrieve(VOLUME_MOUNT, "gate-choice-new") or {}
+        text = str(rec.get("value", "")).strip().strip('"')
+        if not text:
+            return None
+        name, _, desc = text.partition(":")
+        name, desc = name.strip(), (desc.strip() or text)
+        key = _pt_norm(name)
+        if not key:
+            return None
+        try:
+            with open(GATE_NEW_SEEN_PATH, encoding="utf-8") as f:
+                seen = json.load(f)
+        except Exception:
+            seen = []
+        if key in seen:
+            journal.append(VOLUME_MOUNT, "gate_new_repeat",
+                           f"(b) idea '{name}' was already queued once; not queued again")
+            return None
+        queue = _load_composition_queue()
+        spec = {"title": name, "brief": desc, "category": "composition",
+                "source": "gate-choice-new"}
+        queue.insert(0, spec)
+        _save_composition_queue(queue)
+        journal.atomic_json(GATE_NEW_SEEN_PATH, (seen + [key])[-GATE_NEW_SEEN_CAP:])
+        print(f"[oracle] (b) idea queued as the next assignment: {name}")
+        journal.append(VOLUME_MOUNT, "gate_new_queued", f"(b) idea '{name}' queued next")
+        return spec
+    except Exception as e:
+        print(f"[oracle] could not queue the (b) idea: {type(e).__name__}: {e}")
+        return None
 
 
 def _load_retro_state() -> dict:

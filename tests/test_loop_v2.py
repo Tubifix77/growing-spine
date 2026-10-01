@@ -3572,6 +3572,47 @@ async def main():
         check("gate choice: other assignments keep the run-it done condition",
               "run your finished tool" in _dw2, _dw2[:160])
         loop._clear_project_state()
+        # AN ANSWER THE FRAMEWORK ASKS FOR IS USED (2026-10-01): the (b) idea
+        # becomes the next assignment, once per name.
+        check("gate choice: the fork says the (b) idea becomes the next project",
+              "becomes your next project" in _gspec["brief"])
+        check("gate choice: the (b) bookkeeping writes only inside the test volume",
+              loop.GATE_NEW_SEEN_PATH.startswith(TMP)
+              and loop.COMPOSITION_QUEUE_PATH.startswith(TMP))
+        _q_saved = loop._load_composition_queue()
+        try:
+            for _pth in (loop.GATE_NEW_SEEN_PATH,):
+                if os.path.exists(_pth):
+                    os.remove(_pth)
+            loop._save_composition_queue([{"title": "queued-before", "brief": "x"}])
+            mem.store(loop.VOLUME_MOUNT, "gate-choice-new",
+                      "rtx-defragmenter: scans the library and collapses near-twins")
+            _q1 = loop._queue_gate_new_idea()
+            _qq = loop._load_composition_queue()
+            check("gate choice: the (b) idea goes to the FRONT of the queue",
+                  bool(_qq) and _qq[0].get("title") == "rtx-defragmenter"
+                  and _qq[0].get("brief", "").startswith("scans the library")
+                  and _qq[1].get("title") == "queued-before", str(_qq[:2])[:200])
+            check("gate choice: a queued (b) idea is NOT pre-cleared by the gate",
+                  bool(_q1) and "gate" not in _q1 and not _q1.get("gate_checked"))
+            _q2 = loop._queue_gate_new_idea()
+            check("gate choice: the same (b) idea is never queued twice",
+                  _q2 is None and len(loop._load_composition_queue()) == 2)
+            # The ASSEMBLY, reached the way production reaches it: a (b) done-mark
+            # through the real done-gate puts the idea first in line.
+            loop.journal.atomic_json(loop.GATE_CHOICE_STATE_PATH,
+                                {"target": "rtx_clean", "mtime": 9e12})
+            mem.store(loop.VOLUME_MOUNT, "gate-choice-new", "rtx-merge-planner: plans merges")
+            loop._enforce_done_gate([('remember gate-choice-new "rtx-merge-planner: plans merges"', 0),
+                                     ('remember current-phase "done"', 0)])
+            _qe = loop._load_composition_queue()
+            check("gate choice: a (b) done-mark through the done-gate queues the idea first",
+                  bool(_qe) and _qe[0].get("title") == "rtx-merge-planner", str(_qe[:1])[:160])
+        finally:
+            loop._save_composition_queue(_q_saved)
+            if os.path.exists(loop.GATE_NEW_SEEN_PATH):
+                os.remove(loop.GATE_NEW_SEEN_PATH)
+            mem.forget(loop.VOLUME_MOUNT, "gate-choice-new")
     finally:
         for _n in set(os.listdir(_rt_dir)) - _rt_pre:
             os.unlink(os.path.join(_rt_dir, _n))

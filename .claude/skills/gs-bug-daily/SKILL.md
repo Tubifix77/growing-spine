@@ -251,6 +251,20 @@ PY
     the exec block (fixed `260d4f4`) — so when one rung's births spike, read
     its exec blocks for the shape before blaming the model.
 
+25. **The longest-held project, and the truncation inside it.** Added
+    2026-09-30 by the blank pass. One gate-choice fork stayed armed for
+    12.5 h and 91 served cycles, and every other item read it as ordinary:
+    errors were few, the skip rate by rung looked like a model problem, and
+    the retrospective judge rated the window PROGRESSING twice (12:44, 19:33)
+    with zero tools completed. The signature was reply truncation by HOUR:
+    ~15% most of the day, 50–75% inside the stuck stretch, every truncated
+    reply a ~11k-char re-deliberation of the same fork. Report the project
+    (the `ideation` assignment) with the longest span in the window, the
+    served cycles inside it, and truncation inside it against outside it. A
+    project held for hours with truncation far above the window's is being
+    re-read every wake and cannot be finished as written, so read what its
+    text says completes it.
+
 18. **Deltas against the previous run of this skill**, from the history file.
 
 ## Tier 2 — pointed open inspection. Prose, and it cannot be skipped.
