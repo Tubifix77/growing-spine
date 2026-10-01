@@ -2,7 +2,7 @@
 
 A self-improvement creature in a box. Descended from [Spine Reborn](https://github.com/Tubifix77/spine-reborn).
 
-**Status:** Live. First boot 2026-06-03. Re-architected to the *toolsmith* design 2026-06-21 (v0.6). Self-restart capability added 2026-06-21 (v0.7). Composition/depth mode added 2026-06-23 (v0.8). Batched ideation + pipeline hygiene 2026-06-25 → 07-02 (v0.9.x). Systematic rut detection 2026-07-03 (v0.10). Planning-level batch idea-gate + a real news horizon 2026-07-10 (v0.11). Embedding idea-gate — paraphrase-proof dedup — 2026-07-14 (v0.12). Four-provider keychain (OpenRouter joined 2026-07-17 ahead of Cerebras's free-tier retirement) with per-provider dashboard chips. The idea gate went ACTIVE 2026-07-30 after 16 shadow days — covered ideas now serve an upgrade-or-go-new choice — on a nine-window keychain across five model families. The body became observable and the headline metric — edges per tool — got its own instrument 2026-09-21 (v0.16). The ladder stopped misreading its own errors, and the framework stopped seeding the subagent pattern, 2026-09-26 (v0.17); the ladder is now four free rungs. The creature answered the retirement of its second model with a mock of its own, and the framework learned to see through it, 2026-09-27 → 09-30 (v0.18). Running on a dedicated Debian laptop under a systemd supervisor, thinking via a free-tier API keychain, never touching the operator's main PC.
+**Status:** Live. First boot 2026-06-03. Re-architected to the *toolsmith* design 2026-06-21 (v0.6). Self-restart capability added 2026-06-21 (v0.7). Composition/depth mode added 2026-06-23 (v0.8). Batched ideation + pipeline hygiene 2026-06-25 → 07-02 (v0.9.x). Systematic rut detection 2026-07-03 (v0.10). Planning-level batch idea-gate + a real news horizon 2026-07-10 (v0.11). Embedding idea-gate — paraphrase-proof dedup — 2026-07-14 (v0.12). Four-provider keychain (OpenRouter joined 2026-07-17 ahead of Cerebras's free-tier retirement) with per-provider dashboard chips. The idea gate went ACTIVE 2026-07-30 after 16 shadow days — covered ideas now serve an upgrade-or-go-new choice — on a nine-window keychain across five model families. The body became observable and the headline metric — edges per tool — got its own instrument 2026-09-21 (v0.16). The ladder stopped misreading its own errors, and the framework stopped seeding the subagent pattern, 2026-09-26 (v0.17); the ladder is now four free rungs. The creature answered the retirement of its second model with a mock of its own, and the framework learned to see through it, 2026-09-27 → 09-30 (v0.18). The idea gate's choice fork became finishable, and the creature's answer to it started being used, 2026-09-30 → 10-01 (v0.19). Running on a dedicated Debian laptop under a systemd supervisor, thinking via a free-tier API keychain, never touching the operator's main PC.
 
 ---
 
@@ -59,6 +59,16 @@ knowledge-gap fillers to its own pre-edit backup habit, indexed by what each
 tool claims to do and how often it actually ran in the last fortnight. The
 interactive [framework map](docs/framework-map.html) shows the machinery —
 every LLM prompt verbatim, every gate in place — that shaped this growth.
+
+## Current status (2026-10-01, v0.19) — a choice it could not finish, then an answer nobody read
+
+**777 own tools, 1.60 dependency edges per tool, 1.25 without the one helper hub** (live static scan, 2026-10-01): flat against the 1.60 / 1.26 baseline.
+
+**The creature spent twelve and a half hours on one decision it could not complete.** When the idea gate finds a proposed tool already exists, it offers a choice: (a) upgrade the existing tool, or (b) drop the idea and name a genuinely new one. Option (b) only asked it to name the idea. But the note stored with every assignment said to mark done only after running a finished tool, and under (b) there is no tool. So each time it chose (b) it went off to build something, the choice stayed open, and every wake it re-read and re-argued the same decision until its reply ran out of room. The fork text now says what completes each option. It was tested first on a local model of the same family over 16 real cases: with the old wording a model that had chosen (b) finished the choice 0 times in 16, and with the new wording 16 times in 16. The stuck choice closed within the hour.
+
+**Then it became clear we were discarding its answer.** With (b) finishable, the creature closed choices in one cycle and named the same new idea fifteen times, because nothing in the framework ever read it. The named idea now becomes its next assignment, still checked by the idea gate, and naming the same idea again cannot loop.
+
+**It also put its own house in order.** It retired the mock that had pretended to be a second model. Its helper now calls the retired `ask` and fails honestly, so the tools built on it fail where a model step was, instead of returning invented answers.
 
 ## Current status (2026-09-30, v0.18) — the creature fakes its second model, and the framework stops being fooled
 
