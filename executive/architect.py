@@ -141,6 +141,12 @@ def parse_architect(raw, n):
     return len(decisions), decisions, directive, wanted
 
 
+# What a KEEP ruling appends to a brief. It names the tool the idea was judged
+# against, not one the idea builds on, so a reader that asks "what does this
+# idea build on?" must stop here (loop._idea_own_text). One literal, both sides.
+ARCHITECT_TAIL = "\n[architect] "
+
+
 def apply_architect(items, decisions):
     """(kept_items, dropped_count). Fail-open: no decision -> KEEP unchanged.
     v1 known gap: a RESHAPEd brief sheds its gate tag ungated -- the
@@ -157,7 +163,7 @@ def apply_architect(items, decisions):
             it.pop("gate", None)
         elif v == "KEEP" and tail:
             it = dict(it)
-            it["brief"] = f"{it.get('brief', '')}\n[architect] {tail}"
+            it["brief"] = f"{it.get('brief', '')}{ARCHITECT_TAIL}{tail}"
         out.append(it)
     return out, dropped
 

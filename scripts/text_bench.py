@@ -353,9 +353,11 @@ def _tool_lines(ts, with_builtin=True):
 
 
 def _bench_pair(model, cases, maxtok, score):
-    """cases: [(old_prompt, new_prompt)]. Returns tallies, or None + reason."""
+    """cases: [(old_prompt, new_prompt)]. Returns tallies, or None + reason.
+    `score` is one scorer for every case, or a list with one per case."""
     t = {"old": 0, "new": 0, "n": 0, "empty": 0, "cut": 0, "rows": []}
-    for old_p, new_p in cases:
+    for i, (old_p, new_p) in enumerate(cases):
+        sc = score[i] if isinstance(score, list) else score
         row = []
         for variant, p in (("old", old_p), ("new", new_p)):
             r = ask(model, p, max_tokens=maxtok)
@@ -363,7 +365,7 @@ def _bench_pair(model, cases, maxtok, score):
                 return None, r["unreachable"]
             t["empty"] += not r["text"]
             t["cut"] += bool(r["input_cut"])
-            ok, note = score(r["text"])
+            ok, note = sc(r["text"])
             t[variant] += bool(ok)
             row.append((variant, ok, note))
         t["n"] += 1
@@ -692,6 +694,60 @@ def run_gate_benches(model, verbose):
     return results, None
 
 
+# ===========================================================================
+# THE DEAD-TARGET FACT NAMES ITS CHAIN (2026-10-02). It said "depends, directly
+# or through your other tools, on the retired `ask`", and the creature spent 81
+# minutes grepping `plan_failure_analysis` for a call two tools away. OLD is
+# the committed sentence (dead=True); NEW renders the real chain through
+# loop._gate_choice_text. Cases: every fork target since 09-27 that reaches
+# `ask`, plus the dead targets queued on 10-02, chains computed live.
+# ===========================================================================
+_CHAIN_FIX = os.path.join(HERE, "fixtures", "dead_chain.json")
+
+
+def run_chain_benches(model, verbose):
+    cases = json.load(open(_CHAIN_FIX, encoding="utf-8"))
+    ideas = [c["new_idea"] for c in json.load(open(_GATE_FIX, encoding="utf-8"))["cases"]]
+    from executive import loop as _loop
+
+    def prompt(c, chain, scenario):
+        b, d, w = _loop._gate_choice_text("DUPLICATE", c["target"], "", chain)
+        return _GATE_Q.format(tgt=c["target"], brief=b, demo=d, done_when=w,
+                              scenario=scenario)
+    results = {}
+    # 1. It has chosen (a) and read the target, which has no `ask` in it -- the
+    # moment the 10-02 hunt began. Does its next block go to the right link?
+    # (Asked one step earlier, every reply in both wordings simply runs or reads
+    # the target, as the fork tells it to, so that moment measures nothing.)
+    pairs = []
+    for c in cases:
+        sc = ("'%s' does: %s\nYou have chosen (a). You have read /mind/tools/own/%s: "
+              "it contains no call to `ask`." % (c["target"], c["target_does"], c["target"]))
+        pairs.append((prompt(c, True, sc), prompt(c, c["chain"], sc)))
+
+    def scorer_for(i):
+        links = cases[i]["chain"][1:]
+
+        def s(a):
+            hit = [t for t in links if re.search(r"(?<![\w.-])%s(?![\w-])" % re.escape(t), a or "")]
+            return bool(hit), ("opens " + hit[0]) if hit else (a or "(empty)")[:60]
+        return s
+    results["link"] = _bench_pair(model, pairs, 300, [scorer_for(i) for i in range(len(cases))]) + (
+        "having chosen (a), the next block names a tool on the chain past the target",)
+    # 2. Regression: having chosen (b), does it still record AND mark done?
+    pairs = []
+    for i, c in enumerate(cases):
+        sc = "You have decided on option (b). Your new idea is: %s" % ideas[i % len(ideas)]
+        pairs.append((prompt(c, True, sc), prompt(c, c["chain"], sc)))
+
+    def completes_b(a):
+        ok = bool(_RECORDS.search(a or "")) and bool(_DONE.search(a or ""))
+        return ok, ("records + done" if ok else (a or "(empty)")[:60])
+    results["b_dead"] = _bench_pair(model, pairs, 300, completes_b) + (
+        "with a dead target, having chosen (b), records it AND marks done",)
+    return results, None
+
+
 def load(spec):
     p = os.path.join(HERE, "fixtures", spec["file"])
     d = json.load(open(p, encoding="utf-8"))
@@ -731,7 +787,8 @@ def run_surface(name, model, verbose):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--bench", default="all",
-                    choices=list(SURFACES) + ["all", "subagent", "ask", "gatechoice"])
+                    choices=list(SURFACES) + ["all", "subagent", "ask", "gatechoice",
+                                              "deadchain"])
     ap.add_argument("--model", default=DEFAULT_MODEL)
     ap.add_argument("--quiet", action="store_true")
     args = ap.parse_args()
@@ -774,6 +831,16 @@ def main():
             return EXIT_UNKNOWN
         return EXIT_UNKNOWN if report_ask(res, not args.quiet,
                                           ("b_completes", "no_orphan")) else 0
+
+    if args.bench == "deadchain":
+        print("bench: %s via %s  num_ctx=%d  (dead-target chain surfaces)"
+              % (args.model, OLLAMA, NUM_CTX))
+        print("the local model is a BENCH ONLY and is never a rung (section 6)")
+        res, err = run_chain_benches(args.model, not args.quiet)
+        if err:
+            print("UNKNOWN: lost the local model mid-run -- %s" % err)
+            return EXIT_UNKNOWN
+        return EXIT_UNKNOWN if report_ask(res, not args.quiet, ("link", "b_dead")) else 0
 
     names = list(SURFACES) if args.bench == "all" else [args.bench]
     print("bench: %s via %s  num_ctx=%d" % (args.model, OLLAMA, NUM_CTX))

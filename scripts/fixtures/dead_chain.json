@@ -1,0 +1,142 @@
+[
+ {
+  "target": "catchup_memory_archiver",
+  "chain": [
+   "catchup_memory_archiver",
+   "subagent_ask_helper"
+  ],
+  "target_does": "Composes wake_catchup_fetcher, wake_orient_digest, keyword-archive-store, and subagent_ask_helper to digest, archive, and synthesize a timeline of wake-up info",
+  "forks": 3
+ },
+ {
+  "target": "LiveDigestSynthesizer",
+  "chain": [
+   "LiveDigestSynthesizer",
+   "subagent_ask_helper"
+  ],
+  "target_does": "Synthesize a human-readable narrative digest from wake and archive information for an entity.",
+  "forks": 2
+ },
+ {
+  "target": "memory_archive_research",
+  "chain": [
+   "memory_archive_research",
+   "knowledge_gap_filler",
+   "subagent_ask_helper"
+  ],
+  "target_does": "Iteratively expands a query, recalls archive memory, fills gaps via knowledge_gap_filler, and synthesizes a final archived result.",
+  "forks": 1
+ },
+ {
+  "target": "adaptive_research_plan_pivot",
+  "chain": [
+   "adaptive_research_plan_pivot",
+   "subagent_ask_helper"
+  ],
+  "target_does": "Uses knowledge_gap_filler to identify missing data, rewrites the plan in step-planner-tracker, and logs the pivot reason in keyword-archive-store.",
+  "forks": 1
+ },
+ {
+  "target": "research_fetch_planner",
+  "chain": [
+   "research_fetch_planner",
+   "subagent_ask_helper"
+  ],
+  "target_does": "Gap-aware research planner that searches archives, identifies knowledge gaps, and generates a tracked plan of action.",
+  "forks": 1
+ },
+ {
+  "target": "EntityDisambiguator",
+  "chain": [
+   "EntityDisambiguator",
+   "knowledge_gap_filler",
+   "subagent_ask_helper"
+  ],
+  "target_does": "Disambiguate entity mentions using context, memory search, and LLM; stores resolution in memstore and keyword-archive.",
+  "forks": 1
+ },
+ {
+  "target": "GapDrivenTaskCreator",
+  "chain": [
+   "GapDrivenTaskCreator",
+   "subagent_ask_helper"
+  ],
+  "target_does": "Bridges research and planning: runs research_answer_pipeline, decomposes the result into actionable steps via subagent, and registers them in step-planner-track",
+  "forks": 1
+ },
+ {
+  "target": "WakeResearchPlanner",
+  "chain": [
+   "WakeResearchPlanner",
+   "subagent_ask_helper"
+  ],
+  "target_does": "Bridges recall, fetch, search, and memory clusters to output insights unavailable from any single source.",
+  "forks": 1
+ },
+ {
+  "target": "plan_failure_analysis",
+  "chain": [
+   "plan_failure_analysis",
+   "knowledge_gap_filler",
+   "subagent_ask_helper"
+  ],
+  "target_does": "Actively analyzes systemic plan failures, archives root causes, and registers corrective tasks in the planner.",
+  "forks": 1
+ },
+ {
+  "target": "LiveResearchPlanner",
+  "chain": [
+   "LiveResearchPlanner",
+   "LLMCostEfficientResearchPlanner",
+   "subagent_ask_helper"
+  ],
+  "target_does": "Ingests wake_catchup_fetcher items as triggers to create a cost-efficient research project in step-planner-tracker.",
+  "forks": 0
+ },
+ {
+  "target": "wake_orient_digest_planner",
+  "chain": [
+   "wake_orient_digest_planner",
+   "subagent_ask_helper"
+  ],
+  "target_does": "Orchestrates a wake-up research cycle: fetches fresh items, digests novelty, and schedules a plan in step-planner-tracker.",
+  "forks": 0
+ },
+ {
+  "target": "fetch_archive_store",
+  "chain": [
+   "fetch_archive_store",
+   "subagent_ask_helper"
+  ],
+  "target_does": "Fetch content from a URL, process it via LLM with a specific prompt, and store the result in the keyword archive.",
+  "forks": 0
+ },
+ {
+  "target": "memory_archive_search_helper",
+  "chain": [
+   "memory_archive_search_helper",
+   "subagent_ask_helper"
+  ],
+  "target_does": "Recursive multi-hop search. Identifies keywords, searches the archive, detects knowledge gaps, fills them via knowledge_gap_filler, and iterates until the answe",
+  "forks": 0
+ },
+ {
+  "target": "CitationEnricher",
+  "chain": [
+   "CitationEnricher",
+   "subagent_ask_helper"
+  ],
+  "target_does": "Fetch fresh info, archive it, answer via recall_and_answer, and append precise archive citations.",
+  "forks": 0
+ },
+ {
+  "target": "memory_gap_filler",
+  "chain": [
+   "memory_gap_filler",
+   "knowledge_gap_filler",
+   "subagent_ask_helper"
+  ],
+  "target_does": "Retrieve a fact from memstore; if missing, run knowledge_gap_filler to fetch it, and store the result in memstore.",
+  "forks": 0
+ }
+]

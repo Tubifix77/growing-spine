@@ -989,6 +989,14 @@ async def main():
           "err_as_tool" in _uns or os.name != "posix")
     check("a healthy tool written the same cycle is NOT flagged",
           "real_tool" not in _uns)
+    # 2026-10-02: `tool-new` with no description printed its usage and created
+    # nothing; the done-mark in the same block exited 0 and the tool was accepted.
+    _gh = loop._unstartable_tools_touched(
+        [("tool-new ghost_tool <<'EOF'\nprint(1)\nEOF\nremember current-phase done", 0)])
+    check("a tool written this cycle that does not exist cannot start",
+          "does not exist" in _gh.get("ghost_tool", ""), str(_gh))
+    check("a framework tool's name read as an argument is never flagged",
+          loop._unstartable_tools_touched([("tool-new tool-edit x", 0)]) == {})
 
     # A working shell tool must never be condemned by Python's grammar, and a
     # shell script without a shebang still runs under bash -- guessing from the
@@ -1019,6 +1027,14 @@ async def main():
         _breason = _bf.read()
     check("the block tells it plainly that the tool cannot start",
           "cannot start" in _breason and "esc_quotes" in _breason)
+    _m.store(TMP, "current-phase", "done")
+    _g4 = loop._enforce_done_gate([
+        ("tool-new ghost_tool <<'EOF'\nprint(1)\nEOF\nremember current-phase done", 0)])
+    with open(loop.DONE_BLOCK_PATH, encoding="utf-8") as _bf:
+        _breason4 = _bf.read()
+    check("the done-gate refuses a greenlight on a tool that was never written",
+          _g4 is False and "ghost_tool" in _breason4 and "does not exist" in _breason4,
+          _breason4[:200])
 
     # Remove the broken fixtures BEFORE the next assertion: a one-line broken file
     # also counts as hollow, and left in place they pushed the library backlog past
@@ -3514,6 +3530,39 @@ async def main():
         check("queue: the drop is journalled, and outside what the creature is shown",
               any(_k == "retired_drop" and "Dead Chain" in _c for _k, _c in _jr)
               and "retired_drop" not in loop.MEANINGFUL_KINDS)
+        # 2026-10-02: the filter read names the idea was COMPARED against. The
+        # architect's KEEP ruling names the near-duplicate it judged the idea
+        # against, and a (b) answer names tools to say how it differs from them.
+        from executive import architect as _arch
+        _kept_a, _ = _arch.apply_architect(
+            [{"title": "Fresh Chain", "brief": "run rtx_clean then archive",
+              "category": "composition"}],
+            {0: ("KEEP", "Augment rtx_via_llm to archive instead")})
+        check("retired filter: the architect's ruling is not what the idea builds on",
+              "rtx_via_llm" in _kept_a[0]["brief"]
+              and "rtx_via_llm" not in loop._idea_own_text(_kept_a[0])
+              and loop._retired_hit(_kept_a[0], _dead) == "")
+        _b_idea = {"title": "dep-auditor", "category": "composition", "source": "gate-choice-new",
+                   "brief": "maps prerequisites. Unlike rtx_via_llm, it needs no model."}
+        check("retired filter: a (b) idea naming a dead tool to contrast with it is kept",
+              loop._retired_hit(_b_idea, _dead) == ""
+              and loop._retired_hit(dict(_b_idea, source="oracle"), _dead) == "rtx_via_llm")
+        loop._seeds_saturated = lambda: True
+        loop._library_hollow_tools = lambda: []
+        _jr2 = []
+        loop.journal.append = lambda vm, kind, content, meta=None: _jr2.append((kind, content))
+        loop._save_composition_queue([_b_idea, _kept_a[0]])
+        try:
+            _s1 = await loop._oracle_next_spec_raw(None)
+            _s2 = await loop._oracle_next_spec_raw(None)
+        finally:
+            loop._seeds_saturated, loop._library_hollow_tools = _saved_sat, _saved_hol
+            loop.journal.append = _saved_ja
+            loop._save_composition_queue(_saved_q)
+        check("queue: a (b) idea and an architect-ruled idea are both SERVED, not dropped",
+              isinstance(_s1, dict) and _s1.get("title") == "dep-auditor"
+              and isinstance(_s2, dict) and _s2.get("title") == "Fresh Chain"
+              and not any(_k == "retired_drop" for _k, _c in _jr2))
         # A MOCK must not launder the set (2026-09-27): the creature linked its
         # helper to a script that answers every question with one canned plan.
         # The helper counts as reaching `ask` whatever its file holds now, and so
@@ -3535,15 +3584,27 @@ async def main():
             os.unlink(_hl)
         # The assignment states the FACT when its upgrade target is in the set,
         # and says nothing about how to respond (section 5: invariant, never mechanism).
-        _saved_trr = loop._tools_reaching_retired
-        loop._tools_reaching_retired = lambda deps=None: {"rtx_via_llm"}
-        try:
-            _gs_dead = loop._gate_choice_spec("EXTEND", "rtx_via_llm", "add a thing")["brief"]
-            _gs_live = loop._gate_choice_spec("EXTEND", "rtx_clean", "add a thing")["brief"]
-        finally:
-            loop._tools_reaching_retired = _saved_trr
+        loop._retired_cache["at"] = 0.0
+        _gs_dead = loop._gate_choice_spec("EXTEND", "rtx_via_llm", "add a thing")["brief"]
+        _gs_root = loop._gate_choice_spec("EXTEND", "rtx_direct_llm", "add a thing")["brief"]
+        _gs_live = loop._gate_choice_spec("EXTEND", "rtx_clean", "add a thing")["brief"]
         check("gate choice: a target that reaches the retired `ask` is told so",
-              "on the retired `ask`" in _gs_dead and "gets none" in _gs_dead)
+              "the retired `ask`" in _gs_dead and "gets none" in _gs_dead)
+        # WHO as well as WHAT (2026-10-02): "directly or through your other
+        # tools" sent it grepping the target for 81 minutes; the call sat two
+        # tools away. Same graph and roots as the set, nearest link first.
+        check("retired chain: the path runs from the target to the tool that calls `ask`",
+              loop._retired_chain("rtx_via_llm") == ["rtx_via_llm", "rtx_direct_llm"]
+              and loop._retired_chain("rtx_direct_llm") == ["rtx_direct_llm"]
+              and loop._retired_chain("rtx_clean") == [],
+              str(loop._retired_chain("rtx_via_llm")))
+        check("gate choice: the fact names the tool through which the target reaches `ask`",
+              "through `rtx_direct_llm`, which calls the retired `ask`" in _gs_dead
+              and "calls the retired `ask` itself" in _gs_root, _gs_dead[-320:])
+        check("gate choice: a lineage link is described by its job, not a call it may not contain",
+              loop._retired_chain_sentence("x", ["x", "subagent_ask_helper"]).startswith(
+                  "Fact about 'x': it reaches the retired `ask` through `subagent_ask_helper`, "
+                  "whose job is to ask a model."))
         check("gate choice: a live target gets no such line",
               "retired `ask`" not in _gs_live)
         check("gate choice: the fact names no mechanism to avoid",

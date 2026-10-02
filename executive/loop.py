@@ -944,29 +944,39 @@ _RETIRED_CALL = re.compile(
 # queue), and the graph under it costs 2.8 s at 751 tools (measured
 # 2026-09-26). The library does not change inside one serve.
 _RETIRED_CACHE_S = 300
-_retired_cache = {"at": 0.0, "dead": set()}
+_retired_cache = {"at": 0.0, "dead": set(), "deps": {}, "roots": set()}
 
 
-def _tools_reaching_retired(deps: dict = None) -> set:
+def _retired_roots(deps: dict) -> set:
+    """The tools that reach a retired framework tool THEMSELVES: a call in
+    their own source, or a lineage entry. Everything else in the set reaches
+    one of these through the graph."""
+    base = os.path.join(VOLUME_MOUNT, "tools", "own")
+    roots = {t for t in RETIRED_LINEAGE if t in deps}
+    for tool in deps:
+        try:
+            with open(_host_file(os.path.join(base, tool)), encoding="utf-8",
+                      errors="replace") as f:
+                if _RETIRED_CALL.search(f.read()):
+                    roots.add(tool)
+        except Exception:
+            continue
+    return roots
+
+
+def _tools_reaching_retired(deps: dict = None, roots: set = None) -> set:
     """Own tools that call a retired framework tool directly, plus every tool
     that reaches one of those through the dependency graph. Static, like the
     graph itself: it reads source and never runs a tool."""
     if deps is None:
         if time.time() - _retired_cache["at"] < _RETIRED_CACHE_S:
             return set(_retired_cache["dead"])
-        dead = _tools_reaching_retired(_tool_dependencies())
-        _retired_cache.update(at=time.time(), dead=set(dead))
+        deps = _tool_dependencies()
+        roots = _retired_roots(deps)
+        dead = _tools_reaching_retired(deps, roots)
+        _retired_cache.update(at=time.time(), dead=set(dead), deps=deps, roots=roots)
         return dead
-    base = os.path.join(VOLUME_MOUNT, "tools", "own")
-    dead = {t for t in RETIRED_LINEAGE if t in deps}
-    for tool in deps:
-        try:
-            with open(_host_file(os.path.join(base, tool)), encoding="utf-8",
-                      errors="replace") as f:
-                if _RETIRED_CALL.search(f.read()):
-                    dead.add(tool)
-        except Exception:
-            continue
+    dead = set(_retired_roots(deps) if roots is None else roots)
     rev = {}
     for a, bs in deps.items():
         for b in bs:
@@ -980,12 +990,82 @@ def _tools_reaching_retired(deps: dict = None) -> set:
     return dead
 
 
+def _retired_chain(tgt: str) -> list:
+    """How `tgt` reaches a retired framework tool: the shortest path through its
+    dependencies, nearest first, ending at a tool that reaches it itself --
+    [tgt] when `tgt` is that tool, [] when it does not reach one at all. Same
+    graph and same roots as the set, so the path can never name a link the set
+    does not count."""
+    if tgt not in _tools_reaching_retired():
+        return []
+    deps, roots, dead = (_retired_cache["deps"], _retired_cache["roots"],
+                         _retired_cache["dead"])
+    prev, todo = {tgt: None}, [tgt]
+    while todo:
+        n = todo.pop(0)
+        if n in roots:
+            path = []
+            while n is not None:
+                path.append(n)
+                n = prev[n]
+            return path[::-1]
+        for d in deps.get(n, ()):
+            if d in dead and d not in prev:
+                prev[d] = n
+                todo.append(d)
+    return [tgt]
+
+
+def _retired_chain_sentence(tgt: str, chain: list) -> str:
+    """The fork's fact, naming WHO as well as WHAT (2026-10-02). It said only
+    "depends, directly or through your other tools", and on 10-02 the creature
+    spent 81 minutes and 13 blocks grepping `plan_failure_analysis` for an `ask`
+    call that sat two tools away -- the hunt the tombstone's caller sentence
+    ended on 09-26."""
+    if len(chain) <= 1:
+        why = RETIRED_LINEAGE.get(tgt)
+        head = (f"Fact about '{tgt}': it {why}." if why else
+                f"Fact about '{tgt}': it calls the retired `ask` itself.")
+    else:
+        links = ", which runs ".join(f"`{t}`" for t in chain[1:])
+        last = chain[-1]
+        end = (f", whose job is to ask a model" if last in RETIRED_LINEAGE
+               else ", which calls the retired `ask`")
+        head = f"Fact about '{tgt}': it reaches the retired `ask` through {links}{end}."
+    return (head + f" There has been no second model since 2026-09-26, so any "
+            f"step of '{tgt}' that needs a model's answer gets none.")
+
+
 def _names_a_tool_in(text: str, tools: set) -> str:
     """The first of `tools` that `text` names as a whole word, or ''."""
     for t in sorted(tools, key=len, reverse=True):
         if len(t) >= 4 and re.search(r"(?<![\w.-])" + re.escape(t) + r"(?![\w-])", text):
             return t
     return ""
+
+
+def _idea_own_text(spec: dict) -> str:
+    """What a queued idea BUILDS ON, in its own words: title and brief, without
+    the architect's ruling. That ruling names the tool the idea was judged
+    AGAINST (`KEEP` appends "Augment X ..."), and on 2026-10-02 9 of the 14
+    queued ideas named a retired-reaching tool there and nowhere else -- so the
+    retired filter dropped them, pre-empting the fork that states the fact and
+    keeps both choices open (2026-09-27)."""
+    from .architect import ARCHITECT_TAIL
+    own = str(spec.get("brief", "")).split(ARCHITECT_TAIL, 1)[0]
+    return str(spec.get("title", "")) + " " + own
+
+
+def _retired_hit(spec: dict, dead: set) -> str:
+    """The retired-reaching tool a queued idea builds on, or ''. A judgement
+    about what WE recommend, never about what the creature chose: a (b) idea is
+    its own answer, and it names tools to say how it DIFFERS from them because
+    the fork asks it to ("Unlike knowledge_gap_filler ..."). Two such ideas were
+    dropped silently on 2026-10-02 and then refused as repeats when it named
+    them again. An answer the framework asks for is used."""
+    if spec.get("source") == "gate-choice-new":
+        return ""
+    return _names_a_tool_in(_idea_own_text(spec), dead)
 
 
 def _most_used_tools(n: int = 8) -> list:
@@ -1872,8 +1952,7 @@ async def _oracle_next_spec_raw(keychain) -> dict:
         refilled = False   # at most ONE refill: calls are the scarce resource
         while queue:
             spec = queue[0]
-            hit = _names_a_tool_in(
-                str(spec.get("title", "")) + " " + str(spec.get("brief", "")), dead)
+            hit = _retired_hit(spec, dead)
             if not hit:
                 break
             # Generated before the retirement, or against a stale usage list.
@@ -2044,7 +2123,7 @@ GATE_CHOICE_OPEN = ("This choice is your current project, and it is shown to you
                     "every cycle until you mark it done.")
 
 
-def _gate_choice_text(v: str, tgt: str, brief: str, dead: bool = False):
+def _gate_choice_text(v: str, tgt: str, brief: str, dead=False):
     """The fork's words: (brief, demonstration, done_when). Pure, so the bench
     renders exactly what ships.
 
@@ -2084,7 +2163,9 @@ def _gate_choice_text(v: str, tgt: str, brief: str, dead: bool = False):
     # returning one canned plan. The target's model step cannot answer; saying so
     # at the moment of assignment leaves both choices open and removes the
     # situation in which a fake is the only thing that passes.
-    if dead:
+    if isinstance(dead, (list, tuple)) and dead:
+        options += "\n" + _retired_chain_sentence(tgt, list(dead))
+    elif dead:
         options += ("\n" f"Fact about '{tgt}': it depends, directly or through your "
                     f"other tools, on the retired `ask`. There has been no second "
                     f"model since 2026-09-26, so any step of '{tgt}' that needs a "
@@ -2107,9 +2188,9 @@ def _gate_choice_text(v: str, tgt: str, brief: str, dead: bool = False):
 
 def _gate_choice_spec(v: str, tgt: str, brief: str) -> dict:
     try:
-        _dead_tgt = tgt in _tools_reaching_retired()
+        _dead_tgt = _retired_chain(tgt)
     except Exception:
-        _dead_tgt = False       # an instrument must never block an assignment
+        _dead_tgt = []          # an instrument must never block an assignment
     text, demo, done_when = _gate_choice_text(v, tgt, brief, _dead_tgt)
     _tpath = _host_file(os.path.join(VOLUME_MOUNT, "tools", "own", tgt))
     try:
@@ -2580,8 +2661,21 @@ def _unstartable_tools_touched(executed) -> dict:
     """
     base = os.path.join(VOLUME_MOUNT, "tools", "own")
     bad = {}
+    fw = os.path.join(toolmod._repo_root(), "framework-tools")
     for name in sorted(_tools_touched(executed)):
         path = _host_file(os.path.join(base, name))
+        # A tool that does not exist cannot start either (2026-10-02): `tool-new`
+        # given no description prints its usage and creates nothing, the done-mark
+        # later in the same block exits 0, and `error_pattern_stabilizer` was
+        # accepted as built -- the retro judge counted it among four completed
+        # tools. A missing file is a fact, not an unreadable one. A framework
+        # tool's name (`tool-edit` read as an argument) is never ours to flag.
+        if not os.path.lexists(path):
+            if not os.path.exists(os.path.join(fw, name)):
+                bad[name] = (f"it does not exist -- there is no file "
+                             f"/mind/tools/own/{name}, so nothing was written "
+                             f"under that name")
+            continue
         try:
             with open(path, encoding="utf-8", errors="replace") as f:
                 body = f.read()
