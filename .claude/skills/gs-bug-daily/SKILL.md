@@ -282,6 +282,18 @@ PY
     comparison. On 10-02 9 of 14 queued ideas and both (b) answers were
     dropped for names they were compared against.
 
+27. **The four Cousin guardrails (2026-10-02), each read every run.**
+    (a) `exec_end.failed`: present on every block since 18:27:59 — count
+    records where it is `None` (no record came back: the trailer is broken
+    or the block timed out) and say how many. (b) `false_completion`
+    refusals split by whether the reason names the claimed tool ("the last
+    time this cycle that `X` was written or run") or fell back to the old
+    rule, and every ACCEPTED completion whose claimed tool's last recorded
+    run failed — that number must be zero. (c) `SELFCHECK:` on the health
+    line and every `selfcheck` record: any `False` is an emergency (a key in
+    the body), `unknown` is a finding. (d) `RETRO:` — contradicted
+    completions, and the idle run against item 25's longest-held project.
+
 18. **Deltas against the previous run of this skill**, from the history file.
 
 ## Tier 2 — pointed open inspection. Prose, and it cannot be skipped.

@@ -682,6 +682,18 @@ or a path literal that already exists elsewhere, stop.
   is five, a "2-min cadence" that is ten seconds) while every mechanical
   reference in the same file was still exact. Re-read what a generator hardcodes
   as TEXT whenever you rebuild it.
+- **A block's exit code is its LAST command's, so any check keyed on it is
+  blind inside the block.** The done-gate judged "did a command fail" from
+  per-block codes for its whole life: a done-mark at the end of a block that
+  ran the tool and watched it crash exited 0 (42 such completions in 14 days,
+  15 with an error in that block's output), and a refusal quoted the first
+  failing block's first line, usually a probe, instead of the run that
+  mattered. Fixed 2026-10-02 by recording each failing command in the body
+  (`BASH_ENV` + `ERR` trap), which changes nothing the commands see. Two
+  rules came with it: **no record is UNKNOWN, never "nothing failed"**; and
+  **judge the work, not the room** — the failure that refutes a claim is the
+  claimed tool's own last write or run, not a `grep` that found nothing
+  beside it (Growing Cousin's brief, measured here: 17 of 121 refusals).
 - **Deploy code BEFORE config when a schema changes.** A `model_id` list landed on
   the laptop while the running brain still held the old single-string code; its
   last cycle sent the list verbatim and died on `HTTP 400: No models provided`.
@@ -917,7 +929,67 @@ journalctl --user -u growing-spine --since "2 hours ago"
 
 ---
 
-## 8. State — 2026-10-02 16:05
+## 8. State — 2026-10-02 18:30
+
+**Four guardrails taken from Growing Cousin, on Tue's "implement it!" after
+a read of its kernel, monitors and trial machinery (read-only; nothing there
+was touched). Each was measured on the spine before it was built.** Brain on
+`34f5e67` since **18:27:59**.
+
+1. **The body names each command that failed (`bcd7b6a`).** A block returns
+   ONE exit code, its last command's, so the done-gate could not see inside
+   the block carrying the done-mark (14 days: **42** completions accepted that
+   way, **15** with an error in that block's output) and quoted the first
+   failing block, often a probe. `exec_wrapper` now hands bash a `BASH_ENV`
+   file that installs an `ERR` trap: exit codes, `$?`, `set -e` and bash's own
+   `line N` messages untouched, child scripts do not inherit it, conditionals
+   record nothing (bash's rule). The record returns on stderr behind a marker
+   and is stripped (`sandbox.split_failed`); no record = UNKNOWN, never "none
+   failed". Journalled as the `failed` field of `exec_end` (`34f5e67`), never
+   in its content.
+2. **The done-gate judges the work, not the room.** "Refuse if ANY command
+   failed" refused **121** completions in 14 days; in **17** the tool being
+   finished had just run cleanly beside a failed `ls`, listing or `grep`. Now
+   the LAST write and the LAST run of each claimed tool (written this cycle,
+   the project's tool via `_project_tools`, a fork's target) decide; when no
+   claimed tool ran, the old rule stands unchanged. **Replayed on the 14
+   days:** 68 still refused and now naming the tool's own failure, 40 by the
+   old rule, **12 accepted** — 11 of them a planner listing, an `ls` or a
+   `grep` that found nothing. A failed write that was never redone still
+   refuses: the edit never landed and the old file is what ran.
+3. **`selfcheck` at every brain start and respawn.** Proves by effect that no
+   provider key is in the body (by name, and by value against the brain's 15
+   keys held in memory) and that `ask` is a tombstone; kind `selfcheck`, names
+   and counts only, never vetoes. **First live reading 18:26:19:**
+   `keys_absent=ok (0 key-shaped names, 0 of 15 provider keys found)
+   ask_retired=ok`. Closes the "keys withheld: UNVERIFIED" line for good.
+   `spine_health` prints `SELFCHECK:`.
+4. **The retro census.** `spine_health.check_retro_fidelity` checks every
+   completion the retro judge's digest names against the library, and the
+   longest run of PROGRESSING verdicts with nothing completed. Reports only.
+   Live: `RETRO:20v 8c/1x idle:4@policy_compliance_enforcer
+   RETRO-FIDELITY:!![error_pattern_stabilizer ...]` — the ghost of 11:10, as
+   it should; it ages out of the 24 h window tomorrow.
+
+**`groq_oss120` stays, and my recommendation to retire it was wrong.** It
+served at **16:54 today** — it carries the idea gate and the category
+classifier, whose prompts fit its 8,000 TPM — so retiring it would push those
+onto gemma's shared budget. Its ~600 `too_large` walls a day are wake-sized
+thinks it can never take, and **they cost nothing**: read from Groq's own
+headers, `x-ratelimit-remaining-requests` was 998 before a 413, 998 in the
+413's reply, 997 after the next tiny call. A 413 is not counted against the
+daily allowance the Cousin's judge uses first.
+
+**Not done, deliberately:** the defect-ledger hook (Tue's call — it constrains
+sessions in his settings); scars-as-detectors with real-journal fixtures (the
+large one, next); a presupposition sweep of every prompt string.
+**First check next run:** `exec_end.failed` present (a list, not `None`) on
+every block; refusals that name a tool vs the old rule; any done-mark accepted
+whose claimed tool's last run failed (there should be none).
+
+---
+
+### Previous state — 2026-10-02 16:05
 
 **gs-bug-daily 2026-10-02 (10-01 20:15 → 10-02 15:35, 20 h with records, no
 gaps; `journal.jsonl` by epoch `ts`).** 343 served at **17.1/h** (13.6 last
