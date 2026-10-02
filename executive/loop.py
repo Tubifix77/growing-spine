@@ -291,6 +291,8 @@ MEANINGFUL_KINDS = {"think_end", "exec_end", "error", "exec_timeout",
 # only 50.3% for +29%. Declared, not learned -- and re-derive it from a
 # fresh census rather than nudging it.
 EXEC_CMD_JOURNAL_CHARS = 600      # exec_start: command head kept in the journal
+EXEC_FAILED_JOURNAL_MAX = 20       # exec_end `failed` field: records kept per block
+EXEC_FAILED_JOURNAL_CHARS = 200    # ...and the command text kept per record
 EXEC_STDOUT_JOURNAL_CHARS = 1200  # exec_end: stdout head
 EXEC_STDERR_JOURNAL_CHARS = 600   # exec_end: stderr head
 JOURNAL_RENDER_CHARS = 1200       # per-entry cap in the wake-context render
@@ -4661,10 +4663,17 @@ async def run_cycle(keychain: Keychain, dockerfile_dir: str):
         result_summary = (f"exit={code} "
                           f"stdout={_capped(stdout, EXEC_STDOUT_JOURNAL_CHARS)} "
                           f"stderr={_capped(stderr, EXEC_STDERR_JOURNAL_CHARS)}")
+        _failed = sandbox.take_failed()
+        # The per-command record is journalled as a FIELD (never in `content`,
+        # which is what the creature's render shows): a channel nothing writes
+        # down is a channel nobody can prove is alive. None = no record came back.
         journal.append(VOLUME_MOUNT, "exec_end", result_summary,
-                       {"exit_code": code})
+                       {"exit_code": code,
+                        "failed": (None if _failed is None else
+                                   [[rc, c[:EXEC_FAILED_JOURNAL_CHARS]]
+                                    for rc, c in _failed[:EXEC_FAILED_JOURNAL_MAX]])})
         executed.append((cmd, code))
-        traces.append(sandbox.take_failed())
+        traces.append(_failed)
 
     # Audit P1-F8: a mid-cycle abort used to `return False` from inside the loop,
     # so the done-gate, usage tracking, the redirect backstop and the gage stamp

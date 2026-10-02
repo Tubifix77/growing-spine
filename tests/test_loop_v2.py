@@ -4585,6 +4585,11 @@ async def main():
               and _tr[0][0] == 127, repr(_tr))
     else:
         print("SKIP exec-trace bash checks: not POSIX (the laptop gate covers them)")
+    with open(loop.__file__, encoding="utf-8") as _lf:
+        _lsrc = _lf.read()
+    _ee = _lsrc[_lsrc.index('journal.append(VOLUME_MOUNT, "exec_end", result_summary'):][:400]
+    check("exec trace: the record is journalled as a field of exec_end, never in its content",
+          '"failed":' in _ee and "result_summary," in _ee)
     check("runs-tool: reading, listing or writing a tool is not running it",
           loop._runs_tool("python3 /mind/tools/own/dg_t x", "dg_t")
           and loop._runs_tool("y=$(dg_t a)", "dg_t") and loop._runs_tool("ls | dg_t", "dg_t")
