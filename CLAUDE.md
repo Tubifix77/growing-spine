@@ -694,6 +694,14 @@ or a path literal that already exists elsewhere, stop.
   **judge the work, not the room** — the failure that refutes a claim is the
   claimed tool's own last write or run, not a `grep` that found nothing
   beside it (Growing Cousin's brief, measured here: 17 of 121 refusals).
+  **And the record has blind spots, so an EMPTY record is not a pass when
+  the block failed:** bash's `ERR` trap is silent inside `&&`/`||` lists and
+  on an explicit `exit N`, a pipeline without `pipefail` reports only its
+  last stage, and a script that sets its own `trap … ERR` replaces ours. The
+  first v0.20 rule read `tool && echo ok`, with the tool failing, as a clean
+  run — where the block's exit code alone had refused it before. Found the
+  same evening, fixed `f0443f2`: a nonzero exit that no recorded failure
+  explains counts against whatever that block wrote or ran.
 - **Deploy code BEFORE config when a schema changes.** A `model_id` list landed on
   the laptop while the running brain still held the old single-string code; its
   last cycle sent the list verbatim and died on `HTTP 400: No models provided`.
@@ -983,6 +991,20 @@ daily allowance the Cousin's judge uses first.
 **Not done, deliberately:** the defect-ledger hook (Tue's call — it constrains
 sessions in his settings); scars-as-detectors with real-journal fixtures (the
 large one, next); a presupposition sweep of every prompt string.
+**Regression of my own, fixed the same evening (`f0443f2`, brain restarted
+22:51:47):** the first version read an empty failure record as a clean run
+even when the block exited nonzero (`tool && echo ok`); see the §5 scar.
+Docs synced to v0.20 (`d98d984`, map `07f0a90`).
+
+**Retirement notice, 22:40, from another session of Tue's** (the one building
+the successor, `Tubifix77/spine-cousin-evolution`): the spine and the Cousin
+are to be replaced by one program; Tue stops both himself when it reports
+ready; units stay installed and disabled and the volumes are never deleted,
+as the rollback path. Not yet confirmed by Tue directly. Its asks match
+standing rules (clean pushed tree, never delete the mind/journal/memory,
+never tell the creature). The unwritten knowledge it asked for was sent to
+it in reply.
+
 **First check next run:** `exec_end.failed` present (a list, not `None`) on
 every block; refusals that name a tool vs the old rule; any done-mark accepted
 whose claimed tool's last run failed (there should be none).
