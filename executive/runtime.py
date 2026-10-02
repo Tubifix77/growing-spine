@@ -45,6 +45,30 @@ async def managed_exec(cmd: str, volume_mount: str, savegame_root: str,
     return stdout, stderr, code
 
 
+def record_selfcheck(volume_mount: str, when: str) -> dict:
+    """Run sandbox.selfcheck and journal the result as kind `selfcheck` --
+    outside MEANINGFUL_KINDS, for us and never the creature. A False is shouted
+    in the brain's log; nothing is blocked either way."""
+    try:
+        r = sandbox.selfcheck()
+    except Exception as e:
+        r = {"keys_absent": None, "ask_retired": None,
+             "error": f"{type(e).__name__}: {e}"[:200]}
+    r["when"] = when
+    state = lambda v: "ok" if v is True else ("FAILED" if v is False else "unknown")
+    line = (f"keys_absent={state(r.get('keys_absent'))} "
+            f"({len(r.get('key_shaped_names') or [])} key-shaped names, "
+            f"{r.get('config_keys_found')} of {r.get('config_keys_checked')} "
+            f"provider keys found) ask_retired={state(r.get('ask_retired'))} at {when}")
+    print(("[selfcheck] !! " if False in (r.get("keys_absent"), r.get("ask_retired"))
+           else "[selfcheck] ") + line)
+    try:
+        journal.append(volume_mount, "selfcheck", line, r)
+    except Exception:
+        pass
+    return r
+
+
 async def ensure_body(volume_mount: str, savegame_root: str,
                       dockerfile_dir: str, last_cmd: str = "") -> bool:
     """
@@ -84,6 +108,7 @@ async def ensure_body(volume_mount: str, savegame_root: str,
                            f"respawned body still cannot execute: {detail}")
             return False
         print(f"[runtime] Body respawned.")
+        record_selfcheck(volume_mount, "respawn")
         return True
     except Exception as e:
         journal.append(volume_mount, "error", f"Respawn failed: {e}")

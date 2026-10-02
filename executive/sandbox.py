@@ -1,5 +1,5 @@
 """sandbox.py — manage the creature's Docker container (mortal body)."""
-import subprocess, base64, time
+import subprocess, base64, re, time
 
 CONTAINER_NAME = "growing-spine-body"
 IMAGE_NAME = "growing-spine"
@@ -105,8 +105,63 @@ def exec_wrapper(cmd: str) -> str:
     enc = base64.b64encode(cmd.encode()).decode()
     return ('export PATH="/mind/tools/framework:/mind/tools/own:$PATH"; '
             'f=$(mktemp /tmp/.exec-block.XXXXXX) || exit 125; '
+            'g=$(mktemp /tmp/.exec-failed.XXXXXX) || exit 125; '
             f'echo {enc} | base64 -d > "$f"; '
-            'bash "$f" </dev/null; rc=$?; rm -f "$f"; exit $rc')
+            f'echo {_FAILED_TRAP_B64} | base64 -d > "$g.env"; '
+            'GS_FAILED="$g" BASH_ENV="$g.env" bash "$f" </dev/null; rc=$?; '
+            f'printf \'\\036GS-FAILED %s\' "$(head -c {EXEC_FAILED_MAX_BYTES} "$g" '
+            '| base64 -w0)" >&2; '
+            'rm -f "$f" "$g" "$g.env"; exit $rc')
+
+
+# WHICH command in a block failed (2026-10-02). A block is many commands and
+# returns ONE exit code, its last one's -- so the done-gate could not see a
+# failure inside the block that carries the done-mark (42 completions in 14
+# days were accepted that way, 15 with an error in that block's output), and
+# it quoted the first failing BLOCK, often a probe, instead of the run that
+# mattered. bash sources BASH_ENV before the script, so the trap is installed
+# without changing one line of the creature's file: exit codes, `$?`, `set -e`
+# and bash's own `line N` messages are untouched, child scripts do not inherit
+# it, and conditionals (`if`, `||`, `&&`) record nothing, by bash's own rule.
+# The record travels back on stderr behind a marker and is stripped there, so
+# the creature sees exactly what its commands printed.
+_FAILED_TRAP = (
+    "__gs_f=$GS_FAILED; unset GS_FAILED BASH_ENV\n"
+    "set -o errtrace\n"
+    "trap '__gs_rc=$?; printf \"%s\\t%s\\n\" \"$__gs_rc\" "
+    "\"${BASH_COMMAND//[$'\"'\"'\\t\\n'\"'\"']/ }\" >> \"$__gs_f\"; "
+    "(exit $__gs_rc)' ERR\n")
+_FAILED_TRAP_B64 = base64.b64encode(_FAILED_TRAP.encode()).decode()
+EXEC_FAILED_SENTINEL = "\x1eGS-FAILED "
+EXEC_FAILED_MAX_BYTES = 65536
+_last_failed = None
+
+
+def split_failed(err: str):
+    """(stderr as the commands wrote it, [(exit_code, command), ...] or None).
+    None means the block's failures are UNKNOWN -- no record came back -- which
+    is not the same as none failing, and callers must fall back to the exit code."""
+    i = (err or "").rfind(EXEC_FAILED_SENTINEL)
+    if i < 0:
+        return err, None
+    payload = err[i + len(EXEC_FAILED_SENTINEL):].strip()
+    try:
+        raw = base64.b64decode(payload).decode("utf-8", "replace") if payload else ""
+    except Exception:
+        return err[:i], None
+    recs = []
+    for line in raw.splitlines():
+        rc, _, c = line.partition("\t")
+        if rc.strip().isdigit():
+            recs.append((int(rc.strip()), c.strip()))
+    return err[:i], recs
+
+
+def take_failed():
+    """The failed commands of the last run_command, once. None = unknown."""
+    global _last_failed
+    out, _last_failed = _last_failed, None
+    return out
 
 
 def run_command(cmd: str) -> tuple:
@@ -114,11 +169,14 @@ def run_command(cmd: str) -> tuple:
     Execute cmd inside the container via base64 (VibeOS pattern).
     Returns (stdout, stderr, exit_code).
     """
+    global _last_failed
+    _last_failed = None
     r = subprocess.run(
         ["docker", "exec", CONTAINER_NAME, "bash", "-c", exec_wrapper(cmd)],
         capture_output=True, text=True, errors="replace", timeout=300
     )
-    out, err, code = r.stdout, r.stderr, r.returncode
+    out, code = r.stdout, r.returncode
+    err, _last_failed = split_failed(r.stderr)
     if exec_setup_failure(out, err, code):
         # The command never RAN. Docker's own diagnostic must not be delivered as
         # the command's answer: on 2026-08-18 `echo alive` returned exit 128 with
@@ -181,6 +239,58 @@ def body_responds(timeout: int = 20) -> tuple:
         return True, ""
     detail = " ".join((r.stdout + " " + r.stderr).split())[:200]
     return False, "exec probe exit %d: %s" % (r.returncode, detail)
+
+
+# A name that looks like it holds a credential. Names only are ever reported.
+KEY_NAME_RE = re.compile(r"(?:^|_)(?:API_?KEY|KEY|TOKEN|SECRET|PASSWORD|PASSWD)(?:$|_)",
+                         re.I)
+SELFCHECK_MIN_SECRET = 12
+_selfcheck_secrets = []
+
+
+def set_selfcheck_secrets(secrets):
+    """The brain's own provider keys, held in memory so selfcheck can prove
+    none of them reached the body. Never written, printed or journalled."""
+    global _selfcheck_secrets
+    _selfcheck_secrets = [s for s in (secrets or [])
+                          if isinstance(s, str) and len(s) >= SELFCHECK_MIN_SECRET]
+
+
+def selfcheck(secrets=None) -> dict:
+    """Prove the body's bounds by their EFFECT, at every start (2026-10-02,
+    taken from Growing Cousin's start-up selfcheck). Since 2026-09-26 no
+    provider key enters the body and `ask` is a tombstone, and the only proof
+    of either was a session typing `env` into the body during a daily check --
+    "keys withheld: UNVERIFIED today" stood in CLAUDE.md section 8 four times.
+    A setting that is present, parsed and live can still do nothing; ask the
+    body. Three states per check: True, False, None (could not tell). It never
+    vetoes: a body that fails it still runs, and the record says so.
+    Reports names and counts only, never a value.
+    """
+    secrets = _selfcheck_secrets if secrets is None else [
+        s for s in secrets if isinstance(s, str) and len(s) >= SELFCHECK_MIN_SECRET]
+    res = {"keys_absent": None, "ask_retired": None, "key_shaped_names": [],
+           "config_keys_checked": len(secrets), "config_keys_found": None}
+    try:
+        out, _err, code = run_command("env")
+        take_failed()
+        if code == 0 and "=" in out:
+            names = [l.split("=", 1)[0] for l in out.splitlines() if "=" in l]
+            res["key_shaped_names"] = sorted(n for n in names if KEY_NAME_RE.search(n))
+            res["config_keys_found"] = sum(1 for s in secrets if s in out)
+            res["keys_absent"] = (not res["key_shaped_names"]
+                                  and res["config_keys_found"] == 0)
+    except Exception:
+        pass
+    try:
+        out, err, code = run_command("ask selfcheck")
+        take_failed()
+        if not exec_setup_failure(out, err, code):
+            res["ask_retired"] = (code != 0 and not out.strip()
+                                  and "retired" in (err or ""))
+    except Exception:
+        pass
+    return res
 
 
 def respawn(dockerfile_dir: str = "."):

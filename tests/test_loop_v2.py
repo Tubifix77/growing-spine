@@ -4552,6 +4552,167 @@ async def main():
     else:
         print("SKIP exec-block stdin checks: not POSIX (the laptop gate covers them)")
 
+    # ---- WHICH command failed, and judging the work not the room (2026-10-02) ----
+    # A block returns one exit code. The done-gate refused 121 completions in 14
+    # days on "any command failed", 17 of them while the tool being finished had
+    # just run cleanly, and it could not see inside the block carrying the mark.
+    _e0, _r0 = _sb.split_failed("boom" + _NL + _sb.EXEC_FAILED_SENTINEL
+                                + __import__("base64").b64encode(
+                                    b"1\tfalse\n127\tnosuch x\n").decode())
+    check("exec trace: the record is stripped and parsed, stderr kept as written",
+          _e0 == "boom" + _NL and _r0 == [(1, "false"), (127, "nosuch x")], repr((_e0, _r0)))
+    check("exec trace: no record is UNKNOWN, never 'nothing failed'",
+          _sb.split_failed("plain") == ("plain", None)
+          and _sb.split_failed(_sb.EXEC_FAILED_SENTINEL)[1] == [])
+    if os.name == "posix" and shutil.which("bash") and shutil.which("base64"):
+        _blk = _NL.join(["echo one", "nosuchcmd_q7", "false", "echo \"rc=$?\"",
+                         "grep -q zzqq /etc/hostname || true",
+                         "if grep -q zzqq /etc/hostname; then :; fi",
+                         "bash -c 'echo child=${BASH_ENV-unset}'", "exit 3"])
+        _p = __import__("subprocess").run(["bash", "-c", _sb.exec_wrapper(_blk)],
+                                          capture_output=True, text=True, timeout=20)
+        _te, _tr = _sb.split_failed(_p.stderr)
+        check("exec trace: stdout, $? and the exit code are exactly as without it",
+              _p.stdout == "one" + _NL + "rc=1" + _NL + "child=unset" + _NL
+              and _p.returncode == 3, repr((_p.stdout, _p.returncode)))
+        check("exec trace: bash's own line numbers are unchanged",
+              # bash says `line 2` or, in the laptop's Danish, `linje 2`
+              bool(__import__("re").search(r"\b2: nosuchcmd_q7", _te))
+              and _sb.EXEC_FAILED_SENTINEL not in _te,
+              repr(_te))
+        check("exec trace: each failing command is named; conditionals record nothing",
+              _tr is not None and [c for _rc, c in _tr] == ["nosuchcmd_q7", "false"]
+              and _tr[0][0] == 127, repr(_tr))
+    else:
+        print("SKIP exec-trace bash checks: not POSIX (the laptop gate covers them)")
+    check("runs-tool: reading, listing or writing a tool is not running it",
+          loop._runs_tool("python3 /mind/tools/own/dg_t x", "dg_t")
+          and loop._runs_tool("y=$(dg_t a)", "dg_t") and loop._runs_tool("ls | dg_t", "dg_t")
+          and not loop._runs_tool("cat /mind/tools/own/dg_t", "dg_t")
+          and not loop._runs_tool("tool-edit dg_t <<'EOF'", "dg_t")
+          and not loop._runs_tool("dg_t_v2 a", "dg_t")
+          and not loop._runs_tool("tool-edit x <<'EOF'" + _NL + "dg_t arg" + _NL + "EOF", "dg_t")
+          and loop._runs_tool("tool-edit x <<'EOF'" + _NL + "body" + _NL + "EOF" + _NL
+                              + "timeout 30 dg_t go", "dg_t"))
+    _DM = 'remember current-phase "done"'
+    _df = loop._done_failures
+    check("done rule: the tool ran cleanly, a probe failed -> the room, not a refusal",
+          _df([("step-planner-tracker list", 1), ("dg_t run", 0), (_DM, 0)],
+              [[(1, "step-planner-tracker list")], [], []], {"dg_t"}) == [])
+    check("done rule: a failing run inside the done-mark's own block is now seen",
+          _df([("dg_t run" + _NL + _DM, 0)], [[(2, "dg_t run")]], {"dg_t"})
+          == [("dg_t run", 2, "dg_t")])
+    check("done rule: failed, fixed and run again in the same cycle -> done",
+          _df([("dg_t a", 3), ("dg_t a", 0), (_DM, 0)],
+              [[(3, "dg_t a")], [], []], {"dg_t"}) == [])
+    check("done rule: a write that failed and was never redone refutes the claim",
+          _df([("tool-edit dg_t 'x'", 1), ("dg_t", 0), (_DM, 0)],
+              [[(1, "tool-edit dg_t 'x'")], [], []], {"dg_t"})
+          == [("tool-edit dg_t 'x'", 1, "dg_t")])
+    check("done rule: the tool never ran -> the old any-failure rule, unchanged",
+          _df([("ls /x", 2), (_DM, 0)], [[(2, "ls /x")], []], {"dg_t"})
+          == [("ls /x", 2, None)])
+    check("done rule: no record -> the block's exit code decides, as before",
+          _df([("dg_t a" + _NL + "echo hi", 1), (_DM, 0)], [None, None], {"dg_t"})
+          == [("dg_t a", 1, "dg_t")])
+    check("done rule: it quotes the failure that set the block's exit code",
+          _df([("grep a b" + _NL + "other_cmd", 5), (_DM, 0)],
+              [[(1, "grep a b"), (5, "other_cmd")], []], set())
+          == [("other_cmd", 5, None)])
+    check("project tools: a title names its tool by whole title or first word",
+          loop._project_tools("Automatic Plan Repairer", ["Automatic_Plan_Repairer", "x"])
+          == {"Automatic_Plan_Repairer"}
+          and loop._project_tools("error_pattern_stabilizer prevent failures",
+                                  ["error_pattern_stabilizer"]) == {"error_pattern_stabilizer"}
+          and loop._project_tools("choice: upgrade a or go new", ["a"]) == set())
+    # Through the real gate: a probe failing beside a clean run is not a refusal,
+    # and a failing run is refused naming the run.
+    _own2 = os.path.join(TMP, "tools", "own")
+    os.makedirs(_own2, exist_ok=True)
+    with open(os.path.join(_own2, "dg_tool"), "w", encoding="utf-8", newline="\n") as _f:
+        _f.write("#!/bin/bash" + _NL + "echo hi" + _NL)
+    if os.name == "posix":
+        os.chmod(os.path.join(_own2, "dg_tool"), 0o755)
+    mem.store(TMP, "current-project", "dg_tool: says hi -- CATEGORY: composition")
+    _saved_gc = None
+    if os.path.exists(loop.GATE_CHOICE_STATE_PATH):
+        with open(loop.GATE_CHOICE_STATE_PATH, encoding="utf-8") as _gf:
+            _saved_gc = _gf.read()
+        os.remove(loop.GATE_CHOICE_STATE_PATH)
+    try:
+        for _p0 in (loop.DONE_BLOCK_PATH,):
+            if os.path.exists(_p0):
+                os.remove(_p0)
+        loop._enforce_done_gate([("dg_tool", 0), ("ls /nope", 2), (_DM, 0)],
+                                [[], [(2, "ls /nope")], []])
+        _blk1 = open(loop.DONE_BLOCK_PATH, encoding="utf-8").read() \
+            if os.path.exists(loop.DONE_BLOCK_PATH) else ""
+        check("done-gate: a clean run of the project tool beside a failed probe is not refused",
+              "exited with code" not in _blk1, _blk1[:160])
+        mem.store(TMP, "current-phase", "done")
+        loop._enforce_done_gate([("dg_tool --x", 4), (_DM, 0)], [[(4, "dg_tool --x")], []])
+        _blk2 = open(loop.DONE_BLOCK_PATH, encoding="utf-8").read()
+        check("done-gate: a failing run of the project tool is refused, naming that run",
+              "`dg_tool --x`" in _blk2 and "`dg_tool` was written or run" in _blk2
+              and "code 4" in _blk2, _blk2[:220])
+    finally:
+        if _saved_gc is not None:
+            with open(loop.GATE_CHOICE_STATE_PATH, "w", encoding="utf-8") as _gf:
+                _gf.write(_saved_gc)
+        os.remove(os.path.join(_own2, "dg_tool"))
+
+    # ---- selfcheck: the body's bounds proved by their effect at every start ----
+    _real_rc = _sb.run_command
+    _fake_secret = "sk-test-0123456789abcdef"
+    try:
+        _sb.run_command = lambda c: (("PATH=/x" + _NL + "GROQ_API_KEY=" + _fake_secret + _NL, "", 0)
+                                     if c == "env" else
+                                     ("", "ask: retired on 2026-09-26 ...", 1))
+        _scr = _sb.selfcheck([_fake_secret])
+        check("selfcheck: a key in the body is found, by name and by value",
+              _scr["keys_absent"] is False and _scr["key_shaped_names"] == ["GROQ_API_KEY"]
+              and _scr["config_keys_found"] == 1 and _scr["ask_retired"] is True)
+        check("selfcheck: it never reports a value", _fake_secret not in json.dumps(_scr))
+        _sb.run_command = lambda c: (("PATH=/x" + _NL + "HOME=/root" + _NL, "", 0)
+                                     if c == "env" else ("an answer", "", 0))
+        _scr = _sb.selfcheck([_fake_secret])
+        check("selfcheck: a clean body passes and a live `ask` is caught",
+              _scr["keys_absent"] is True and _scr["ask_retired"] is False)
+        _sb.run_command = lambda c: (_ for _ in ()).throw(OSError("no docker"))
+        _scr = _sb.selfcheck([])
+        check("selfcheck: a body it cannot reach is UNKNOWN, never ok",
+              _scr["keys_absent"] is None and _scr["ask_retired"] is None)
+    finally:
+        _sb.run_command = _real_rc
+    _sh2 = __import__("importlib").import_module("spine_health")
+    check("selfcheck line: unknown is not ok, and the newest record decides",
+          _sh2.check_selfcheck([{"kind": "selfcheck", "ts": time.time(), "when": "start",
+                                 "keys_absent": True, "ask_retired": True},
+                                {"kind": "selfcheck", "ts": time.time(), "when": "respawn",
+                                 "keys_absent": True, "ask_retired": None}]).startswith(
+              "SELFCHECK:unknown(respawn")
+          and _sh2.check_selfcheck([]) == "SELFCHECK:none-in-tail")
+
+    # ---- the retro judge's digest, checked against the library ----
+    _rdir = os.path.join(TMP, "retro_own")
+    os.makedirs(_rdir, exist_ok=True)
+    with open(os.path.join(_rdir, "real_one"), "w", encoding="utf-8", newline="\n") as _f:
+        _f.write("#!/bin/bash" + _NL + "echo ok" + _NL)
+    if os.name == "posix":
+        os.chmod(os.path.join(_rdir, "real_one"), 0o755)
+    _t0 = time.time() - 3600
+    _rrecs = [{"kind": "ideation", "ts": _t0, "content": "Assigned cousin-tool gap [composition]: 'held_proj'"},
+              {"kind": "retro", "ts": _t0 + 10, "content": "Verdict: PROGRESSING\n- TOOLS completed in window: 0"},
+              {"kind": "retro", "ts": _t0 + 20, "content": "Verdict: PROGRESSING\n- TOOLS completed in window: 0"},
+              {"kind": "retro", "ts": _t0 + 30, "content": "Verdict: PROGRESSING\n- TOOLS completed in window: 2 (real_one does a thing; ghost_tool never written)"}]
+    _rl = _sh2.check_retro_fidelity(_rrecs, now=time.time(), own=_rdir)
+    check("retro census: a completion the digest names with no tool behind it is reported",
+          _rl.startswith("RETRO:3v 2c/1x") and "RETRO-FIDELITY:!![ghost_tool never written]" in _rl, _rl)
+    check("retro census: consecutive PROGRESSING with nothing completed is counted per project",
+          "idle:2@held_proj" in _rl, _rl)
+    check("retro census: no verdicts is said as such", _sh2.check_retro_fidelity(
+        [], now=time.time(), own=_rdir) == "RETRO:none in 24h")
+
     # ensure_body must not accept docker's status field as proof of life.
     from executive import runtime as _rtm
     with open(_rtm.__file__, encoding="utf-8") as _rf:

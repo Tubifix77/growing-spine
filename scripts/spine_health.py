@@ -30,7 +30,8 @@ AGE_OUT_DAYS = 3
 sys.path.insert(0, REPO)
 from volume.tools import (is_hollow_stub, demand_counts,  # noqa: E402
                           is_demanded, is_fabricated_feed, jsonl_parse_rate,
-                          parse_feed_items, tool_stem)
+                          parse_feed_items, tool_stem, list_tools,
+                          tool_start_failure)
 from executive.embed_gate import _is_junk as is_junk_name  # noqa: E402
 from volume.paths import host_path, to_host  # noqa: E402
 QUOTA_STATE = os.path.join(REPO, "keychain", "quota_state.json")
@@ -440,6 +441,106 @@ def check_throughput(now=None):
         tag += ("  THROUGHPUT:!![%.0f/h < %d/h floor -- the creature is barely "
                 "thinking]" % (rate, THINK_FLOOR_PER_HOUR))
     return tag
+
+
+RETRO_HOURS = 24
+RETRO_COMPLETED_RE = re.compile(r"TOOLS completed in window: (\d+)(?: \(([^)\n]*)\))?")
+
+
+def check_retro_fidelity(recs=None, now=None, own=None):
+    """Does what the retro judge was TOLD match the record? (2026-10-02, after
+    Growing Cousin's census: "nothing checks the manager but the manager, so
+    one thing does".) The retro judge rates each window from a digest, and on
+    10-02 it was told *"TOOLS completed in window: 4"* when one of the four,
+    `error_pattern_stabilizer`, had never been written -- and it rated the
+    window PROGRESSING. On 09-30 it rated a 12.5 h stuck fork PROGRESSING
+    twice. For us, never the creature; it reports and never gates -- a census
+    that can block becomes a judge with no judge of its own.
+
+    Line: RETRO:<verdicts>v <claims>c/<contradicted>x idle:<n>@<project>
+      claims       -- completions named in the digests
+      contradicted -- named completions with no startable tool behind them
+      idle         -- the longest run of consecutive PROGRESSING verdicts whose
+                      digest completed nothing, with the project it was held on
+    A zero is only "nothing found" when there were claims to check.
+    """
+    now = now or time.time()
+    if recs is None:
+        recs, _ = _journal_tail_records()
+    lo = now - RETRO_HOURS * 3600
+    retros = [r for r in (recs or []) if r.get("kind") == "retro"
+              and (r.get("ts") or 0) >= lo and "Verdict:" in (r.get("content") or "")]
+    if not retros:
+        return "RETRO:none in %dh" % RETRO_HOURS
+    try:
+        from executive import loop
+        own_dir = own or to_host(os.path.join(loop.VOLUME_MOUNT, "tools", "own"))
+        names = list_tools(own_dir)
+    except Exception as e:
+        return "RETRO:fail(%s)" % type(e).__name__
+    assigns = sorted(((rr.get("ts") or 0),
+                      (rr.get("content") or "").split("]:")[-1].strip(" '")[:40])
+                     for rr in recs if rr.get("kind") == "ideation"
+                     and "Assigned" in (rr.get("content") or ""))
+    assign_ts = [a for a, _ in assigns]
+    assign_title = [b for _, b in assigns]
+    claims, bad = 0, []
+    run = best = 0
+    run_proj = best_proj = ""
+    held = ""
+    for r in sorted(retros, key=lambda x: x.get("ts") or 0):
+        c = r.get("content") or ""
+        m = RETRO_COMPLETED_RE.search(c)
+        n = int(m.group(1)) if m else 0
+        for title in [t.strip() for t in ((m.group(2) or "") if m else "").split(";")
+                      if t.strip()]:
+            claims += 1
+            hit = loop._project_tools(title, names)
+            ok = False
+            for t in hit:
+                try:
+                    p = host_path(os.path.join(own_dir, t))
+                    with open(p, encoding="utf-8", errors="replace") as f:
+                        if not tool_start_failure(t, f.read(), p):
+                            ok = True
+                except Exception:
+                    pass
+            if not ok:
+                bad.append(title[:40])
+        # what the creature was holding at this verdict
+        i = bisect.bisect_right(assign_ts, r.get("ts") or 0)
+        held = assign_title[i - 1] if i else ""
+        if "PROGRESSING" in c.split("\n", 1)[0] and n == 0:
+            run = run + 1 if held == run_proj else 1
+            run_proj = held
+            if run > best:
+                best, best_proj = run, held
+        else:
+            run, run_proj = 0, ""
+    tag = "RETRO:%dv %dc/%dx idle:%d@%s" % (len(retros), claims, len(bad), best,
+                                          best_proj or "-")
+    if bad:
+        tag += "  RETRO-FIDELITY:!![%s]" % "; ".join(bad[:3])
+    return tag
+
+
+def check_selfcheck(recs=None):
+    """The body's bounds, as last PROVED at a brain start or a respawn
+    (executive/runtime.record_selfcheck). Reads the newest record; never
+    re-runs anything. Unknown is not ok."""
+    if recs is None:
+        recs, _ = _journal_tail_records()
+    last = None
+    for r in recs or []:
+        if r.get("kind") == "selfcheck":
+            last = r
+    if last is None:
+        return "SELFCHECK:none-in-tail"
+    age_h = (time.time() - (last.get("ts") or 0)) / 3600.0
+    vals = (last.get("keys_absent"), last.get("ask_retired"))
+    word = "ok" if vals == (True, True) else (
+        "!!FAILED" if False in vals else "unknown")
+    return "SELFCHECK:%s(%s %.0fh ago)" % (word, last.get("when", "?"), age_h)
 
 
 def journal_integrity():
@@ -1046,7 +1147,8 @@ if __name__ == "__main__":
                          journal_integrity(), check_tool_wiring(),
                          check_jsonl(), check_flatline(),
                          check_unmet_demand(), check_wake_cost(),
-                         check_compounding()]))
+                         check_compounding(), check_retro_fidelity(),
+                         check_selfcheck()]))
     _rc = exit_code(SILENT_KEYS, DEAD_KEYS)
     if _rc:
         line += f"  SERIOUS:{','.join(sorted(SILENT_KEYS & DEAD_KEYS))}"

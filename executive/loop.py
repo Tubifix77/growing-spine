@@ -5,7 +5,7 @@ import asyncio, os, time, re, json
 from collections import Counter
 from . import sandbox, journal, parser, embed_gate
 from volume import paths as _paths
-from .runtime import (managed_exec, ensure_body, wake_entry,
+from .runtime import (managed_exec, ensure_body, wake_entry, record_selfcheck,
                       sleep_entry, sleep_duration_seconds)
 from keychain import Keychain
 from keychain import quota_state as _qs
@@ -2875,7 +2875,148 @@ def _quotable_command(text: str) -> str:
     return (text or "").strip()
 
 
-def _false_completion_reason(bad_cmd: str, bad_code) -> str:
+_WRITE_DOORS = re.compile(r"\btool-(?:new|edit|replace)\s+([A-Za-z0-9_.\-]+)")
+# Where one simple command ends and the next begins, on one line.
+_CMD_SPLIT = re.compile(r"\|\|?|&&|;|&|\$\(|`|\(")
+_ASSIGN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+
+
+_HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
+
+
+def _command_lines(text: str):
+    """The lines of a block that bash reads as COMMANDS: a heredoc's body is
+    the content of a file being written, not something being run."""
+    end = None
+    for line in (text or "").splitlines():
+        if end is not None:
+            if line.strip() == end:
+                end = None
+            continue
+        m = _HEREDOC.search(line)
+        if m:
+            end = m.group(2)
+        yield line
+
+
+def _runs_tool(text: str, name: str) -> bool:
+    """Does `text` RUN `name` -- is it the COMMAND WORD of some simple command,
+    bare, by path, or under an interpreter or `timeout`? Naming it as an
+    argument (`cat`, `grep`, `tool-edit` of it) is reading or writing."""
+    for line in _command_lines(text):
+        for seg in _CMD_SPLIT.split(line):
+            w = seg.split()
+            while w and _ASSIGN.match(w[0]):
+                w = w[1:]
+            if w and w[0] == "timeout":
+                w = w[2:]
+            if w and w[0] in ("python3", "python", "bash", "sh"):
+                w = w[1:]
+            if w:
+                word = w[0].strip("\"')`")
+                if word == name or word.endswith("/" + name):
+                    return True
+    return False
+
+
+def _project_tools(title: str, names) -> set:
+    """The library tools a project TITLE names: the whole title or its first
+    word, compared without case or punctuation ('Automatic Plan Repairer' is
+    `Automatic_Plan_Repairer`; 'error_pattern_stabilizer prevent recurring
+    failures' is `error_pattern_stabilizer`). One definition, shared by the
+    done-gate and the retro census in spine_health."""
+    words = (title or "").split()
+    keys = {_pt_norm(title), _pt_norm(words[0]) if words else ""}
+    keys.discard("")
+    return {t for t in names
+            if _pt_norm(toolmod.tool_stem(t)) in keys or _pt_norm(t) in keys}
+
+
+def _claimed_tools(executed) -> set:
+    """The tools a done-mark this cycle is about: the ones written this cycle,
+    plus the project's own tool and a fork's upgrade target. Names only."""
+    claimed = set(_tools_touched(executed))
+    try:
+        title = _project_title((mem.retrieve(VOLUME_MOUNT, "current-project")
+                                or {}).get("value", ""))
+        claimed |= _project_tools(title, _own_tool_names())
+    except Exception:
+        pass
+    try:
+        with open(GATE_CHOICE_STATE_PATH, encoding="utf-8") as f:
+            tgt = (json.load(f) or {}).get("target")
+        if tgt:
+            claimed.add(str(tgt))
+    except Exception:
+        pass
+    return claimed
+
+
+def _done_failures(executed, traces=None, claimed=None) -> list:
+    """The failures that refute a done-mark: [(quoted command, exit code, tool)].
+
+    JUDGE THE WORK, NOT THE ROOM (2026-10-02, taken from Growing Cousin's brief:
+    "If you got what you came for, noise along the way is not a refusal").
+    The gate refused a done-mark if ANY command in the cycle failed. Over 14
+    days that refused 121 completions, and in 17 of them the tool being
+    finished had just run cleanly while a probe or a setup step failed --
+    `step-planner-tracker list`, `ls`, a `grep` that found nothing. It also
+    could not see INTO the block that carried the done-mark, because a block
+    returns one exit code.
+
+    So, per claimed tool, the LAST write and the LAST run this cycle decide:
+    a failed write that no later write repaired (the edit never landed, and
+    what ran was the old file), or a failed run that no later run repaired,
+    refutes the claim; anything else that failed is the room. When no claimed
+    tool was run at all there is no evidence about the work, and the old rule
+    stands unchanged -- the room is then all there is. Per-command records
+    come from the body (sandbox.split_failed); a block with no record falls
+    back to its exit code, so an unknown is never read as a pass.
+    """
+    claimed = set(_claimed_tools(executed) if claimed is None else claimed)
+    traces = list(traces or [])
+    traces += [None] * (len(executed) - len(traces))
+    # (tool, "write"|"run") -> (ok, quoted command, exit code) for the LAST one
+    last = {}
+    writes = lambda text, t: any(m.group(1) == t for m in _WRITE_DOORS.finditer(text))
+    for (cmd, code), tr in zip(executed, traces):
+        if tr is None:
+            fails = [(code, _quotable_command(cmd))] if code != 0 else []
+        else:
+            fails = [(rc, c) for rc, c in tr if not c.startswith("remember ")]
+        for t in claimed:
+            for act, did, hit in (("write", writes(cmd, t), lambda c: writes(c, t)),
+                                  ("run", _runs_tool(cmd, t), lambda c: _runs_tool(c, t))):
+                if not did:
+                    continue
+                bad = [(rc, c) for rc, c in fails if hit(c)]
+                if tr is None and code != 0 and not bad:
+                    bad = fails      # no record: the block failed, cannot say which
+                last[(t, act)] = (False, bad[-1][1], bad[-1][0]) if bad else (True, "", 0)
+    if any(act == "run" for _t, act in last) or any(not v[0] for v in last.values()):
+        return [(q, rc, t) for (t, _a), (ok, q, rc) in sorted(last.items()) if not ok]
+    out = []
+    for (cmd, code), tr in zip(executed, traces):
+        if code != 0 and not cmd.strip().startswith("remember ") \
+                and not DONE_MARK_RE.search(cmd):
+            rec = [(rc, c) for rc, c in (tr or []) if not c.startswith("remember ")]
+            # The record that set the block's exit code, when there is one:
+            # the LAST failure with that code, not the first probe that missed.
+            hit = [r for r in rec if r[0] == code] or rec
+            out.append((hit[-1][1], hit[-1][0], None) if hit else (cmd, code, None))
+    return out
+
+
+def _false_completion_reason(bad_cmd: str, bad_code, tool: str = None) -> str:
+    if tool:
+        return (f"You set current-phase to done, but `{_quotable_command(bad_cmd)[:160]}` "
+                f"-- the last time this cycle that `{tool}` was written or run -- "
+                f"exited with code {bad_code}. Phase reverted to code. Make that "
+                f"command succeed, and only then mark done.")
+    return _false_completion_reason_any(bad_cmd, bad_code)
+
+
+def _false_completion_reason_any(bad_cmd: str, bad_code) -> str:
     """What the creature is SHOWN when the done-gate refuses a completion.
 
     One named function so a test can assert the rendered message rather than
@@ -2890,7 +3031,7 @@ def _false_completion_reason(bad_cmd: str, bad_code) -> str:
             f"check until it exits 0, and only then mark done.")
 
 
-def _enforce_done_gate(executed):
+def _enforce_done_gate(executed, traces=None):
     """Verify a 'done' assertion against ground truth.
 
     The creature marks completion by running `remember current-phase "done"`.
@@ -2911,9 +3052,7 @@ def _enforce_done_gate(executed):
         if not any(DONE_MARK_RE.search(c) for (c, _) in executed):
             return False  # done not asserted this cycle
 
-        failures = [(c, code) for (c, code) in executed
-                    if code != 0 and not c.strip().startswith("remember ")
-                    and not DONE_MARK_RE.search(c)]
+        failures = _done_failures(executed, traces)
         # Guard: a 'done' on a tool that is still an empty tool-new placeholder
         # is an empty completion. Treat it like a failing check -- revert and tell
         # the creature to actually write the tool before marking done.
@@ -3042,7 +3181,7 @@ def _enforce_done_gate(executed):
             _record_completion()  # genuine completion: log it durably
             return True  # signal to caller: classify this completion's kind
 
-        bad_cmd, bad_code = failures[0]  # first failure is usually the real check
+        bad_cmd, bad_code, bad_tool = failures[0]
 
         # Spin trap: key on the CURRENT PROJECT, not the command text.
         # Subject-token keying broke because the creature interspersed
@@ -3069,7 +3208,7 @@ def _enforce_done_gate(executed):
 
         # Normal block: revert phase and tell the creature exactly what failed
         mem.store(VOLUME_MOUNT, "current-phase", "code")
-        reason = _false_completion_reason(bad_cmd, bad_code)
+        reason = _false_completion_reason(bad_cmd, bad_code, bad_tool)
         with open(DONE_BLOCK_PATH, "w", encoding="utf-8") as f:
             f.write(reason)
         journal.append(VOLUME_MOUNT, "error",
@@ -4494,6 +4633,7 @@ async def run_cycle(keychain: Keychain, dockerfile_dir: str):
 
     cycle_start = time.time()
     executed = []
+    traces = []      # per block: [(exit_code, command)] that failed, or None = unknown
     last_cmd = ""
     aborted = ""
     for i, cmd in enumerate(bash_blocks):
@@ -4524,6 +4664,7 @@ async def run_cycle(keychain: Keychain, dockerfile_dir: str):
         journal.append(VOLUME_MOUNT, "exec_end", result_summary,
                        {"exit_code": code})
         executed.append((cmd, code))
+        traces.append(sandbox.take_failed())
 
     # Audit P1-F8: a mid-cycle abort used to `return False` from inside the loop,
     # so the done-gate, usage tracking, the redirect backstop and the gage stamp
@@ -4537,7 +4678,7 @@ async def run_cycle(keychain: Keychain, dockerfile_dir: str):
     if not executed:
         return False   # genuinely nothing ran
 
-    genuine = _enforce_done_gate(executed)
+    genuine = _enforce_done_gate(executed, traces)
     if genuine:
         await _classify_completion_category(keychain)
     _track_tool_usage(executed)                      # keystone reuse metric
@@ -4559,6 +4700,13 @@ async def run_forever(dockerfile_dir: str = "."):
         print(f"[startup] image cleanup skipped: {_e}")
 
     sandbox.start(dockerfile_dir)
+    try:
+        from keychain.keychain import _load_config as _kc_cfg
+        sandbox.set_selfcheck_secrets([p.get("api_key", "") for p in _kc_cfg()])
+    except Exception as _e:
+        print(f"[selfcheck] provider keys unreadable here ({type(_e).__name__}); "
+              f"checking names only")
+    record_selfcheck(VOLUME_MOUNT, "start")
     await wake_entry(VOLUME_MOUNT, keychain)
 
     while True:
