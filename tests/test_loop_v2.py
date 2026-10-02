@@ -4614,6 +4614,11 @@ async def main():
           _df([("tool-edit dg_t 'x'", 1), ("dg_t", 0), (_DM, 0)],
               [[(1, "tool-edit dg_t 'x'")], [], []], {"dg_t"})
           == [("tool-edit dg_t 'x'", 1, "dg_t")])
+    check("done rule: a failing exit the record cannot explain (&& list) still refuses",
+          _df([("dg_t run && echo ok", 1), (_DM, 0)], [[], []], {"dg_t"})
+          == [("dg_t run && echo ok", 1, "dg_t")]
+          and _df([("dg_t run" + _NL + "exit 3", 3), (_DM, 0)], [[], []], {"dg_t"})
+          == [("dg_t run", 3, "dg_t")])
     check("done rule: the tool never ran -> the old any-failure rule, unchanged",
           _df([("ls /x", 2), (_DM, 0)], [[(2, "ls /x")], []], {"dg_t"})
           == [("ls /x", 2, None)])

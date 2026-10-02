@@ -2986,14 +2986,19 @@ def _done_failures(executed, traces=None, claimed=None) -> list:
             fails = [(code, _quotable_command(cmd))] if code != 0 else []
         else:
             fails = [(rc, c) for rc, c in tr if not c.startswith("remember ")]
+        # A nonzero exit no record explains: bash's ERR trap is silent inside
+        # `&&`/`||` lists and on an explicit `exit N`, so `tool && echo ok` with
+        # the tool failing exits 1 with an EMPTY record. An empty record is not
+        # a pass when the block itself failed -- the old rule's verdict stands.
+        unexplained = code != 0 and (tr is None or not any(rc == code for rc, _ in tr))
         for t in claimed:
             for act, did, hit in (("write", writes(cmd, t), lambda c: writes(c, t)),
                                   ("run", _runs_tool(cmd, t), lambda c: _runs_tool(c, t))):
                 if not did:
                     continue
                 bad = [(rc, c) for rc, c in fails if hit(c)]
-                if tr is None and code != 0 and not bad:
-                    bad = fails      # no record: the block failed, cannot say which
+                if unexplained and not bad:
+                    bad = [(code, _quotable_command(cmd))]   # cannot say which command
                 last[(t, act)] = (False, bad[-1][1], bad[-1][0]) if bad else (True, "", 0)
     if any(act == "run" for _t, act in last) or any(not v[0] for v in last.values()):
         return [(q, rc, t) for (t, _a), (ok, q, rc) in sorted(last.items()) if not ok]
