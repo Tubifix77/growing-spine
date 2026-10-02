@@ -265,6 +265,23 @@ PY
     re-read every wake and cannot be finished as written, so read what its
     text says completes it.
 
+26. **Every accepted completion: does the tool it names exist and start?**
+    Added 2026-10-02 by the blank pass. At 11:10 `tool-new` given no
+    description printed its usage and created nothing, the done-mark at the
+    end of the same block exited 0, and `error_pattern_stabilizer` was
+    accepted as built; the retro judge counted it among four completed tools
+    and rated the window PROGRESSING. Fixed at the gate (`5e1e36a`), and the
+    item stays because the judge's tool count is downstream of every gate
+    hole: for each `Completion classified` record, check the tools its cycle
+    touched against `tools/own` now. Read commands from the journal knowing
+    they are capped at 600 chars — a done-mark or a name past the cap is
+    invisible there, so count completions from the `Completion classified`
+    end, never from the done-mark.
+    **And for every queued idea that was dropped (`retired_drop`), check what
+    the name it matched was doing in the text** — a dependency, or a
+    comparison. On 10-02 9 of 14 queued ideas and both (b) answers were
+    dropped for names they were compared against.
+
 18. **Deltas against the previous run of this skill**, from the history file.
 
 ## Tier 2 — pointed open inspection. Prose, and it cannot be skipped.

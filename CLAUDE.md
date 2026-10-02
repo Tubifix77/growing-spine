@@ -917,7 +917,88 @@ journalctl --user -u growing-spine --since "2 hours ago"
 
 ---
 
-## 8. State — 2026-10-01 20:30
+## 8. State — 2026-10-02 16:05
+
+**gs-bug-daily 2026-10-02 (10-01 20:15 → 10-02 15:35, 20 h with records, no
+gaps; `journal.jsonl` by epoch `ts`).** 343 served at **17.1/h** (13.6 last
+run; the hourly line reads 23–24/h by 14:00), 479 exec, 4 skips (all
+truncation), **16 errors, all guard rails** (11 false-completion, 2 spin trap,
+2 hollow-backlog, 1 upgrade-no-change), zero provider, zero unclassified, 1
+`UNJUDGED` under `idea_gate`. 67% of `think_start`s found no rung. Truncation
+**8.2%**. Skip by rung: gemma 0.3%, flash 23.1% (3 of 13), cloudflare 0% (35,
+all in the 11:00 hour). Page size `in=`: gemma p50 **11,711**, max 13,328,
+none ≥16,000 — flat. Library **789**, 1,266 edges, **1.60/tool, 272 hub
+edges, 1.26 without** — flat. `cannot_start` **23**, 0 broken births (cloudflare
+24 authoring actions, none broken — the 10-06 trigger is on course to close
+clean). Doors: `tool-edit` 50, `tool-new` 26, redirect 9. 22 completions
+classified, 14 done-marks refused. Tombstone results 9, mock strings in
+`/mind/data` 87 (flat), links in `tools/own` 1.
+
+**Yesterday's two fork fixes, on trial.** `e387a75` (fork finishable): forks
+fell from 24 of 33 assignments to **14 of 24**, and served cycles inside forks
+from 180 of 293 to **85 of 319** (61% → 27%) — VERIFIED. `f873999` (the (b)
+idea is queued): it queued **2** ideas and **built 0**, and the cause is the
+next fault, ours.
+
+**THE RETIRED FILTER DROPPED IDEAS FOR NAMES THEY WERE COMPARED AGAINST
+(`5e1e36a`).** Both queued (b) ideas were dropped within a minute of being
+queued: *"dropped queued idea 'toolkit-resilience-tester': it builds on
+SelfHealingReplanner"*. Its text said *"verify that recovery tools (like
+SelfHealingReplanner) successfully restore progress"*; the second said
+*"Unlike knowledge_gap_filler ... or archive_reference_completer"*. The fork
+asks it to say why none of its tools does the idea, so it names tools to
+contrast with them, and the filter read every name as a dependency. Then the
+dedup refused every later naming as a repeat (8 `gate_new_repeat`), and each
+refusal was followed by another fork — 5 forks in 24 minutes at 08:24. The
+same fault was dropping the oracle's own ideas: the architect's KEEP ruling
+appends *"Augment X"* naming the near-duplicate, and **9 of the 14 queued ideas
+named a retired-reaching tool only there**, so they were dropped before the
+fork that states the fact and keeps both choices open (the 09-27 decision)
+could be served. That is most of yesterday's 75 and today's 33 `retired_drop`s.
+**Invariant: the filter judges what an idea builds on, in its own words, and
+never what the creature chose.** It reads title and brief before
+`architect.ARCHITECT_TAIL` (one literal, both sides) and skips
+`source == "gate-choice-new"`. The two never-judged names were removed from
+`state/gate_new_seen.json` (backup `/tmp/gate_new_seen.json.pre-5e1e36a`).
+**Expected effect:** fewer drops and refills, and MORE forks, because 12 of the
+14 queued ideas carry a DUPLICATE/EXTEND tag; that is the idea gate doing its
+job on a saturated library, not churn.
+
+**The dead-target fact now names its chain.** It said *"depends, directly or
+through your other tools, on the retired `ask`"* — WHAT, never WHO — and in the
+`plan_failure_analysis` fork (08:48 → 11:09, 53 served) the creature spent 81
+minutes and **13 blocks grepping the target for an `ask` call two tools away**:
+*"I need to check if `plan_failure_optimizer` or any other tool it depends on
+uses `ask`"* (09:33). The tombstone had the same gap on 09-26, and naming the
+callers cut that hunt from 5.5 h to ~15 min. The fork now says *"it reaches the
+retired `ask` through `knowledge_gap_filler`, which runs `subagent_ask_helper`,
+whose job is to ask a model"*, the shortest path from the same graph and roots
+as the set (`_retired_chain`). **NOT benched on the local model:** the PC's
+ollama dies with `CUDA error: shared object initialization failed`. A Haiku
+stand-in bench (one prompt per fresh agent, 15 real dead targets) showed **no
+measurable difference and no regression** — (b) completes 3/3 both ways, and on
+the link surface every reply in both wordings simply runs or reads the target,
+as the fork tells it to. `--bench deadchain` is written and owed when the GPU
+is back. **Production measure, next run:** blocks grepping for `ask` inside a
+dead-target fork, against 13.
+
+**A done-mark was accepted for a tool that was never written.** At 11:10
+`tool-new error_pattern_stabilizer <<'EOF'` without a description printed its
+usage and created nothing, the `remember current-phase done` at the end of the
+block exited 0, and the done-gate let it through. The retro judge then counted
+it among *"TOOLS completed in window: 4"* and rated the window PROGRESSING. The
+startability check skipped a missing file as "unreadable". **A tool that does
+not exist cannot start**; framework tool names are never flagged. Census: 6 of
+298 accepted completions in 14 days named a missing tool, two of them artifacts
+of the 600-char command cap — rare, and a plausible wrong number for the judge
+when it happens. Blank pass, now `gs-bug-daily` item 26.
+
+Gates: laptop **634**, PC **619**; each of four mutations fails exactly its own
+checks. Brain restarted **15:58:30**. Its tools, §2.1: none touched.
+
+---
+
+### Previous state — 2026-10-01 20:30
 
 **gs-bug-daily 2026-10-01 (09-30 23:42 → 10-01 20:15, 22 h with records, no
 gaps; `journal.jsonl` by epoch `ts`).** 300 served at **13.6/h**, 386 exec, 7
