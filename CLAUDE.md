@@ -937,7 +937,78 @@ journalctl --user -u growing-spine --since "2 hours ago"
 
 ---
 
-## 8. State — 2026-10-02 18:30
+## 8. State — 2026-10-04 02:30 — the last daily check before Tue stops the spine
+
+**Tue, 2026-10-04: "do one last daily check then i turn off the growing spine
+for now."** Brain on `f0443f2` code (scripts and docs to `b3b2ce1`) since
+2026-10-02 22:51:47. The volumes, journal and memory are kept; nothing is
+deleted (the successor's rollback path and quarry).
+
+**gs-bug-daily 2026-10-04 (10-02 15:35 → 10-04 02:03, 36 h with records, no
+gaps; `journal.jsonl` by epoch `ts`).** 649 served at **18.0/h** — the best
+sustained rate in weeks; the hourly line reads 18–20/h — 803 exec, 13 skips
+(11 truncation), **37 errors, all guard rails** (31 false-completion, 3
+upgrade-no-change, 2 spin trap, 1 cannot-start), zero provider, zero
+unclassified, 2 `UNJUDGED` under `idea_gate`. 61% of `think_start`s found no
+rung. Truncation **8.0%**. Skip by rung: gemma 2.0%, flash 12.5% (1 of 8),
+cloudflare 0% (33). `in=` gemma p50 **12,083**, max 14,030, none ≥16,000.
+Library **798**, 1,264 edges, **1.58/tool, 268 hub edges, 1.25 without** —
+flat against 1.60 / 1.26. `cannot_start` **22**, 0 broken births; cloudflare
+wrote 28 times and broke nothing, so **the 10-06 authoring trigger closes
+clean**. Doors: `tool-edit` 78, `tool-new` 18, redirect 9.
+
+**The v0.20 guardrails, verified in production.**
+- `exec_end.failed` on **all 757** blocks since 18:27:59, never `None`; 143
+  blocks recorded 239 failing commands. 1 nonzero exit with an empty record
+  and 2 no record explains — the `f0443f2` rule covers exactly those.
+- **30 of 31** false-completion refusals name the claimed tool's own failed
+  run or write; 1 fell back to the old rule.
+- **47 completions accepted since deploy, 0 with a recorded failed run of a
+  tool the cycle wrote** — the number that had to be zero.
+- `selfcheck` ok at all three starts: 0 of 15 provider keys, `ask` refusing.
+- `RETRO:22v 8c/1x idle:8@choice` — the one contradiction is still the 10-02
+  ghost; `idle` on `choice` partly measures that fork completions are not
+  counted as TOOLS completed in the digest, so read it beside item 25.
+- **The (b) answer finally reaches the gate (`5e1e36a`): 6 ideas queued, 3
+  became assignments and were BUILT** (`toolkit-refiner`,
+  `CrossPlanDependencyManager`, `CognitiveLoopBreaker`), **3 were judged
+  duplicates of existing tools** (`toolkit-dependency-mapper`,
+  `tool-regression-tester`, `tool-composer`) and served as forks, which is
+  the gate doing its job. `retired_drop` 75 → 33 → **7**, all reading the
+  idea's own words.
+- **The chain sentence works:** 176 thinks quote it, and in the first
+  dead-target fork it went straight to the named link
+  (`LLMCostEfficientResearchPlanner`) — **3** `grep … ask` blocks against
+  13 on 10-02. n = 1 fork; direction, not a rate.
+
+**Forks are now 81% of assignments (38 of 47) and 75% of served cycles**,
+as predicted when 12 of 14 queued oracle ideas carried a DUPLICATE/EXTEND tag:
+on a 798-tool library the oracle proposes mostly what exists, and the idea gate
+turns that into upgrade-or-go-new forks. Not churn — forks close and (b) ideas
+get built — but it is the shape of a saturated library, and the successor
+should know the oracle spends most of its proposals on things already there.
+
+**Fixed (`b3b2ce1`): FLATLINE fired by construction for `gemini_flash`.** Its
+quota is 20 requests per DAY (the 429's own quotaId, 09-28), spent within the
+hour after the 09:00 CEST reset — all 8 serves on 10-03 fell in that hour — so
+`FLATLINE:!!gemini_flash` and `SERIOUS` stood on every hourly line from ~22:00.
+The cloudflare fault of 09-23, and the stated rule applied: a rung's threshold
+must exceed its own reset period (30 h). Gates laptop **661**, PC **643**; the
+mutation fails the new check. Live: `FLATLINE:ok`. **Blank pass:** the reset
+rule was applied to one rung, never checked against every rung whose quota is
+per-day — so the next per-day rung would have reproduced it. The flatline
+detector the successor harvests should derive the threshold from the quota
+period it reads, not from a hand-kept table.
+
+**Open at shutdown, for the successor** (also sent to its session 10-02):
+gemma refusing ~64% even after a quiet minute (cause outside the loop);
+`gemini_flash`'s "retry in ~21 s" for a per-day quota (held, never fixed); the
+`--bench deadchain` gemma run (the PC's ollama fails intermittently with a
+CUDA buffer error); 439 of 798 tools reach the retired `ask`.
+
+---
+
+### Previous state — 2026-10-02 18:30
 
 **Four guardrails taken from Growing Cousin, on Tue's "implement it!" after
 a read of its kernel, monitors and trial machinery (read-only; nothing there
