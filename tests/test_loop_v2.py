@@ -1535,6 +1535,11 @@ async def main():
     check("flatline: a daily-reset rung's threshold exceeds its reset period",
           _sh.flatline_hours_for("cloudflare") > 24,
           str(_sh.flatline_hours_for("cloudflare")))
+    # gemini_flash's quota is 20 requests PER DAY (the provider's own quotaId),
+    # spent in the hour after the reset: 12 h fired every evening (2026-10-04).
+    check("flatline: the per-day-quota flash rung's threshold exceeds its reset period",
+          _sh.flatline_hours_for("gemini_flash") > 24,
+          str(_sh.flatline_hours_for("gemini_flash")))
     check("flatline: every other rung keeps the 12 h default",
           _sh.flatline_hours_for("google_gemma") == _sh.FLATLINE_HOURS == 12)
     check("flatline: the workhorse's 55 h silence would still fire",

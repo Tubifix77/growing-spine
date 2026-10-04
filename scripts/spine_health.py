@@ -60,6 +60,12 @@ FLATLINE_HOURS = 12  # google_gemma sat dead 55h before anyone noticed, 2026-08-
 # threshold ratchets along with the fault and never says so.
 FLATLINE_HOURS_BY_RUNG = {
     "cloudflare": 30,   # daily reset; spends its ~26 calls in ~5 h (2026-09-23)
+    # Provider-stated quota GenerateRequestsPerDayPerProjectPerModel-FreeTier=20
+    # (the 429's own quotaId, read 2026-09-28). Spent within the hour after the
+    # 09:00 CEST reset -- all 8 serves on 10-03 fell in that hour -- so it is
+    # dark ~23 h a day and FLATLINE:!!gemini_flash fired by construction on
+    # every hourly line from ~22:00 (found by gs-bug-daily 2026-10-04).
+    "gemini_flash": 30,
 }
 
 
